@@ -14,7 +14,13 @@ import {
   updateMember,
 } from '../services/team.js';
 import { createPasswordReset } from '../services/users.js';
-import { addVacation, deleteVacation, listVacations, readVacation } from '../services/vacations.js';
+import {
+  addVacation,
+  deleteVacation,
+  getVacationOverview,
+  readVacation,
+  setContractStart,
+} from '../services/vacations.js';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_LENGTH = 254;
@@ -180,7 +186,17 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
 
   router.get('/users/:id/vacations', async (req, res, next) => {
     try {
-      res.json({ ok: true, data: await listVacations(pool, readId(req.params.id)) });
+      res.json({ ok: true, data: await getVacationOverview(pool, readId(req.params.id)) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put('/users/:id/contract-start', async (req, res, next) => {
+    try {
+      const id = readId(req.params.id);
+      await setContractStart(pool, id, req.body?.contractStart ?? null);
+      res.json({ ok: true, data: await getVacationOverview(pool, id) });
     } catch (error) {
       next(error);
     }

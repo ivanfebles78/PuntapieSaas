@@ -42,8 +42,10 @@ describe('vacaciones del equipo', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATA
     assert.equal(res.data.start, '2026-08-03');
 
     const list = await admin('GET', `/api/admin/users/${elena.id}/vacations`);
-    assert.equal(list.data.length, 1);
-    assert.equal(list.data[0].note, 'Verano');
+    assert.equal(list.data.periods.length, 1);
+    assert.equal(list.data.periods[0].note, 'Verano');
+    assert.equal(list.data.contractStart, null);
+    assert.equal(list.data.summary.entitled, 30);
   });
 
   test('rechaza periodos que se solapan', async () => {
@@ -65,13 +67,30 @@ describe('vacaciones del equipo', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATA
 
   test('borra un periodo y avisa si no existe', async () => {
     const list = await admin('GET', `/api/admin/users/${elena.id}/vacations`);
-    const target = list.data.find((v) => v.note === 'Verano');
+    const target = list.data.periods.find((v) => v.note === 'Verano');
     const del = await admin('DELETE', `/api/admin/users/${elena.id}/vacations/${target.id}`);
     assert.equal(del.status, 200);
     const again = await admin('DELETE', `/api/admin/users/${elena.id}/vacations/${target.id}`);
     assert.equal(again.status, 404);
     const wrongUser = await admin('DELETE', `/api/admin/users/99999/vacations/${target.id}`);
     assert.equal(wrongUser.status, 404);
+  });
+
+  test('la fecha de inicio de contrato prorratea los días del año', async () => {
+    const year = new Date().getFullYear();
+    const res = await admin('PUT', `/api/admin/users/${elena.id}/contract-start`, { contractStart: `${year}-07-07` });
+    assert.equal(res.status, 200);
+    assert.equal(res.data.contractStart, `${year}-07-07`);
+    assert.equal(res.data.summary.prorated, true);
+    assert.equal(res.data.summary.entitled, 15);
+    const remaining = res.data.summary.entitled - res.data.summary.taken - res.data.summary.planned;
+    assert.equal(res.data.summary.remaining, remaining);
+
+    const bad = await admin('PUT', `/api/admin/users/${elena.id}/contract-start`, { contractStart: '2026-13-01' });
+    assert.equal(bad.status, 400);
+    const cleared = await admin('PUT', `/api/admin/users/${elena.id}/contract-start`, { contractStart: null });
+    assert.equal(cleared.data.contractStart, null);
+    assert.equal(cleared.data.summary.entitled, 30);
   });
 
   test('solo el Administrador gestiona vacaciones', async () => {

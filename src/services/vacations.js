@@ -1,4 +1,5 @@
 import { TeamError } from './team.js';
+import { vacationBalance } from './vacation-balance.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAYS = 366;
@@ -24,7 +25,7 @@ function toVacation(row) {
   };
 }
 
-function readDate(value, label) {
+export function readDate(value, label) {
   const text = String(value ?? '');
   const date = new Date(`${text}T00:00:00Z`);
   if (!DATE_PATTERN.test(text) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== text) {
@@ -62,6 +63,29 @@ export async function listVacations(pool, userId) {
     [userId],
   );
   return result.rows.map(toVacation);
+}
+
+/** Periodos + inicio de contrato + saldo del año en curso. */
+export async function getVacationOverview(pool, userId, today) {
+  const periods = await listVacations(pool, userId);
+  const user = await pool.query(
+    "SELECT to_char(contract_start, 'YYYY-MM-DD') AS contract_start FROM users WHERE id = $1",
+    [userId],
+  );
+  const contractStart = user.rows[0]?.contract_start ?? null;
+  return {
+    contractStart,
+    periods,
+    summary: vacationBalance({ contractStart, periods, ...(today ? { today } : {}) }),
+  };
+}
+
+/** Guarda (o borra, con null) la fecha de inicio de contrato. */
+export async function setContractStart(pool, userId, value) {
+  const contractStart = value === null || value === '' ? null : readDate(value, 'inicio de contrato').text;
+  const result = await pool.query('UPDATE users SET contract_start = $2 WHERE id = $1', [userId, contractStart]);
+  if (result.rowCount === 0) throw new TeamError(404, 'No existe ese usuario.', 'USER_NOT_FOUND');
+  return contractStart;
 }
 
 /**

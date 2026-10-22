@@ -64,5 +64,8 @@ CREATE TABLE IF NOT EXISTS vacations (
 
 CREATE INDEX IF NOT EXISTS vacations_user_start_idx ON vacations(user_id, start_date);
 
+-- Inicio de contrato: prorratea los 30 días de vacaciones del primer año.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS contract_start DATE;
+
 -- Solo existen dos roles: 'admin' (todo) y 'empleado' (vista limitada).
 UPDATE users SET role = 'empleado' WHERE role NOT IN ('admin', 'empleado');

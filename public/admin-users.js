@@ -360,39 +360,105 @@ function vacationItem(vacation) {
   ]);
 }
 
-async function refreshVacations(member, listEl) {
+const plural = (n, one, many) => `${n} ${Math.abs(n) === 1 ? one : many}`;
+
+function entitledDetail(summary) {
+  if (!summary.contractStart) return 'Sin fecha de contrato: año completo';
+  if (!summary.prorated) return 'Año completo';
+  if (summary.entitled === 0) return `Su contrato empieza el ${formatDate(summary.contractStart)}`;
+  return `Proporcional desde el ${formatDate(summary.contractStart)}`;
+}
+
+// Saldo del año: corresponden, disfrutados, programados y lo que queda.
+function renderSummary(container, summary) {
+  const tile = (label, value, detail, extra = '') => h('div', { class: `vac-stat ${extra}` }, [
+    h('span', { class: 'vac-stat-num', text: String(value) }),
+    h('span', { class: 'vac-stat-label', text: label }),
+    detail ? h('span', { class: 'vac-stat-detail', text: detail }) : null,
+  ]);
+  const left = summary.remaining;
+  container.replaceChildren(
+    h('p', { class: 'vac-heading', text: `Saldo ${summary.year} · días naturales` }),
+    h('div', { class: 'vac-stats' }, [
+      tile('Corresponden', summary.entitled, entitledDetail(summary)),
+      tile('Disfrutados', summary.taken, 'Hasta hoy'),
+      tile('Programados', summary.planned, 'A partir de mañana'),
+      tile(left < 0 ? 'Se ha pasado' : 'Quedan', Math.abs(left),
+        left < 0 ? plural(-left, 'día de más', 'días de más') : 'Por pedir',
+        left < 0 ? 'vac-stat-over' : 'vac-stat-left'),
+    ]),
+  );
+}
+
+function renderPeriods(listEl, periods) {
+  listEl.replaceChildren(...(periods.length
+    ? periods.map(vacationItem)
+    : [h('li', { class: 'vac-empty', text: 'Todavía no tiene vacaciones registradas.' })]));
+}
+
+function renderOverview(els, overview) {
+  renderSummary(els.summary, overview.summary);
+  renderPeriods(els.list, overview.periods);
+  els.contract.value = overview.contractStart ?? '';
+}
+
+async function refreshVacations(member, els) {
   const res = await api('GET', `/api/admin/users/${member.id}/vacations`);
   if (!res.ok) {
-    listEl.replaceChildren(h('li', { class: 'vac-empty', text: res.error }));
+    els.list.replaceChildren(h('li', { class: 'vac-empty', text: res.error }));
     return;
   }
-  const year = String(new Date().getFullYear());
-  const thisYear = res.data.filter((v) => v.start.startsWith(year)).reduce((sum, v) => sum + v.days, 0);
-  listEl.replaceChildren(...(res.data.length
-    ? res.data.map(vacationItem)
-    : [h('li', { class: 'vac-empty', text: 'Todavía no tiene vacaciones registradas.' })]));
-  listEl.dataset.summary = `${thisYear} ${thisYear === 1 ? 'día' : 'días'} en ${year}`;
-  listEl.previousElementSibling.textContent = `Periodos · ${listEl.dataset.summary}`;
+  renderOverview(els, res.data);
+}
+
+function contractRow() {
+  const input = h('input', { type: 'date', name: 'contractStart', id: 'vac-contract', 'aria-describedby': 'vac-contract-hint' });
+  const save = h('button', { class: 'btn-chip', type: 'button', 'data-save-contract': '', text: 'Guardar' });
+  return {
+    input,
+    node: h('div', { class: 'field vac-contract' }, [
+      h('label', { for: 'vac-contract', text: 'Inicio de contrato' }),
+      h('div', { class: 'vac-contract-row' }, [input, save]),
+      h('p', { class: 'field-hint', id: 'vac-contract-hint', text: 'Si empezó este año, le corresponde la parte proporcional de los 30 días (redondeando al alza).' }),
+    ]),
+  };
+}
+
+function bindVacationEvents(member, els, root) {
+  root.addEventListener('click', async (event) => {
+    if (event.target.closest('[data-save-contract]')) {
+      const res = await api('PUT', `/api/admin/users/${member.id}/contract-start`, { contractStart: els.contract.value || null });
+      if (!res.ok) return void showToast(res.error, { tone: 'error' });
+      renderOverview(els, res.data);
+      return void showToast(res.data.contractStart
+        ? `Inicio de contrato: ${formatDate(res.data.contractStart)}. Le corresponden ${plural(res.data.summary.entitled, 'día', 'días')}.`
+        : 'Fecha de contrato borrada.');
+    }
+    const remove = event.target.closest('[data-remove-vacation]');
+    if (!remove) return undefined;
+    const res = await api('DELETE', `/api/admin/users/${member.id}/vacations/${remove.dataset.removeVacation}`);
+    if (!res.ok) showToast(res.error, { tone: 'error' });
+    await refreshVacations(member, els);
+    return void load();
+  });
 }
 
 async function manageVacations(member) {
-  const listEl = h('ul', { class: 'vac-list', 'aria-live': 'polite' }, h('li', { class: 'vac-empty', text: 'Cargando…' }));
-  listEl.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-remove-vacation]');
-    if (!button) return;
-    const res = await api('DELETE', `/api/admin/users/${member.id}/vacations/${button.dataset.removeVacation}`);
-    if (!res.ok) showToast(res.error, { tone: 'error' });
-    await refreshVacations(member, listEl);
-    await load();
-  });
+  const contract = contractRow();
+  const els = {
+    summary: h('section', { class: 'vac-summary', 'aria-live': 'polite' }),
+    list: h('ul', { class: 'vac-list', 'aria-live': 'polite' }, h('li', { class: 'vac-empty', text: 'Cargando…' })),
+    contract: contract.input,
+  };
+  const root = h('div', { class: 'vac-panel' }, [els.summary, contract.node, h('p', { class: 'vac-heading', text: 'Periodos' }), els.list]);
+  bindVacationEvents(member, els, root);
   const today = new Date().toISOString().slice(0, 10);
   const changed = openDialog({
     eyebrow: 'Vacaciones',
     title: `Vacaciones de ${member.name}`,
-    lead: 'Días naturales, con el primero y el último incluidos.',
+    lead: '30 días naturales al año, con el primero y el último de cada periodo incluidos.',
     content: [
-      h('p', { class: 'vac-heading', text: 'Periodos' }),
-      listEl,
+      root,
       h('div', { class: 'vac-form' }, [
         field({ label: 'Desde', name: 'start', type: 'date', value: today, required: true }),
         field({ label: 'Hasta', name: 'end', type: 'date', value: today, required: true }),
@@ -408,12 +474,12 @@ async function manageVacations(member) {
       });
       if (!res.ok) return { error: res.error };
       form.elements.namedItem('note').value = '';
-      await refreshVacations(member, listEl);
-      showToast(`Vacaciones añadidas: ${res.data.days} ${res.data.days === 1 ? 'día' : 'días'}.`);
+      await refreshVacations(member, els);
+      showToast(`Vacaciones añadidas: ${plural(res.data.days, 'día', 'días')}.`);
       return { stay: true };
     },
   });
-  await refreshVacations(member, listEl);
+  await refreshVacations(member, els);
   if (await changed) await load();
 }
 
