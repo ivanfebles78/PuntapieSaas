@@ -71,3 +71,69 @@ describe('saldo del año', () => {
     assert.equal(todayInShop(new Date('2026-07-01T23:30:00Z')), '2026-07-02');
   });
 });
+
+describe('días pendientes del año anterior', () => {
+  test('pasan al año siguiente los días sin gastar del año anterior', () => {
+    const balance = vacationBalance({
+      contractStart: '2020-01-15',
+      periods: [
+        { start: '2026-08-03', end: '2026-08-16' }, // 14 días en 2026
+        { start: '2027-03-01', end: '2027-03-05' }, // 5 días en 2027
+      ],
+      today: '2027-06-01',
+    });
+    assert.equal(balance.carryOver, 30 - 14);
+    assert.equal(balance.carryOverSource, 'auto');
+    assert.equal(balance.available, 30 + 16);
+    assert.equal(balance.remaining, 46 - 5);
+  });
+
+  test('un periodo que cruza de año gasta días de cada año por separado', () => {
+    const balance = vacationBalance({
+      contractStart: null,
+      periods: [{ start: '2026-12-28', end: '2027-01-03' }], // 4 en 2026, 3 en 2027
+      today: '2027-02-01',
+    });
+    assert.equal(balance.carryOver, 26);
+    assert.equal(balance.taken, 3);
+  });
+
+  test('el año anterior con contrato prorrateado arrastra solo lo suyo', () => {
+    const balance = vacationBalance({
+      contractStart: '2026-07-07',
+      periods: [{ start: '2026-08-03', end: '2026-08-09' }],
+      today: '2027-01-10',
+    });
+    assert.equal(balance.carryOver, 15 - 7);
+    assert.equal(balance.entitled, 30);
+  });
+
+  test('si se pasó el año anterior, no resta del siguiente', () => {
+    const balance = vacationBalance({
+      contractStart: null,
+      periods: [{ start: '2026-06-01', end: '2026-07-10' }], // 40 días
+      today: '2027-01-10',
+    });
+    assert.equal(balance.carryOver, 0);
+  });
+
+  test('solo arrastra el año inmediatamente anterior', () => {
+    const balance = vacationBalance({ contractStart: null, periods: [], today: '2028-03-01' });
+    assert.equal(balance.carryOver, 30, 'los 30 de 2027, no los de 2026');
+  });
+
+  test('antes de empezar a registrar vacaciones, el pendiente es manual (o 0)', () => {
+    const auto = vacationBalance({ contractStart: null, periods: [], today: '2026-10-22' });
+    assert.equal(auto.carryOver, 0);
+    assert.equal(auto.carryOverSource, 'none');
+    const manual = vacationBalance({ contractStart: null, periods: [], today: '2026-10-22', manualCarryOver: 6 });
+    assert.equal(manual.carryOver, 6);
+    assert.equal(manual.carryOverSource, 'manual');
+    assert.equal(manual.remaining, 36);
+  });
+
+  test('el contrato que empieza este año no trae pendientes', () => {
+    const balance = vacationBalance({ contractStart: '2027-04-01', periods: [], today: '2027-05-01' });
+    assert.equal(balance.carryOver, 0);
+  });
+});

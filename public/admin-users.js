@@ -362,6 +362,12 @@ function vacationItem(vacation) {
 
 const plural = (n, one, many) => `${n} ${Math.abs(n) === 1 ? one : many}`;
 
+function carryDetail(summary) {
+  if (summary.carryOverSource === 'manual') return 'Escrito a mano';
+  if (summary.carryOverSource === 'auto') return 'Sin gastar el año pasado';
+  return 'Sin datos de ese año';
+}
+
 function entitledDetail(summary) {
   if (!summary.contractStart) return 'Sin fecha de contrato: año completo';
   if (!summary.prorated) return 'Año completo';
@@ -380,12 +386,14 @@ function renderSummary(container, summary) {
   container.replaceChildren(
     h('p', { class: 'vac-heading', text: `Saldo ${summary.year} · días naturales` }),
     h('div', { class: 'vac-stats' }, [
-      tile('Corresponden', summary.entitled, entitledDetail(summary)),
+      tile(`Corresponden ${summary.year}`, summary.entitled, entitledDetail(summary)),
+      tile(`Pendientes ${summary.year - 1}`, summary.carryOver, carryDetail(summary)),
       tile('Disfrutados', summary.taken, 'Hasta hoy'),
       tile('Programados', summary.planned, 'A partir de mañana'),
       tile(left < 0 ? 'Se ha pasado' : 'Quedan', Math.abs(left),
-        left < 0 ? plural(-left, 'día de más', 'días de más') : 'Por pedir',
-        left < 0 ? 'vac-stat-over' : 'vac-stat-left'),
+        left < 0 ? plural(-left, 'día de más', 'días de más')
+          : `De ${plural(summary.available, 'día disponible', 'días disponibles')} (${summary.entitled} + ${summary.carryOver})`,
+        left < 0 ? 'vac-stat-over vac-stat-wide' : 'vac-stat-left vac-stat-wide'),
     ]),
   );
 }
@@ -400,6 +408,9 @@ function renderOverview(els, overview) {
   renderSummary(els.summary, overview.summary);
   renderPeriods(els.list, overview.periods);
   els.contract.value = overview.contractStart ?? '';
+  els.carry.value = overview.summary.carryOverSource === 'manual' ? String(overview.summary.carryOver) : '';
+  els.carry.placeholder = String(overview.summary.carryOver);
+  els.carryLabel.textContent = `Días pendientes de ${overview.summary.year - 1}`;
 }
 
 async function refreshVacations(member, els) {
@@ -424,8 +435,34 @@ function contractRow() {
   };
 }
 
+// Ajuste manual de lo pendiente del año anterior (vacío = cálculo automático).
+function carryRow() {
+  const input = h('input', { type: 'number', name: 'carryOver', id: 'vac-carry', min: '0', max: '60', step: '1', inputmode: 'numeric', 'aria-describedby': 'vac-carry-hint' });
+  const label = h('label', { for: 'vac-carry', text: 'Días pendientes del año anterior' });
+  return {
+    input,
+    label,
+    node: h('div', { class: 'field vac-contract' }, [
+      label,
+      h('div', { class: 'vac-contract-row' }, [input, h('button', { class: 'btn-chip', type: 'button', 'data-save-carry': '', text: 'Guardar' })]),
+      h('p', { class: 'field-hint', id: 'vac-carry-hint', text: 'Se calcula solo con lo registrado aquí. Escríbelo si hace falta (p. ej. lo que le quedó antes de usar la app); déjalo vacío para el cálculo automático.' }),
+    ]),
+  };
+}
+
+async function saveCarry(member, els) {
+  const value = els.carry.value.trim();
+  const res = await api('PUT', `/api/admin/users/${member.id}/carryover`, { days: value === '' ? null : Number(value) });
+  if (!res.ok) return void showToast(res.error, { tone: 'error' });
+  renderOverview(els, res.data);
+  showToast(value === ''
+    ? `Pendientes del año anterior: cálculo automático (${plural(res.data.summary.carryOver, 'día', 'días')}).`
+    : `Pendientes del año anterior: ${plural(res.data.summary.carryOver, 'día', 'días')}.`);
+}
+
 function bindVacationEvents(member, els, root) {
   root.addEventListener('click', async (event) => {
+    if (event.target.closest('[data-save-carry]')) return void saveCarry(member, els);
     if (event.target.closest('[data-save-contract]')) {
       const res = await api('PUT', `/api/admin/users/${member.id}/contract-start`, { contractStart: els.contract.value || null });
       if (!res.ok) return void showToast(res.error, { tone: 'error' });
@@ -445,18 +482,21 @@ function bindVacationEvents(member, els, root) {
 
 async function manageVacations(member) {
   const contract = contractRow();
+  const carry = carryRow();
   const els = {
+    carry: carry.input,
+    carryLabel: carry.label,
     summary: h('section', { class: 'vac-summary', 'aria-live': 'polite' }),
     list: h('ul', { class: 'vac-list', 'aria-live': 'polite' }, h('li', { class: 'vac-empty', text: 'Cargando…' })),
     contract: contract.input,
   };
-  const root = h('div', { class: 'vac-panel' }, [els.summary, contract.node, h('p', { class: 'vac-heading', text: 'Periodos' }), els.list]);
+  const root = h('div', { class: 'vac-panel' }, [els.summary, h('div', { class: 'vac-settings' }, [contract.node, carry.node]), h('p', { class: 'vac-heading', text: 'Periodos' }), els.list]);
   bindVacationEvents(member, els, root);
   const today = new Date().toISOString().slice(0, 10);
   const changed = openDialog({
     eyebrow: 'Vacaciones',
     title: `Vacaciones de ${member.name}`,
-    lead: '30 días naturales al año, con el primero y el último de cada periodo incluidos.',
+    lead: '30 días naturales al año, más los que no gastó el año anterior. Cuentan el primer y el último día de cada periodo.',
     content: [
       root,
       h('div', { class: 'vac-form' }, [

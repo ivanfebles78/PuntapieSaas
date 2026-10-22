@@ -3,6 +3,9 @@
 // muevan un día.
 
 export const ANNUAL_VACATION_DAYS = 30;
+// Primer año con vacaciones registradas en la aplicación: los anteriores no
+// tienen datos, así que sus días pendientes se escriben a mano.
+export const VACATION_TRACKING_SINCE = 2026;
 const DAY_MS = 86400000;
 const SHOP_TIME_ZONE = 'Atlantic/Canary';
 
@@ -44,18 +47,16 @@ export function entitledDays(contractStart, year, annual = ANNUAL_VACATION_DAYS)
 }
 
 /**
- * Saldo del año de `today`: días que corresponden, disfrutados (hasta hoy
- * incluido), programados (a partir de mañana) y los que quedan. Los periodos
- * que cruzan de año solo cuentan la parte de este año.
+ * Días de vacaciones dentro de `year`, separados en disfrutados (hasta
+ * `today` incluido) y programados (después). Los periodos que cruzan de año
+ * solo cuentan la parte de ese año.
  */
-export function vacationBalance({ contractStart, periods, today = todayInShop() }) {
-  const year = Number(today.slice(0, 4));
+function usedInYear(periods, year, today) {
   const yearStart = `${year}-01-01`;
   const yearEnd = `${year}-12-31`;
   const tomorrow = addDays(today, 1);
   let taken = 0;
   let planned = 0;
-
   for (const period of periods) {
     const start = maxIso(period.start, yearStart);
     const end = minIso(period.end, yearEnd);
@@ -63,16 +64,47 @@ export function vacationBalance({ contractStart, periods, today = todayInShop() 
     if (start <= today) taken += daysBetween(start, minIso(end, today));
     if (end >= tomorrow) planned += daysBetween(maxIso(start, tomorrow), end);
   }
+  return { taken, planned };
+}
 
+/**
+ * Días sin gastar del año anterior que pasan a este. Solo se calculan si
+ * el año anterior ya se registraba en la aplicación; si no, se usa el valor
+ * escrito a mano (o 0). Solo arrastra lo del año anterior: lo que viniera
+ * de dos años atrás y no se gastó no se acumula.
+ */
+export function carryOverDays({ contractStart, periods, year, manual = null }) {
+  if (manual !== null && manual !== undefined) return { days: manual, source: 'manual' };
+  const previous = year - 1;
+  if (previous < VACATION_TRACKING_SINCE) return { days: 0, source: 'none' };
+  if (contractStart && contractStart > `${previous}-12-31`) return { days: 0, source: 'auto' };
+  const used = usedInYear(periods, previous, `${previous}-12-31`);
+  const unused = entitledDays(contractStart, previous).days - used.taken;
+  return { days: Math.max(0, unused), source: 'auto' };
+}
+
+/**
+ * Saldo del año de `today`: días que corresponden, pendientes del año
+ * anterior, disfrutados (hasta hoy incluido), programados (a partir de
+ * mañana) y los que quedan.
+ */
+export function vacationBalance({ contractStart, periods, today = todayInShop(), manualCarryOver = null }) {
+  const year = Number(today.slice(0, 4));
+  const { taken, planned } = usedInYear(periods, year, today);
   const entitled = entitledDays(contractStart, year);
+  const carry = carryOverDays({ contractStart, periods, year, manual: manualCarryOver });
+  const available = entitled.days + carry.days;
   return {
     year,
     contractStart: contractStart ?? null,
     entitled: entitled.days,
     prorated: entitled.prorated,
     workedDays: entitled.workedDays,
+    carryOver: carry.days,
+    carryOverSource: carry.source,
+    available,
     taken,
     planned,
-    remaining: entitled.days - taken - planned,
+    remaining: available - taken - planned,
   };
 }

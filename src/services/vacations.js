@@ -1,5 +1,5 @@
 import { TeamError } from './team.js';
-import { vacationBalance } from './vacation-balance.js';
+import { todayInShop, vacationBalance } from './vacation-balance.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAYS = 366;
@@ -65,19 +65,49 @@ export async function listVacations(pool, userId) {
   return result.rows.map(toVacation);
 }
 
-/** Periodos + inicio de contrato + saldo del año en curso. */
-export async function getVacationOverview(pool, userId, today) {
+const MAX_CARRYOVER_DAYS = 60;
+
+/** Periodos + inicio de contrato + saldo del año en curso (con lo pendiente del anterior). */
+export async function getVacationOverview(pool, userId, today = todayInShop()) {
   const periods = await listVacations(pool, userId);
-  const user = await pool.query(
-    "SELECT to_char(contract_start, 'YYYY-MM-DD') AS contract_start FROM users WHERE id = $1",
-    [userId],
+  const year = Number(today.slice(0, 4));
+  const extra = await pool.query(
+    `SELECT to_char(u.contract_start, 'YYYY-MM-DD') AS contract_start, c.days AS manual_carryover
+       FROM users u
+       LEFT JOIN vacation_carryovers c ON c.user_id = u.id AND c.year = $2
+      WHERE u.id = $1`,
+    [userId, year],
   );
-  const contractStart = user.rows[0]?.contract_start ?? null;
+  const contractStart = extra.rows[0]?.contract_start ?? null;
+  const manualCarryOver = extra.rows[0]?.manual_carryover ?? null;
   return {
     contractStart,
     periods,
-    summary: vacationBalance({ contractStart, periods, ...(today ? { today } : {}) }),
+    summary: vacationBalance({ contractStart, periods, today, manualCarryOver }),
   };
+}
+
+/**
+ * Fija a mano los días pendientes del año anterior para el año en curso, o
+ * vuelve al cálculo automático con null.
+ */
+export async function setManualCarryOver(pool, userId, value, updatedBy, today = todayInShop()) {
+  await assertUserExists(pool, userId);
+  const year = Number(today.slice(0, 4));
+  if (value === null || value === '') {
+    await pool.query('DELETE FROM vacation_carryovers WHERE user_id = $1 AND year = $2', [userId, year]);
+    return;
+  }
+  const days = Number(value);
+  if (!Number.isInteger(days) || days < 0 || days > MAX_CARRYOVER_DAYS) {
+    throw new TeamError(400, `Los días pendientes deben ser un número entero entre 0 y ${MAX_CARRYOVER_DAYS}.`, 'INVALID_CARRYOVER');
+  }
+  await pool.query(
+    `INSERT INTO vacation_carryovers (user_id, year, days, updated_by)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (user_id, year) DO UPDATE SET days = EXCLUDED.days, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [userId, year, days, updatedBy],
+  );
 }
 
 /** Guarda (o borra, con null) la fecha de inicio de contrato. */

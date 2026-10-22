@@ -439,9 +439,37 @@
   line-height: 1.3;
 }
 
+/* «Quedan» ocupa toda la fila: es el dato que más importa. */
+.vac-stat-wide {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+}
+
+.vac-stat-wide .vac-stat-num {
+  font-size: 38px;
+}
+
 .vac-stat-left {
   background: var(--espresso);
   color: var(--paper-hi);
+}
+
+/* Una debajo de otra: el selector de fecha nativo no encoge lo suficiente para ir en dos columnas. */
+.vac-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.vac-contract-row input {
+  min-width: 0;
+}
+
+.vac-settings .field-hint {
+  font-size: 12px;
 }
 
 .vac-stat-left .vac-stat-num {
