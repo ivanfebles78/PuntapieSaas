@@ -15,6 +15,7 @@
         imagesrcset="/img/tienda-900.webp 900w, /img/tienda-1600.webp 1600w, /img/tienda-2400.webp 2400w"
         imagesizes="(min-width: 960px) 56vw, 100vw">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/dashboard.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -164,21 +165,6 @@
           <a class="btn btn-link" href="/" data-go="login"><span>Iniciar sesión</span></a>
         </section>
 
-        <!-- Sesión iniciada (provisional hasta que lleguen los módulos) -->
-        <section class="view" id="view-home" hidden>
-          <p class="eyebrow eyebrow-dark">Sesión iniciada</p>
-          <h1>Hola, <span data-user-name></span></h1>
-          <p class="role-chip">Rol: <strong data-user-role></strong></p>
-          <p class="lead">Estamos preparando los módulos de la aplicación. Muy pronto aparecerán aquí.</p>
-          <ul class="modules">
-            <li><span class="mod-dot mod-mint" aria-hidden="true"></span>Gastos y ventas<small>Próximamente</small></li>
-            <li><span class="mod-dot mod-yellow" aria-hidden="true"></span>Facturas<small>Próximamente</small></li>
-            <li><span class="mod-dot mod-pink" aria-hidden="true"></span>Clientes (CRM)<small>Próximamente</small></li>
-            <li><span class="mod-dot mod-sage" aria-hidden="true"></span>Administración<small>Próximamente</small></li>
-          </ul>
-          <button class="btn btn-ghost" type="button" data-logout><span>Cerrar sesión</span></button>
-        </section>
-
         <footer class="panel-foot">
           <p><span class="foot-label">Dirección:</span> Calle Viera y Clavijo, 1 · Santa Cruz de Tenerife</p>
           <p><span class="foot-label">Teléfono:</span> <a href="tel:+34922124962">922 124 962</a></p>
@@ -186,5 +172,44 @@
       </div>
     </section>
   </main>
+
+  <!-- Aplicación tras iniciar sesión -->
+  <div class="shell" id="shell" hidden>
+    <header class="topbar">
+      <div class="topbar-island">
+      <a class="topbar-brand" href="/app" data-nav aria-label="Puntapié · inicio">
+        <svg class="brand-foot brand-foot-sm" viewBox="0 0 64 84" aria-hidden="true">
+          <ellipse cx="34" cy="54" rx="21" ry="29"/>
+          <circle cx="14" cy="19" r="8"/>
+          <circle cx="27" cy="11" r="6.4"/>
+          <circle cx="39" cy="9" r="5.6"/>
+          <circle cx="50" cy="12" r="4.8"/>
+          <circle cx="58" cy="19" r="4"/>
+        </svg>
+        <span class="wordmark wordmark-sm" aria-hidden="true">
+          <span class="box">P</span><span class="box">U</span><span class="box">N</span><span class="box">T</span><span class="box tri">A</span><span class="pie">pié</span>
+        </span>
+      </a>
+      <span class="topbar-crumb" data-shell-crumb></span>
+      <div class="topbar-user">
+        <span class="avatar" data-shell-initial aria-hidden="true"></span>
+        <span class="topbar-who">
+          <span class="topbar-name" data-shell-name></span>
+          <span class="topbar-role" data-shell-role></span>
+        </span>
+        <button class="topbar-logout" type="button" data-logout aria-label="Cerrar sesión">
+          <span class="topbar-logout-text">Salir</span>
+          <span class="bubble bubble-dark"><span data-shell-logout-icon></span></span>
+        </button>
+      </div>
+      </div>
+    </header>
+    <main class="shell-main" id="shell-main"></main>
+    <p class="toast" data-shell-toast role="status" aria-live="polite"></p>
+    <footer class="shell-foot">
+      <p><span class="foot-label">Dirección:</span> Calle Viera y Clavijo, 1 · Santa Cruz de Tenerife</p>
+      <p><span class="foot-label">Teléfono:</span> <a href="tel:+34922124962">922 124 962</a></p>
+    </footer>
+  </div>
 </body>
 </html>

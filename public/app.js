@@ -1,13 +1,16 @@
+import { APP_ROOT, hideShell, renderShell } from './dashboard.js';
+
 const ROUTES = Object.freeze({ login: '/', forgot: '/recuperar', reset: '/restablecer' });
-const VIEW_IDS = ['login', 'forgot', 'sent', 'reset', 'invalid', 'done', 'home'];
+const VIEW_IDS = ['login', 'forgot', 'sent', 'reset', 'invalid', 'done'];
 const MIN_PASSWORD_LENGTH = 8;
 const NETWORK_ERROR = 'No hay conexión con el servidor. Inténtalo de nuevo.';
-const ROLE_LABELS = Object.freeze({ admin: 'Administrador' });
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const views = Object.fromEntries(VIEW_IDS.map((id) => [id, $(`#view-${id}`)]));
+const landing = $('.landing');
 
 let resetToken = '';
+let currentUser = null;
 
 async function api(method, path, body) {
   let response;
@@ -26,6 +29,9 @@ async function api(method, path, body) {
 }
 
 function show(name, { focus = true } = {}) {
+  hideShell();
+  landing.hidden = false;
+  document.title = 'Puntapié · Gestión';
   for (const [id, el] of Object.entries(views)) {
     el.hidden = id !== name;
   }
@@ -215,15 +221,34 @@ function finishReset(view) {
 
 /* ---------- Sesión ---------- */
 
-function enterHome(user) {
-  $('[data-user-name]').textContent = (user.name || user.email).split(' ')[0];
-  $('[data-user-role]').textContent = ROLE_LABELS[user.role] ?? user.role;
-  if (location.pathname !== ROUTES.login) history.replaceState({ view: 'home' }, '', ROUTES.login);
-  show('home');
+function isAppPath(path) {
+  return path === APP_ROOT || path.startsWith(`${APP_ROOT}/`);
 }
+
+function enterApp(user, path = APP_ROOT, { push = false } = {}) {
+  currentUser = user;
+  landing.hidden = true;
+  const canonical = renderShell(user, isAppPath(path) ? path : APP_ROOT);
+  if (push) history.pushState({ app: true }, '', canonical);
+  else if (location.pathname !== canonical) history.replaceState({ app: true }, '', canonical);
+}
+
+function enterHome(user) {
+  enterApp(user, APP_ROOT, { push: location.pathname !== APP_ROOT });
+}
+
+// Enlaces internos de la aplicación (mosaico, migas, logo).
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('a[data-nav]');
+  if (!link || !currentUser || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  event.preventDefault();
+  const target = new URL(link.href).pathname;
+  if (target !== location.pathname) enterApp(currentUser, target, { push: true });
+});
 
 $('[data-logout]').addEventListener('click', async () => {
   await api('POST', '/api/auth/logout');
+  currentUser = null;
   navigate('login', ROUTES.login);
 });
 
@@ -232,6 +257,9 @@ $('[data-logout]').addEventListener('click', async () => {
 async function route() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
 
+  // Navegación atrás/adelante dentro de la app sin volver a pedir la sesión.
+  if (currentUser && isAppPath(path)) return enterApp(currentUser, path);
+
   if (path === ROUTES.reset) {
     resetToken = new URLSearchParams(location.search).get('token') ?? '';
     const res = resetToken ? await api('POST', '/api/auth/reset-password/check', { token: resetToken }) : null;
@@ -239,7 +267,8 @@ async function route() {
   }
 
   const me = await api('GET', '/api/auth/me');
-  if (me.ok) return enterHome(me.data);
+  if (me.ok) return enterApp(me.data, path);
+  currentUser = null;
   if (path === ROUTES.forgot) return show('forgot');
   if (path !== ROUTES.login) history.replaceState({ view: 'login' }, '', ROUTES.login);
   return show('login', { focus: window.matchMedia('(min-width: 960px)').matches });
