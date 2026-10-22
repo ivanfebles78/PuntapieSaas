@@ -58,13 +58,16 @@ export const MODULES = Object.freeze([
     tone: 'admin',
     roles: ['admin'],
     summary: 'Equipo, accesos y vacaciones.',
-    // `to` (y opcionalmente `query`) enlaza con una pantalla ya construida.
+    // `to` enlaza con una pantalla ya construida. Todo el equipo se gestiona
+    // desde Usuarios: altas, bajas, roles, contraseñas y vacaciones.
     submodules: [
-      { slug: 'usuarios', name: 'Usuarios', icon: 'people', summary: 'El equipo, sus roles y su estado.', to: 'usuarios' },
-      { slug: 'alta', name: 'Alta e invitación', icon: 'userAdd', summary: 'Crea una cuenta y envía la invitación por correo.', to: 'usuarios', query: 'accion=alta' },
-      { slug: 'baja', name: 'Bajas', icon: 'userRemove', summary: 'Retira el acceso a quien ya no está.', to: 'usuarios', query: 'estado=baja' },
-      { slug: 'contrasenas', name: 'Restablecer contraseña', icon: 'key', summary: 'Envía un enlace para elegir una contraseña nueva.', to: 'usuarios' },
-      { slug: 'vacaciones', name: 'Vacaciones', icon: 'sun', summary: 'Calendario y solicitudes de vacaciones.' },
+      {
+        slug: 'usuarios',
+        name: 'Usuarios',
+        icon: 'people',
+        summary: 'Altas e invitaciones, bajas, roles, contraseñas y vacaciones de cada persona.',
+        to: 'usuarios',
+      },
     ],
   },
 ]);

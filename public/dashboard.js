@@ -32,6 +32,11 @@ function todayLabel(date = new Date()) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+function sectionsLabel(module) {
+  const n = module.submodules.length;
+  return `${n} ${n === 1 ? 'sección' : 'secciones'}`;
+}
+
 function firstName(user) {
   return (user.name || user.email).split(' ')[0];
 }
@@ -152,7 +157,7 @@ function moduleTile(module, index) {
       module.roles ? h('span', { class: 'pill pill-lock', text: 'Solo Administrador' }) : null,
     ]),
     h('span', { class: 'tile-body' }, [
-      h('span', { class: 'tile-count', text: `${module.submodules.length} secciones` }),
+      h('span', { class: 'tile-count', text: sectionsLabel(module) }),
       h('span', { class: 'tile-title', text: module.name }),
       h('span', { class: 'tile-summary', text: module.summary }),
     ]),
@@ -209,7 +214,7 @@ function subCard(module, sub, index) {
       href: `${APP_ROOT}/${module.slug}/${sub.to}${sub.query ? `?${sub.query}` : ''}`,
       'data-nav': '',
       'data-spotlight': '',
-    }, [...content, h('span', { class: 'pill pill-open' }, [h('span', { text: 'Abrir' }), icon('arrowRight', 'ico ico-xs')])])
+    }, content)
     : h('button', { class: 'sub-core', type: 'button', 'data-soon': sub.name, 'data-spotlight': '' },
       [...content, h('span', { class: 'pill pill-soon' }, [icon('magic', 'ico ico-xs'), h('span', { text: 'Próximamente' })])]);
   return stagger(h('li', { class: 'sub' }, core), index + 2);
@@ -224,7 +229,7 @@ function renderModule(module) {
     h('div', { class: 'module-title-row' }, [
       stagger(h('span', { class: 'module-icon' }, h('span', { class: 'tile-icon' }, icon(module.icon, 'ico ico-xl'))), 0),
       h('div', {}, [
-        stagger(h('p', { class: 'eyebrow-pill', text: `Módulo · ${module.submodules.length} secciones` }), 1),
+        stagger(h('p', { class: 'eyebrow-pill', text: `Módulo · ${sectionsLabel(module)}` }), 1),
         stagger(h('h1', { class: 'module-title', tabindex: '-1', text: module.name }), 1),
         stagger(h('p', { class: 'module-summary', text: module.summary }), 2),
       ]),

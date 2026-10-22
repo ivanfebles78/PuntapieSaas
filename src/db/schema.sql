@@ -50,5 +50,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_username_key ON users (lower(username)) 
 -- Obliga a elegir contraseña propia en el primer acceso.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- Vacaciones por persona (días naturales, ambos extremos incluidos).
+CREATE TABLE IF NOT EXISTS vacations (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  start_date DATE NOT NULL,
+  end_date   DATE NOT NULL,
+  note       TEXT NOT NULL DEFAULT '',
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (end_date >= start_date)
+);
+
+CREATE INDEX IF NOT EXISTS vacations_user_start_idx ON vacations(user_id, start_date);
+
 -- Solo existen dos roles: 'admin' (todo) y 'empleado' (vista limitada).
 UPDATE users SET role = 'empleado' WHERE role NOT IN ('admin', 'empleado');

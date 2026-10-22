@@ -270,7 +270,8 @@
   width: 100%;
   max-width: 1280px;
   margin: 0 auto;
-  padding: clamp(48px, 7vw, 104px) 20px clamp(56px, 7vw, 96px);
+  /* Arriba, poco aire: el contenido debe verse sin hacer scroll. */
+  padding: clamp(20px, 2.8vw, 42px) 20px clamp(56px, 7vw, 96px);
 }
 
 [data-reveal]:not(.is-in) {
@@ -1000,22 +1001,6 @@
 .sub-summary {
   color: var(--taupe);
   font-size: 15px;
-}
-
-.pill-open {
-  margin-top: auto;
-  background: var(--espresso);
-  color: var(--paper-hi);
-  transition: transform 600ms var(--spring-pop);
-}
-
-.tone-admin .pill-open {
-  background: var(--mint);
-  color: var(--espresso);
-}
-
-.sub-core:hover .pill-open {
-  transform: translateX(4px);
 }
 
 a.sub-core {

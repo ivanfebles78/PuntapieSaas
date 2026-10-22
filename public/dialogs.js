@@ -13,8 +13,9 @@ export function field({ label, name, type = 'text', value = '', required = false
 
 /**
  * Abre un diálogo modal. `onSubmit(form)` devuelve { error } para mantenerlo
- * abierto con el mensaje, o cualquier otro valor para cerrarlo y resolver con él.
- * Resuelve null si se cancela.
+ * abierto con el mensaje, { stay: true } para mantenerlo abierto sin error,
+ * o cualquier otro valor para cerrarlo y resolver con él.
+ * Resuelve null si se cancela (o el último valor de `resultOnClose()`).
  */
 export function openDialog({ eyebrow, title, lead, content = [], submitLabel, tone = 'default', onSubmit, cancelLabel = 'Cancelar' }) {
   return new Promise((resolve) => {
@@ -37,19 +38,21 @@ export function openDialog({ eyebrow, title, lead, content = [], submitLabel, to
     const close = h('button', { class: 'sheet-close', type: 'button', 'aria-label': 'Cerrar' }, icon('close', 'ico ico-sm'));
     const dialog = h('dialog', { class: `sheet sheet-${tone}` }, h('div', { class: 'sheet-core' }, [close, form]));
 
+    // Si hubo cambios con { stay: true }, cerrar devuelve true para que se refresque la vista.
     let result = null;
     const finish = (value) => {
       result = value;
       dialog.close();
     };
+    const dismiss = () => finish(result);
     dialog.addEventListener('close', () => {
       dialog.remove();
       resolve(result);
     });
-    close.addEventListener('click', () => finish(null));
-    form.querySelector('[data-cancel]')?.addEventListener('click', () => finish(null));
+    close.addEventListener('click', dismiss);
+    form.querySelector('[data-cancel]')?.addEventListener('click', dismiss);
     dialog.addEventListener('click', (event) => {
-      if (event.target === dialog) finish(null);
+      if (event.target === dialog) dismiss();
     });
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -61,6 +64,10 @@ export function openDialog({ eyebrow, title, lead, content = [], submitLabel, to
         if (outcome?.error) {
           alert.textContent = outcome.error;
           alert.hidden = false;
+          return;
+        }
+        if (outcome?.stay) {
+          result = true;
           return;
         }
         finish(outcome ?? true);

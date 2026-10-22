@@ -37,6 +37,22 @@ function since(iso) {
   return relative.format(-Math.round(diff / DAY_MS), 'day');
 }
 
+/** «2026-08-03» → «03/08/2026». */
+function formatDate(iso) {
+  const [year, month, day] = iso.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+function vacationBadge(member) {
+  if (member.onVacationUntil) {
+    return h('span', { class: 'status status-sun', text: `De vacaciones hasta el ${formatDate(member.onVacationUntil)}` });
+  }
+  if (member.nextVacation) {
+    return h('span', { class: 'status status-soft', text: `Vacaciones desde el ${formatDate(member.nextVacation)}` });
+  }
+  return null;
+}
+
 function roleLabel(id) {
   return state.roles.find((role) => role.id === id)?.label ?? id;
 }
@@ -120,6 +136,7 @@ function statusBlock(member) {
     h('span', { class: `status status-${status.tone}`, text: status.label }),
     member.mustChangePassword && member.status === 'activo'
       ? h('span', { class: 'status status-wait', text: 'Debe cambiar la contraseña' }) : null,
+    member.status === 'baja' ? null : vacationBadge(member),
     h('span', { class: 'member-when' }, [icon('clock', 'ico ico-xs'), h('span', { text: detail })]),
   ]);
 }
@@ -133,7 +150,7 @@ function actionButton(action, label, iconName, extraClass = '') {
 
 function actions(member, isMe) {
   if (member.status === 'baja') return [actionButton('reactivate', 'Reactivar', 'userTick')];
-  const list = [actionButton('edit', 'Editar', 'magic')];
+  const list = [actionButton('edit', 'Editar', 'magic'), actionButton('vacations', 'Vacaciones', 'sun')];
   if (!isMe) {
     list.push(member.email
       ? actionButton('access', member.status === 'invitado' ? 'Reenviar invitación' : 'Enviar enlace de contraseña', 'sms')
@@ -329,7 +346,79 @@ async function changeRole(select) {
   await load();
 }
 
+/* ---------- Vacaciones ---------- */
+
+function vacationItem(vacation) {
+  return h('li', { class: 'vac', 'data-vacation': String(vacation.id) }, [
+    h('span', { class: 'vac-icon' }, icon('sun', 'ico ico-sm')),
+    h('span', { class: 'vac-text' }, [
+      h('span', { class: 'vac-range', text: `${formatDate(vacation.start)} → ${formatDate(vacation.end)}` }),
+      h('span', { class: 'vac-meta', text: [`${vacation.days} ${vacation.days === 1 ? 'día' : 'días'}`, vacation.note].filter(Boolean).join(' · ') }),
+    ]),
+    h('button', { class: 'act act-danger', type: 'button', 'data-remove-vacation': String(vacation.id), 'aria-label': 'Borrar periodo', title: 'Borrar periodo' },
+      [icon('close', 'ico ico-sm'), h('span', { class: 'act-label', text: 'Borrar' })]),
+  ]);
+}
+
+async function refreshVacations(member, listEl) {
+  const res = await api('GET', `/api/admin/users/${member.id}/vacations`);
+  if (!res.ok) {
+    listEl.replaceChildren(h('li', { class: 'vac-empty', text: res.error }));
+    return;
+  }
+  const year = String(new Date().getFullYear());
+  const thisYear = res.data.filter((v) => v.start.startsWith(year)).reduce((sum, v) => sum + v.days, 0);
+  listEl.replaceChildren(...(res.data.length
+    ? res.data.map(vacationItem)
+    : [h('li', { class: 'vac-empty', text: 'Todavía no tiene vacaciones registradas.' })]));
+  listEl.dataset.summary = `${thisYear} ${thisYear === 1 ? 'día' : 'días'} en ${year}`;
+  listEl.previousElementSibling.textContent = `Periodos · ${listEl.dataset.summary}`;
+}
+
+async function manageVacations(member) {
+  const listEl = h('ul', { class: 'vac-list', 'aria-live': 'polite' }, h('li', { class: 'vac-empty', text: 'Cargando…' }));
+  listEl.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-remove-vacation]');
+    if (!button) return;
+    const res = await api('DELETE', `/api/admin/users/${member.id}/vacations/${button.dataset.removeVacation}`);
+    if (!res.ok) showToast(res.error, { tone: 'error' });
+    await refreshVacations(member, listEl);
+    await load();
+  });
+  const today = new Date().toISOString().slice(0, 10);
+  const changed = openDialog({
+    eyebrow: 'Vacaciones',
+    title: `Vacaciones de ${member.name}`,
+    lead: 'Días naturales, con el primero y el último incluidos.',
+    content: [
+      h('p', { class: 'vac-heading', text: 'Periodos' }),
+      listEl,
+      h('div', { class: 'vac-form' }, [
+        field({ label: 'Desde', name: 'start', type: 'date', value: today, required: true }),
+        field({ label: 'Hasta', name: 'end', type: 'date', value: today, required: true }),
+      ]),
+      field({ label: 'Nota (opcional)', name: 'note', autocomplete: 'off', hint: 'Por ejemplo: verano, asuntos propios…' }),
+    ],
+    submitLabel: 'Añadir periodo',
+    cancelLabel: 'Cerrar',
+    onSubmit: async (form) => {
+      const value = (name) => form.elements.namedItem(name).value;
+      const res = await api('POST', `/api/admin/users/${member.id}/vacations`, {
+        start: value('start'), end: value('end'), note: value('note'),
+      });
+      if (!res.ok) return { error: res.error };
+      form.elements.namedItem('note').value = '';
+      await refreshVacations(member, listEl);
+      showToast(`Vacaciones añadidas: ${res.data.days} ${res.data.days === 1 ? 'día' : 'días'}.`);
+      return { stay: true };
+    },
+  });
+  await refreshVacations(member, listEl);
+  if (await changed) await load();
+}
+
 const ACTIONS = Object.freeze({
+  vacations: manageVacations,
   edit: editMember,
   deactivate: deactivateMember,
   temp: temporaryPassword,

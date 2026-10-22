@@ -14,6 +14,7 @@ import {
   updateMember,
 } from '../services/team.js';
 import { createPasswordReset } from '../services/users.js';
+import { addVacation, deleteVacation, listVacations, readVacation } from '../services/vacations.js';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_LENGTH = 254;
@@ -172,6 +173,37 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
       const temporaryPassword = generateTemporaryPassword();
       const user = await setTemporaryPassword(pool, id, await hashPassword(temporaryPassword));
       res.json({ ok: true, data: { user, temporaryPassword } });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/users/:id/vacations', async (req, res, next) => {
+    try {
+      res.json({ ok: true, data: await listVacations(pool, readId(req.params.id)) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/users/:id/vacations', async (req, res, next) => {
+    try {
+      const period = readVacation(req.body);
+      const vacation = await addVacation(pool, { userId: readId(req.params.id), ...period, createdBy: req.user.id });
+      res.status(201).json({ ok: true, data: vacation });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete('/users/:id/vacations/:vacationId', async (req, res, next) => {
+    try {
+      const vacationId = Number(req.params.vacationId);
+      if (!Number.isInteger(vacationId) || vacationId <= 0) {
+        throw new TeamError(404, 'Ese periodo de vacaciones no existe.', 'VACATION_NOT_FOUND');
+      }
+      await deleteVacation(pool, readId(req.params.id), vacationId);
+      res.json({ ok: true });
     } catch (error) {
       next(error);
     }

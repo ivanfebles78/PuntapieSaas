@@ -13,7 +13,12 @@ export class TeamError extends Error {
 const USER_COLUMNS = `
   u.id, u.email, u.username, u.name, u.role, u.is_active, u.created_at, u.invited_at,
   u.last_login_at, u.deactivated_at, u.must_change_password,
-  (u.password_hash IS NOT NULL) AS has_password, inviter.name AS invited_by_name`;
+  (u.password_hash IS NOT NULL) AS has_password, inviter.name AS invited_by_name,
+  (SELECT to_char(v.end_date, 'YYYY-MM-DD') FROM vacations v
+    WHERE v.user_id = u.id AND CURRENT_DATE BETWEEN v.start_date AND v.end_date
+    ORDER BY v.end_date DESC LIMIT 1) AS on_vacation_until,
+  (SELECT to_char(min(v.start_date), 'YYYY-MM-DD') FROM vacations v
+    WHERE v.user_id = u.id AND v.start_date > CURRENT_DATE) AS next_vacation`;
 
 export function userStatus(row) {
   if (!row.is_active) return 'baja';
@@ -34,6 +39,8 @@ export function toTeamMember(row) {
     invitedBy: row.invited_by_name ?? null,
     lastLoginAt: row.last_login_at,
     deactivatedAt: row.deactivated_at,
+    onVacationUntil: row.on_vacation_until ?? null,
+    nextVacation: row.next_vacation ?? null,
   };
 }
 
