@@ -13,6 +13,23 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
 - Esquema SQL idempotente (`src/db/schema.sql`) aplicado en cada arranque
 - Un único servicio Docker (Railway), healthcheck en `/api/health`
 
+## Roles y equipo
+
+| Rol | Qué ve |
+|---|---|
+| **Administrador** (`admin`) | Todo, incluido el módulo Admin (gestión del equipo) |
+| **Empleado** (`empleado`) | Vista limitada; se definirá módulo a módulo |
+
+- Se entra con **nombre de usuario o correo**.
+- Cuentas iniciales (en `src/db/seed-team.js`, contraseña inicial hasheada, cambio obligatorio
+  en el primer acceso): `ctoriz` Claudia (admin), `epena` Elena (empleado),
+  `rperez` Raquel (empleado), `ifebles` Iván (admin). Además, `ivan.febles@gmail.com` (admin).
+- **Admin › Usuarios**: lista con filtros y búsqueda, invitar por correo (enlace de 7 días para
+  crear la contraseña), cambiar rol, editar nombre/correo, dar de baja/reactivar, enviar enlace de
+  contraseña o, si no tiene correo, generar una contraseña provisional.
+- Protecciones: nadie cambia su propio rol ni se da de baja, y siempre queda un Administrador activo.
+  La API exige el rol en el servidor (`/api/admin/*` → 403 para Empleado).
+
 ## Seguridad del acceso
 
 - Contraseñas con bcrypt; sesiones y tokens de recuperación guardados como SHA-256 (nunca en claro).

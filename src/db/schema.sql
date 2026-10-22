@@ -31,3 +31,24 @@ CREATE TABLE IF NOT EXISTS password_resets (
 );
 
 CREATE INDEX IF NOT EXISTS password_resets_user_id_idx ON password_resets(user_id);
+
+-- Gestión del equipo: invitaciones (sin contraseña hasta aceptarla), bajas y último acceso.
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_at     TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by     INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at  TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
+
+-- 'reset' = restablecer contraseña; 'invite' = invitación para crearla.
+ALTER TABLE password_resets ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'reset';
+
+-- Acceso con usuario o con correo: las cuentas creadas a mano pueden no tener correo.
+ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_key ON users (lower(username)) WHERE username IS NOT NULL;
+
+-- Obliga a elegir contraseña propia en el primer acceso.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Solo existen dos roles: 'admin' (todo) y 'empleado' (vista limitada).
+UPDATE users SET role = 'empleado' WHERE role NOT IN ('admin', 'empleado');

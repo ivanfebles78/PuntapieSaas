@@ -3,6 +3,7 @@ import 'dotenv/config';
 const DEFAULT_PORT = 3000;
 const SESSION_DAYS = 30;
 const RESET_TOKEN_MINUTES = 60;
+const INVITE_TOKEN_DAYS = 7;
 const LOGIN_MAX_FAILED_ATTEMPTS = 20;
 const FORGOT_MAX_REQUESTS = 10;
 
@@ -41,6 +42,7 @@ export const config = Object.freeze({
   mailFrom: readEnv('MAIL_FROM', 'Puntapié <no-responder@zapateriapuntapie.com>'),
   sessionTtlMs: SESSION_DAYS * 24 * 60 * 60 * 1000,
   resetTokenTtlMs: RESET_TOKEN_MINUTES * 60 * 1000,
+  inviteTokenTtlMs: INVITE_TOKEN_DAYS * 24 * 60 * 60 * 1000,
   cookieName: 'puntapie_session',
   loginMaxFailedAttempts: LOGIN_MAX_FAILED_ATTEMPTS,
   forgotMaxRequests: FORGOT_MAX_REQUESTS,

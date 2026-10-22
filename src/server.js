@@ -2,6 +2,7 @@ import { assertConfig, config } from './config.js';
 import { createApp } from './app.js';
 import { createPool } from './db/pool.js';
 import { applySchema, seedAdmin } from './db/migrate.js';
+import { seedTeam } from './db/seed-team.js';
 
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -16,6 +17,7 @@ async function main() {
 
   await applySchema(pool);
   await seedAdmin(pool, config);
+  await seedTeam(pool);
 
   const cleanup = setInterval(() => {
     cleanupExpired(pool).catch((error) => {

@@ -1,6 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
-import { attachUser } from './auth/middleware.js';
+import { attachUser, requireAuth, requirePasswordChanged } from './auth/middleware.js';
+import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
 import { createMailer } from './services/mail.js';
 
@@ -41,6 +42,8 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
 
   app.use('/api', attachUser(pool, config.cookieName));
   app.use('/api/auth', authRouter({ pool, config, mailer, log }));
+  // A partir de aquí, todo exige haber cambiado la contraseña inicial.
+  app.use('/api/admin', requireAuth, requirePasswordChanged, adminRouter({ pool, config, mailer, log }));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ ok: false, error: 'Ruta no encontrada.' });

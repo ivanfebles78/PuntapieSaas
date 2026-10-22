@@ -1,43 +1,24 @@
+import { renderUsers } from './admin-users.js';
+import { h, stagger } from './dom.js';
 import { icon } from './icons.js';
 import { ROLE_LABELS, modulesForRole } from './modules.js';
+import { showToast } from './toast.js';
 
 export const APP_ROOT = '/app';
 
 const FOOTSTEPS = 6;
-const TOAST_MS = 2600;
 const REVEAL_FALLBACK_MS = 2500;
+
+// Pantallas ya construidas dentro de un módulo: /app/<modulo>/<vista>.
+const VIEWS = Object.freeze({ usuarios: renderUsers });
 
 const shell = document.getElementById('shell');
 const main = document.getElementById('shell-main');
 const crumb = shell.querySelector('[data-shell-crumb]');
-const toast = shell.querySelector('[data-shell-toast]');
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let revealObserver = null;
 let revealFallback = 0;
-let toastTimer = 0;
-
-/** Crea un elemento con atributos y hijos (el texto siempre vía textContent). */
-function h(tag, attrs = {}, children = []) {
-  const el = document.createElement(tag);
-  for (const [key, value] of Object.entries(attrs)) {
-    if (value === undefined || value === null || value === false) continue;
-    if (key === 'class') el.className = value;
-    else if (key === 'text') el.textContent = value;
-    else el.setAttribute(key, value === true ? '' : value);
-  }
-  for (const child of [].concat(children)) {
-    if (child) el.append(child);
-  }
-  return el;
-}
-
-// Orden de aparición escalonada (CSSOM: permitido por la CSP, a diferencia de style="").
-function stagger(el, index) {
-  el.setAttribute('data-reveal', '');
-  el.style.setProperty('--i', String(index));
-  return el;
-}
 
 function greeting(date = new Date()) {
   const hour = date.getHours();
@@ -106,15 +87,6 @@ main.addEventListener('pointermove', (event) => {
     card.style.setProperty('--my', `${event.clientY - rect.top}px`);
   });
 });
-
-function showToast(message) {
-  toast.textContent = message;
-  toast.classList.remove('is-on');
-  void toast.offsetWidth;
-  toast.classList.add('is-on');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('is-on'), TOAST_MS);
-}
 
 main.addEventListener('click', (event) => {
   const card = event.target.closest('[data-soon]');
@@ -224,18 +196,23 @@ function renderHome(user) {
   return intro.querySelector('h1');
 }
 
-function subCard(sub, index) {
-  return stagger(h('li', { class: 'sub' }, h('button', {
-    class: 'sub-core',
-    type: 'button',
-    'data-soon': sub.name,
-    'data-spotlight': '',
-  }, [
+// Las secciones listas son enlaces; el resto, botones que avisan de que llegarán.
+function subCard(module, sub, index) {
+  const content = [
     h('span', { class: 'sub-icon' }, icon(sub.icon, 'ico ico-md')),
     h('span', { class: 'sub-name', text: sub.name }),
     h('span', { class: 'sub-summary', text: sub.summary }),
-    h('span', { class: 'pill pill-soon' }, [icon('magic', 'ico ico-xs'), h('span', { text: 'Próximamente' })]),
-  ])), index + 2);
+  ];
+  const core = sub.to
+    ? h('a', {
+      class: 'sub-core',
+      href: `${APP_ROOT}/${module.slug}/${sub.to}${sub.query ? `?${sub.query}` : ''}`,
+      'data-nav': '',
+      'data-spotlight': '',
+    }, [...content, h('span', { class: 'pill pill-open' }, [h('span', { text: 'Abrir' }), icon('arrowRight', 'ico ico-xs')])])
+    : h('button', { class: 'sub-core', type: 'button', 'data-soon': sub.name, 'data-spotlight': '' },
+      [...content, h('span', { class: 'pill pill-soon' }, [icon('magic', 'ico ico-xs'), h('span', { text: 'Próximamente' })])]);
+  return stagger(h('li', { class: 'sub' }, core), index + 2);
 }
 
 function renderModule(module) {
@@ -254,7 +231,7 @@ function renderModule(module) {
     ]),
   ]);
   const list = h('ul', { class: `sub-grid tone-${module.tone}`, 'aria-label': `Secciones de ${module.name}` },
-    module.submodules.map(subCard));
+    module.submodules.map((sub, i) => subCard(module, sub, i)));
   main.replaceChildren(header, list);
   crumb.textContent = module.name;
   document.title = `${module.name} · Puntapié`;
@@ -269,14 +246,28 @@ function renderModule(module) {
  */
 export function renderShell(user, path) {
   renderUser(user);
-  const slug = path.slice(APP_ROOT.length).replace(/^\/+|\/+$/g, '').split('/')[0];
+  const url = new URL(path, location.origin);
+  const [slug, viewSlug] = url.pathname.slice(APP_ROOT.length).replace(/^\/+|\/+$/g, '').split('/');
   const module = slug ? modulesForRole(user.role).find((m) => m.slug === slug) : null;
-  const heading = module ? renderModule(module) : renderHome(user);
+  const hasView = module && module.submodules.some((sub) => sub.to === viewSlug) && VIEWS[viewSlug];
+
+  let heading;
+  let canonical = APP_ROOT;
+  if (hasView) {
+    crumb.textContent = module.name;
+    heading = VIEWS[viewSlug]({ main, user, module, params: url.searchParams, backHref: `${APP_ROOT}/${module.slug}` });
+    canonical = `${APP_ROOT}/${module.slug}/${viewSlug}`;
+  } else if (module) {
+    heading = renderModule(module);
+    canonical = `${APP_ROOT}/${module.slug}`;
+  } else {
+    heading = renderHome(user);
+  }
   shell.hidden = false;
   window.scrollTo({ top: 0 });
   observeReveals();
   heading.focus({ preventScroll: true });
-  return module ? `${APP_ROOT}/${module.slug}` : APP_ROOT;
+  return canonical;
 }
 
 export function hideShell() {

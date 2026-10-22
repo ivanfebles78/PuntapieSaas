@@ -1002,6 +1002,26 @@
   font-size: 15px;
 }
 
+.pill-open {
+  margin-top: auto;
+  background: var(--espresso);
+  color: var(--paper-hi);
+  transition: transform 600ms var(--spring-pop);
+}
+
+.tone-admin .pill-open {
+  background: var(--mint);
+  color: var(--espresso);
+}
+
+.sub-core:hover .pill-open {
+  transform: translateX(4px);
+}
+
+a.sub-core {
+  text-decoration: none;
+}
+
 .pill-soon {
   margin-top: auto;
   background: rgb(30 26 22 / 0.06);

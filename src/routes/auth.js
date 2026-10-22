@@ -1,14 +1,17 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { validateNewPassword } from '../auth/password.js';
+import { validateNewPassword, verifyPassword } from '../auth/password.js';
 import { createSession, deleteSession } from '../auth/session.js';
-import { toPublicUser } from '../auth/middleware.js';
+import { requireAuth, toPublicUser } from '../auth/middleware.js';
 import {
   authenticate,
+  changeOwnPassword,
   createPasswordReset,
+  findPasswordHash,
   findActiveUserByEmail,
-  isResetTokenValid,
+  getResetTokenPurpose,
   normalizeEmail,
+  recordLogin,
   resetPasswordWithToken,
 } from '../services/users.js';
 
@@ -53,16 +56,18 @@ export function authRouter({ pool, config: cfg, mailer, log = console }) {
 
   router.post('/login', loginLimiter, async (req, res, next) => {
     try {
-      const email = normalizeEmail(req.body?.email);
+      // Se entra con correo o con nombre de usuario.
+      const identifier = normalizeEmail(req.body?.identifier ?? req.body?.email);
       const password = String(req.body?.password ?? '');
-      if (!email || !password) {
-        return res.status(400).json({ ok: false, error: 'Indica tu correo y tu contraseña.' });
+      if (!identifier || !password) {
+        return res.status(400).json({ ok: false, error: 'Indica tu usuario o correo y tu contraseña.' });
       }
-      const user = await authenticate(pool, email, password);
+      const user = await authenticate(pool, identifier, password);
       if (!user) {
-        return res.status(401).json({ ok: false, error: 'Correo o contraseña incorrectos.' });
+        return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos.' });
       }
       const { token, expiresAt } = await createSession(pool, user.id, cfg.sessionTtlMs);
+      await recordLogin(pool, user.id);
       res.cookie(cfg.cookieName, token, cookieOptions(cfg, expiresAt));
       return res.json({ ok: true, data: toPublicUser(user) });
     } catch (error) {
@@ -83,6 +88,28 @@ export function authRouter({ pool, config: cfg, mailer, log = console }) {
   router.get('/me', (req, res) => {
     if (!req.user) return res.status(401).json({ ok: false, error: 'Sin sesión.' });
     return res.json({ ok: true, data: req.user });
+  });
+
+  // En el primer acceso la contraseña inicial ya se comprobó al entrar; en un
+  // cambio voluntario se exige la actual.
+  router.post('/change-password', requireAuth, resetLimiter, async (req, res, next) => {
+    try {
+      const { currentPassword, newPassword, confirmPassword } = req.body ?? {};
+      const validationError = validateNewPassword(newPassword, confirmPassword);
+      if (validationError) return res.status(400).json({ ok: false, error: validationError });
+
+      const hash = await findPasswordHash(pool, req.user.id);
+      if (!req.user.mustChangePassword && !(await verifyPassword(String(currentPassword ?? ''), hash ?? ''))) {
+        return res.status(400).json({ ok: false, error: 'La contraseña actual no es correcta.' });
+      }
+      if (hash && (await verifyPassword(newPassword, hash))) {
+        return res.status(400).json({ ok: false, error: 'La nueva contraseña debe ser distinta de la actual.' });
+      }
+      await changeOwnPassword(pool, req.user.id, newPassword, req.sessionToken);
+      return res.json({ ok: true, data: { ...req.user, mustChangePassword: false } });
+    } catch (error) {
+      return next(error);
+    }
   });
 
   // Respuesta idéntica exista o no la cuenta, y el correo se envía en
@@ -112,8 +139,8 @@ export function authRouter({ pool, config: cfg, mailer, log = console }) {
 
   router.post('/reset-password/check', resetLimiter, async (req, res, next) => {
     try {
-      const valid = await isResetTokenValid(pool, readToken(req.body));
-      return res.json({ ok: true, data: { valid } });
+      const purpose = await getResetTokenPurpose(pool, readToken(req.body));
+      return res.json({ ok: true, data: { valid: Boolean(purpose), purpose } });
     } catch (error) {
       return next(error);
     }

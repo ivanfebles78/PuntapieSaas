@@ -1,6 +1,7 @@
 import { createApp } from '../src/app.js';
 import { createPool } from '../src/db/pool.js';
 import { applySchema, seedAdmin } from '../src/db/migrate.js';
+import { seedTeam } from '../src/db/seed-team.js';
 
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? '';
 export const ADMIN_EMAIL = 'admin@puntapie.test';
@@ -18,6 +19,7 @@ export const testConfig = Object.freeze({
   mailFrom: 'test@puntapie.test',
   sessionTtlMs: 60 * 60 * 1000,
   resetTokenTtlMs: 60 * 60 * 1000,
+  inviteTokenTtlMs: 7 * 24 * 60 * 60 * 1000,
   cookieName: 'puntapie_session',
   loginMaxFailedAttempts: 1000,
   forgotMaxRequests: 1000,
@@ -34,11 +36,15 @@ export async function startTestServer() {
   await pool.query('DROP TABLE IF EXISTS password_resets, sessions, users CASCADE');
   await applySchema(pool);
   await seedAdmin(pool, testConfig, silentLog);
+  await seedTeam(pool, undefined, silentLog);
 
   const sentMail = [];
   const mailer = {
     async sendPasswordReset(message) {
-      sentMail.push(message);
+      sentMail.push({ kind: 'reset', ...message });
+    },
+    async sendInvitation(message) {
+      sentMail.push({ kind: 'invite', ...message });
     },
   };
 
@@ -74,12 +80,19 @@ export async function startTestServer() {
     return sentMail[count - 1];
   }
 
+  async function loginAs(email, password) {
+    const call = client();
+    const result = await call('POST', '/api/auth/login', { email, password });
+    if (result.status !== 200) throw new Error(`Login falló para ${email}: ${result.error}`);
+    return call;
+  }
+
   async function stop() {
     await new Promise((resolve) => server.close(resolve));
     await pool.end();
   }
 
-  return { pool, client, sentMail, waitForMail, stop };
+  return { pool, client, loginAs, sentMail, waitForMail, stop };
 }
 
 export function tokenFromLink(link) {

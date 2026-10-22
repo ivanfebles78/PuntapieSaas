@@ -1,9 +1,9 @@
+import { api } from './api.js';
 import { APP_ROOT, hideShell, renderShell } from './dashboard.js';
 
 const ROUTES = Object.freeze({ login: '/', forgot: '/recuperar', reset: '/restablecer' });
-const VIEW_IDS = ['login', 'forgot', 'sent', 'reset', 'invalid', 'done'];
+const VIEW_IDS = ['login', 'forgot', 'sent', 'reset', 'invalid', 'done', 'change'];
 const MIN_PASSWORD_LENGTH = 8;
-const NETWORK_ERROR = 'No hay conexión con el servidor. Inténtalo de nuevo.';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const views = Object.fromEntries(VIEW_IDS.map((id) => [id, $(`#view-${id}`)]));
@@ -11,22 +11,6 @@ const landing = $('.landing');
 
 let resetToken = '';
 let currentUser = null;
-
-async function api(method, path, body) {
-  let response;
-  try {
-    response = await fetch(path, {
-      method,
-      credentials: 'same-origin',
-      headers: body ? { 'Content-Type': 'application/json' } : {},
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch {
-    return { ok: false, error: NETWORK_ERROR };
-  }
-  const json = await response.json().catch(() => ({ ok: false, error: NETWORK_ERROR }));
-  return { status: response.status, ...json };
-}
 
 function show(name, { focus = true } = {}) {
   hideShell();
@@ -116,8 +100,8 @@ document.addEventListener('click', (event) => {
   event.preventDefault();
   const target = link.dataset.go;
   if (target === 'forgot') {
-    const email = $('#login-email').value.trim();
-    if (email && !$('#forgot-email').value) $('#forgot-email').value = email;
+    const identifier = $('#login-email').value.trim();
+    if (identifier.includes('@') && !$('#forgot-email').value) $('#forgot-email').value = identifier;
   }
   navigate(target, ROUTES[target]);
 });
@@ -129,14 +113,14 @@ window.addEventListener('popstate', () => route());
 views.login.addEventListener('submit', (event) => {
   event.preventDefault();
   const form = views.login;
-  const email = form.email.value.trim();
+  const identifier = form.identifier.value.trim();
   const password = form.password.value;
   hideAlert(form);
-  if (!email) return markInvalid(form.email, form, 'Escribe tu correo electrónico.');
+  if (!identifier) return markInvalid(form.identifier, form, 'Escribe tu usuario o tu correo.');
   if (!password) return markInvalid(form.password, form, 'Escribe tu contraseña.');
 
   return withBusy(form, async () => {
-    const res = await api('POST', '/api/auth/login', { email, password });
+    const res = await api('POST', '/api/auth/login', { identifier, password });
     if (!res.ok) {
       form.password.value = '';
       return markInvalid(form.password, form, res.error);
@@ -177,8 +161,7 @@ function passwordRules(password, confirmation) {
   };
 }
 
-function updateRules() {
-  const form = views.reset;
+function updateRules(form = views.reset) {
   const rules = passwordRules(form.newPassword.value, form.confirmPassword.value);
   form.querySelectorAll('[data-rule]').forEach((li) => {
     li.classList.toggle('is-met', rules[li.dataset.rule]);
@@ -186,16 +169,58 @@ function updateRules() {
   return rules;
 }
 
-views.reset.addEventListener('input', updateRules);
+views.reset.addEventListener('input', () => updateRules(views.reset));
+views.change.addEventListener('input', () => updateRules(views.change));
+
+/** Valida las reglas y marca el primer fallo; devuelve true si todo está bien. */
+function checkNewPassword(form) {
+  const rules = updateRules(form);
+  const failure = !rules.length ? [form.newPassword, `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`]
+    : !rules.mix ? [form.newPassword, 'La contraseña debe combinar letras y números.']
+      : !rules.match ? [form.confirmPassword, 'Las dos contraseñas no coinciden.'] : null;
+  if (failure) markInvalid(failure[0], form, failure[1]);
+  return !failure;
+}
+
+/* ---------- Cambio obligatorio en el primer acceso ---------- */
+
+function showChange(user) {
+  currentUser = user;
+  $('[data-change-name]').textContent = (user.name || user.username || '').split(' ')[0];
+  if (location.pathname !== ROUTES.login) history.replaceState({ view: 'change' }, '', ROUTES.login);
+  show('change');
+}
+
+views.change.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const form = views.change;
+  hideAlert(form);
+  if (!checkNewPassword(form)) return undefined;
+  return withBusy(form, async () => {
+    const res = await api('POST', '/api/auth/change-password', {
+      newPassword: form.newPassword.value,
+      confirmPassword: form.confirmPassword.value,
+    });
+    if (!res.ok) return showAlert(form, res.error);
+    form.reset();
+    resetPasswordVisibility(form);
+    updateRules(form);
+    enterHome(res.data);
+    return undefined;
+  });
+});
+
+$('[data-logout-landing]').addEventListener('click', async () => {
+  await api('POST', '/api/auth/logout');
+  currentUser = null;
+  navigate('login', ROUTES.login);
+});
 
 views.reset.addEventListener('submit', (event) => {
   event.preventDefault();
   const form = views.reset;
   hideAlert(form);
-  const rules = updateRules();
-  if (!rules.length) return markInvalid(form.newPassword, form, `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`);
-  if (!rules.mix) return markInvalid(form.newPassword, form, 'La contraseña debe combinar letras y números.');
-  if (!rules.match) return markInvalid(form.confirmPassword, form, 'Las dos contraseñas no coinciden.');
+  if (!checkNewPassword(form)) return undefined;
 
   return withBusy(form, async () => {
     const res = await api('POST', '/api/auth/reset-password', {
@@ -213,37 +238,73 @@ function finishReset(view) {
   resetToken = '';
   views.reset.reset();
   resetPasswordVisibility(views.reset);
-  updateRules();
+  updateRules(views.reset);
   // Quita el token de la barra de direcciones y del historial.
   history.replaceState({ view }, '', ROUTES.login);
   show(view);
 }
 
+// La misma pantalla sirve para restablecer y para aceptar una invitación.
+const RESET_COPY = Object.freeze({
+  reset: {
+    title: 'Elige una contraseña nueva',
+    lead: 'Al guardarla se cerrarán las sesiones abiertas en otros dispositivos.',
+    button: 'Guardar contraseña',
+    doneTitle: 'Contraseña actualizada',
+    doneLead: 'Ya puedes entrar con tu nueva contraseña.',
+  },
+  invite: {
+    title: 'Te damos la bienvenida',
+    lead: 'Crea tu contraseña para entrar en la gestión de Puntapié.',
+    button: 'Crear contraseña',
+    doneTitle: '¡Ya tienes acceso!',
+    doneLead: 'Tu cuenta está lista. Entra con tu correo y la contraseña que acabas de crear.',
+  },
+});
+
+function applyResetCopy(purpose) {
+  const copy = RESET_COPY[purpose] ?? RESET_COPY.reset;
+  $('#view-reset h1').textContent = copy.title;
+  $('#view-reset .lead').textContent = copy.lead;
+  $('#view-reset button[type="submit"] span').textContent = copy.button;
+  $('#view-done h1').textContent = copy.doneTitle;
+  $('#view-done .lead').textContent = copy.doneLead;
+}
+
 /* ---------- Sesión ---------- */
 
 function isAppPath(path) {
-  return path === APP_ROOT || path.startsWith(`${APP_ROOT}/`);
+  const pathname = path.split('?')[0];
+  return pathname === APP_ROOT || pathname.startsWith(`${APP_ROOT}/`);
 }
 
+function currentLocation() {
+  return location.pathname + location.search;
+}
+
+// `path` puede llevar consulta (p. ej. ?accion=alta); la ruta canónica que
+// devuelve el panel ya no la lleva, para que recargar no repita la acción.
 function enterApp(user, path = APP_ROOT, { push = false } = {}) {
+  if (user.mustChangePassword) return showChange(user);
   currentUser = user;
   landing.hidden = true;
   const canonical = renderShell(user, isAppPath(path) ? path : APP_ROOT);
   if (push) history.pushState({ app: true }, '', canonical);
-  else if (location.pathname !== canonical) history.replaceState({ app: true }, '', canonical);
+  else if (currentLocation() !== canonical) history.replaceState({ app: true }, '', canonical);
 }
 
 function enterHome(user) {
   enterApp(user, APP_ROOT, { push: location.pathname !== APP_ROOT });
 }
 
-// Enlaces internos de la aplicación (mosaico, migas, logo).
+// Enlaces internos de la aplicación (mosaico, migas, logo, secciones).
 document.addEventListener('click', (event) => {
   const link = event.target.closest('a[data-nav]');
   if (!link || !currentUser || event.metaKey || event.ctrlKey || event.shiftKey) return;
   event.preventDefault();
-  const target = new URL(link.href).pathname;
-  if (target !== location.pathname) enterApp(currentUser, target, { push: true });
+  const url = new URL(link.href);
+  const target = url.pathname + url.search;
+  if (target !== currentLocation()) enterApp(currentUser, target, { push: true });
 });
 
 $('[data-logout]').addEventListener('click', async () => {
@@ -258,16 +319,19 @@ async function route() {
   const path = location.pathname.replace(/\/+$/, '') || '/';
 
   // Navegación atrás/adelante dentro de la app sin volver a pedir la sesión.
-  if (currentUser && isAppPath(path)) return enterApp(currentUser, path);
+  if (currentUser && !currentUser.mustChangePassword && isAppPath(path)) {
+    return enterApp(currentUser, path + location.search);
+  }
 
   if (path === ROUTES.reset) {
     resetToken = new URLSearchParams(location.search).get('token') ?? '';
     const res = resetToken ? await api('POST', '/api/auth/reset-password/check', { token: resetToken }) : null;
+    applyResetCopy(res?.data?.purpose);
     return show(res?.ok && res.data.valid ? 'reset' : 'invalid');
   }
 
   const me = await api('GET', '/api/auth/me');
-  if (me.ok) return enterApp(me.data, path);
+  if (me.ok) return enterApp(me.data, path + location.search);
   currentUser = null;
   if (path === ROUTES.forgot) return show('forgot');
   if (path !== ROUTES.login) history.replaceState({ view: 'login' }, '', ROUTES.login);
