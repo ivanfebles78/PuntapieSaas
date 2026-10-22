@@ -93,22 +93,6 @@ describe('vacaciones del equipo', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATA
     assert.equal(cleared.data.summary.entitled, 30);
   });
 
-  test('los días pendientes del año anterior se pueden fijar a mano y volver al cálculo', async () => {
-    const set = await admin('PUT', `/api/admin/users/${elena.id}/carryover`, { days: 6 });
-    assert.equal(set.status, 200);
-    assert.equal(set.data.summary.carryOver, 6);
-    assert.equal(set.data.summary.carryOverSource, 'manual');
-    assert.equal(set.data.summary.available, set.data.summary.entitled + 6);
-
-    const bad = await admin('PUT', `/api/admin/users/${elena.id}/carryover`, { days: 2.5 });
-    assert.equal(bad.status, 400);
-    const tooMany = await admin('PUT', `/api/admin/users/${elena.id}/carryover`, { days: 61 });
-    assert.equal(tooMany.status, 400);
-
-    const auto = await admin('PUT', `/api/admin/users/${elena.id}/carryover`, { days: null });
-    assert.notEqual(auto.data.summary.carryOverSource, 'manual');
-  });
-
   test('solo el Administrador gestiona vacaciones', async () => {
     const res = await ctx.client()('GET', `/api/admin/users/${elena.id}/vacations`);
     assert.equal(res.status, 401);

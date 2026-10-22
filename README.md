@@ -29,10 +29,8 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
   contraseña o, si no tiene correo, generar una contraseña provisional, y **vacaciones** de cada
   persona (periodos sin solapes, días naturales, aviso «De vacaciones hasta…» en su fila) con
   **saldo del año**: 30 días naturales, o la parte proporcional (al alza) si el contrato empezó
-  durante el año (p. ej. 07/07 → 15), **más los días sin gastar del año anterior** (solo el
-  inmediatamente anterior; los arrastrados se gastan primero y, si no se gastan, caducan; 2025
-  se escribe a mano porque no hay datos), menos los disfrutados
-  (hasta hoy) y los programados.
+  durante el año (p. ej. 07/07 → 15), menos los disfrutados (hasta hoy) y los programados. Los días no usados antes del 31 de
+  diciembre **se pierden**: no pasan al año siguiente.
   Es la única sección de Admin: todo el equipo se gestiona desde ahí.
 - Protecciones: nadie cambia su propio rol ni se da de baja, y siempre queda un Administrador activo.
   La API exige el rol en el servidor (`/api/admin/*` → 403 para Empleado).

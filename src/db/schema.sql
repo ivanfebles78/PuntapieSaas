@@ -67,16 +67,8 @@ CREATE INDEX IF NOT EXISTS vacations_user_start_idx ON vacations(user_id, start_
 -- Inicio de contrato: prorratea los 30 días de vacaciones del primer año.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS contract_start DATE;
 
--- Días pendientes del año anterior escritos a mano (sustituyen al cálculo
--- automático; necesarios para años sin datos en la aplicación).
-CREATE TABLE IF NOT EXISTS vacation_carryovers (
-  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  year       INTEGER NOT NULL,
-  days       INTEGER NOT NULL CHECK (days BETWEEN 0 AND 60),
-  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (user_id, year)
-);
+-- Los días no usados en el año se pierden: ya no hay pendientes que arrastrar.
+DROP TABLE IF EXISTS vacation_carryovers;
 
 -- Solo existen dos roles: 'admin' (todo) y 'empleado' (vista limitada).
 UPDATE users SET role = 'empleado' WHERE role NOT IN ('admin', 'empleado');

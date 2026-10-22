@@ -20,7 +20,6 @@ import {
   getVacationOverview,
   readVacation,
   setContractStart,
-  setManualCarryOver,
 } from '../services/vacations.js';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -188,16 +187,6 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
   router.get('/users/:id/vacations', async (req, res, next) => {
     try {
       res.json({ ok: true, data: await getVacationOverview(pool, readId(req.params.id)) });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  router.put('/users/:id/carryover', async (req, res, next) => {
-    try {
-      const id = readId(req.params.id);
-      await setManualCarryOver(pool, id, req.body?.days ?? null, req.user.id);
-      res.json({ ok: true, data: await getVacationOverview(pool, id) });
     } catch (error) {
       next(error);
     }
