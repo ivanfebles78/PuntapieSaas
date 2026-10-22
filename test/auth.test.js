@@ -7,7 +7,16 @@ import {
   startTestServer,
   tokenFromLink,
 } from './helpers.js';
-import { validateNewPassword } from '../src/auth/password.js';
+import { validateNewPassword, verifyPassword } from '../src/auth/password.js';
+import { DEFAULT_ADMIN_PASSWORD_HASH } from '../src/config.js';
+import { seedAdmin } from '../src/db/migrate.js';
+
+describe('contraseña inicial del admin', () => {
+  test('el hash por defecto corresponde a la contraseña acordada', async () => {
+    assert.match(DEFAULT_ADMIN_PASSWORD_HASH, /^\$2[aby]\$12\$/);
+    assert.equal(await verifyPassword('Tenerife@2025', DEFAULT_ADMIN_PASSWORD_HASH), true);
+  });
+});
 
 describe('validateNewPassword', () => {
   test('exige longitud mínima, letras y números, y que coincidan', () => {
@@ -115,6 +124,21 @@ describe('API de autenticación', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATA
 
     await ctx.pool.query("UPDATE password_resets SET expires_at = NOW() - INTERVAL '1 minute'");
     assert.equal((await call('POST', '/api/auth/reset-password/check', { token: second })).data.valid, false);
+  });
+
+  test('sin ADMIN_INITIAL_PASSWORD el admin se crea con el hash por defecto', async () => {
+    const silent = { info() {}, warn() {}, error() {} };
+    await seedAdmin(ctx.pool, {
+      adminEmail: 'hash@puntapie.test',
+      adminName: 'Hash',
+      adminInitialPassword: '',
+      adminPasswordHash: DEFAULT_ADMIN_PASSWORD_HASH,
+    }, silent);
+    const login = await ctx.client()('POST', '/api/auth/login', {
+      email: 'hash@puntapie.test',
+      password: 'Tenerife@2025',
+    });
+    assert.equal(login.status, 200);
   });
 
   test('/api/health confirma la conexión a la base de datos', async () => {
