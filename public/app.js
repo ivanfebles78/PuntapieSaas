@@ -2,6 +2,7 @@ const ROUTES = Object.freeze({ login: '/', forgot: '/recuperar', reset: '/restab
 const VIEW_IDS = ['login', 'forgot', 'sent', 'reset', 'invalid', 'done', 'home'];
 const MIN_PASSWORD_LENGTH = 8;
 const NETWORK_ERROR = 'No hay conexión con el servidor. Inténtalo de nuevo.';
+const ROLE_LABELS = Object.freeze({ admin: 'Administrador' });
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const views = Object.fromEntries(VIEW_IDS.map((id) => [id, $(`#view-${id}`)]));
@@ -216,6 +217,7 @@ function finishReset(view) {
 
 function enterHome(user) {
   $('[data-user-name]').textContent = (user.name || user.email).split(' ')[0];
+  $('[data-user-role]').textContent = ROLE_LABELS[user.role] ?? user.role;
   if (location.pathname !== ROUTES.login) history.replaceState({ view: 'home' }, '', ROUTES.login);
   show('home');
 }

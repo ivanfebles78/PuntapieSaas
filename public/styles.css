@@ -653,6 +653,43 @@ input[aria-invalid='true'] {
   margin: 0;
 }
 
+.panel-foot p + p {
+  margin-top: 4px;
+}
+
+.foot-label {
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.panel-foot a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+  border-radius: 4px;
+}
+
+.panel-foot a:hover {
+  color: var(--mint-deep);
+  text-decoration-color: currentColor;
+}
+
+.panel-foot a:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.role-chip {
+  align-self: flex-start;
+  margin: 0 0 14px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--mint-wash);
+  color: var(--mint-deep);
+  font-size: 13px;
+}
+
 /* ---------- Animaciones ---------- */
 
 @keyframes hero-in {

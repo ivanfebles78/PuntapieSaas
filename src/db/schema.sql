@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
   email               TEXT NOT NULL UNIQUE,
   name                TEXT NOT NULL,
   password_hash       TEXT NOT NULL,
-  -- Los roles y permisos por módulo se ampliarán más adelante.
+  -- 'admin' = Administrador (acceso total). Más roles y permisos por módulo llegarán después.
   role                TEXT NOT NULL DEFAULT 'admin',
   is_active           BOOLEAN NOT NULL DEFAULT TRUE,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),

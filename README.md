@@ -28,7 +28,7 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
 
 ```bash
 npm install
-cp .env.example .env   # rellena DATABASE_URL y ADMIN_EMAIL
+cp .env.example .env   # rellena DATABASE_URL
 npm run dev
 ```
 
@@ -46,9 +46,10 @@ TEST_DATABASE_URL=postgres://usuario@localhost:5432/puntapie_test npm test
 2. Añade un servicio **PostgreSQL** al proyecto.
 3. Variables del servicio web:
    - `DATABASE_URL` → referencia a la del Postgres
-   - `ADMIN_EMAIL` y `ADMIN_NAME` (solo se usan para crear la cuenta la primera vez). La contraseña
-     inicial ya viene hasheada con bcrypt en `src/config.js`; `ADMIN_PASSWORD_HASH` o
-     `ADMIN_INITIAL_PASSWORD` permiten cambiarla antes del primer arranque
+   - Nada más es obligatorio: en el primer arranque se crea la cuenta de **Administrador**
+     `ivan.febles@gmail.com` con su contraseña ya hasheada con bcrypt en `src/config.js`.
+     `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD_HASH` o `ADMIN_INITIAL_PASSWORD` la sustituyen
+     antes de ese primer arranque
    - `RESEND_API_KEY` y `MAIL_FROM` para enviar los correos de recuperación
      (el dominio del remitente debe estar verificado en Resend)
    - `APP_URL` si usas un dominio propio (si no, se usa el dominio público de Railway)

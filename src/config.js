@@ -6,8 +6,9 @@ const RESET_TOKEN_MINUTES = 60;
 const LOGIN_MAX_FAILED_ATTEMPTS = 20;
 const FORGOT_MAX_REQUESTS = 10;
 
-// Hash bcrypt (12 rondas) de la contraseña inicial del admin. Solo se usa al
-// crear la cuenta por primera vez; ADMIN_PASSWORD_HASH lo sustituye.
+// Cuenta de Administrador inicial. Solo se usa al crearla por primera vez;
+// ADMIN_EMAIL y ADMIN_PASSWORD_HASH las sustituyen. Hash bcrypt de 12 rondas.
+const DEFAULT_ADMIN_EMAIL = 'ivan.febles@gmail.com';
 export const DEFAULT_ADMIN_PASSWORD_HASH =
   '$2b$12$7YfbPCmtOuPHX72qxGhy/.bk75FG1irpNuR3HJD3EOiJghGMDUQDa';
 
@@ -32,8 +33,8 @@ export const config = Object.freeze({
   databaseUrl: readEnv('DATABASE_URL', ''),
   isProduction: process.env.NODE_ENV === 'production',
   appUrl: resolveAppUrl(port),
-  adminEmail: readEnv('ADMIN_EMAIL', '').trim().toLowerCase(),
-  adminName: readEnv('ADMIN_NAME', 'Administración'),
+  adminEmail: readEnv('ADMIN_EMAIL', DEFAULT_ADMIN_EMAIL).trim().toLowerCase(),
+  adminName: readEnv('ADMIN_NAME', 'Iván'),
   adminInitialPassword: readEnv('ADMIN_INITIAL_PASSWORD', ''),
   adminPasswordHash: readEnv('ADMIN_PASSWORD_HASH', DEFAULT_ADMIN_PASSWORD_HASH),
   resendApiKey: readEnv('RESEND_API_KEY', ''),

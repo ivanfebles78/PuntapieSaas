@@ -8,10 +8,15 @@ import {
   tokenFromLink,
 } from './helpers.js';
 import { validateNewPassword, verifyPassword } from '../src/auth/password.js';
-import { DEFAULT_ADMIN_PASSWORD_HASH } from '../src/config.js';
+import { DEFAULT_ADMIN_PASSWORD_HASH, config } from '../src/config.js';
 import { seedAdmin } from '../src/db/migrate.js';
 
 describe('contraseña inicial del admin', () => {
+  test('la cuenta de Administrador por defecto es la de Iván', { skip: Boolean(process.env.ADMIN_EMAIL) }, () => {
+    assert.equal(config.adminEmail, 'ivan.febles@gmail.com');
+    assert.equal(config.adminName, process.env.ADMIN_NAME || 'Iván');
+  });
+
   test('el hash por defecto corresponde a la contraseña acordada', async () => {
     assert.match(DEFAULT_ADMIN_PASSWORD_HASH, /^\$2[aby]\$12\$/);
     assert.equal(await verifyPassword('Tenerife@2025', DEFAULT_ADMIN_PASSWORD_HASH), true);
