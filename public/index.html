@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Puntapié · Gestión</title>
+  <meta name="description" content="Acceso privado a la gestión de Puntapié, calzado infantil en Santa Cruz de Tenerife.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#f7f1e6">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Fraunces:opsz,wght,SOFT@9..144,500..700,100&display=swap">
+  <link rel="preload" as="image" type="image/webp"
+        imagesrcset="/img/tienda-900.webp 900w, /img/tienda-1600.webp 1600w, /img/tienda-2400.webp 2400w"
+        imagesizes="(min-width: 960px) 56vw, 100vw">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <main class="landing">
+    <section class="hero" aria-label="La tienda">
+      <picture>
+        <source type="image/webp"
+                srcset="/img/tienda-900.webp 900w, /img/tienda-1600.webp 1600w, /img/tienda-2400.webp 2400w"
+                sizes="(min-width: 960px) 56vw, 100vw">
+        <img class="hero-img" src="/img/tienda-1600.jpg" width="1600" height="2133"
+             alt="Fachada de la zapatería Puntapié, calzado infantil, en la calle Viera y Clavijo"
+             fetchpriority="high" decoding="async">
+      </picture>
+      <div class="hero-shade" aria-hidden="true"></div>
+      <p class="hero-chip"><span class="dot" aria-hidden="true"></span>Área privada del equipo</p>
+      <div class="hero-caption">
+        <p class="eyebrow">Calzado infantil · Santa Cruz de Tenerife</p>
+        <p class="hero-title">Pasitos que crecen<br><em>con libertad.</em></p>
+      </div>
+    </section>
+
+    <section class="panel" aria-live="polite">
+      <div class="bunting" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+
+      <div class="panel-inner">
+        <header class="brand">
+          <svg class="brand-foot" viewBox="0 0 64 84" aria-hidden="true">
+            <ellipse cx="34" cy="54" rx="21" ry="29"/>
+            <circle cx="14" cy="19" r="8"/>
+            <circle cx="27" cy="11" r="6.4"/>
+            <circle cx="39" cy="9" r="5.6"/>
+            <circle cx="50" cy="12" r="4.8"/>
+            <circle cx="58" cy="19" r="4"/>
+          </svg>
+          <div class="brand-text">
+            <p class="wordmark" aria-label="Puntapié">
+              <span class="box" aria-hidden="true">P</span><span class="box" aria-hidden="true">U</span><span class="box" aria-hidden="true">N</span><span class="box" aria-hidden="true">T</span><span class="box tri" aria-hidden="true">A</span><span class="pie" aria-hidden="true">pië</span>
+            </p>
+            <p class="brand-sub">calzado infantil · gestión</p>
+          </div>
+        </header>
+
+        <!-- Iniciar sesión -->
+        <form class="view" id="view-login" novalidate hidden>
+          <h1>Hola de nuevo</h1>
+          <p class="lead">Entra en la gestión de la tienda: gastos, facturas, clientes y administración en un solo sitio.</p>
+
+          <div class="field">
+            <label for="login-email">Correo electrónico</label>
+            <input id="login-email" name="email" type="email" autocomplete="username" inputmode="email" required>
+          </div>
+
+          <div class="field">
+            <div class="label-row">
+              <label for="login-password">Contraseña</label>
+              <a class="link" href="/recuperar" data-go="forgot">¿La has olvidado?</a>
+            </div>
+            <div class="password">
+              <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+              <button class="eye" type="button" data-toggle="login-password" aria-label="Mostrar contraseña" aria-pressed="false">
+                <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 5.1A10.9 10.9 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3 3.9M6.6 6.6A17.4 17.4 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3 3 18 18"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <p class="alert" role="alert" hidden></p>
+          <button class="btn" type="submit"><span>Entrar</span></button>
+        </form>
+
+        <!-- Solicitar enlace -->
+        <form class="view" id="view-forgot" novalidate hidden>
+          <h1>Recupera tu acceso</h1>
+          <p class="lead">Escribe el correo de tu cuenta y te enviaremos un enlace para elegir una contraseña nueva.</p>
+          <div class="field">
+            <label for="forgot-email">Correo electrónico</label>
+            <input id="forgot-email" name="email" type="email" autocomplete="email" inputmode="email" required>
+          </div>
+          <p class="alert" role="alert" hidden></p>
+          <button class="btn" type="submit"><span>Enviar enlace</span></button>
+          <a class="back" href="/" data-go="login">← Volver a iniciar sesión</a>
+        </form>
+
+        <!-- Enlace enviado -->
+        <section class="view" id="view-sent" hidden>
+          <div class="badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg>
+          </div>
+          <h1>Revisa tu correo</h1>
+          <p class="lead" data-sent-message></p>
+          <p class="note">El enlace caduca en 60 minutos y solo sirve una vez. Mira también en la carpeta de spam.</p>
+          <a class="back" href="/" data-go="login">← Volver a iniciar sesión</a>
+        </section>
+
+        <!-- Nueva contraseña -->
+        <form class="view" id="view-reset" novalidate hidden>
+          <h1>Elige una contraseña nueva</h1>
+          <p class="lead">Al guardarla se cerrarán las sesiones abiertas en otros dispositivos.</p>
+          <div class="field">
+            <label for="reset-password">Nueva contraseña</label>
+            <div class="password">
+              <input id="reset-password" name="newPassword" type="password" autocomplete="new-password" required>
+              <button class="eye" type="button" data-toggle="reset-password" aria-label="Mostrar contraseña" aria-pressed="false">
+                <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 5.1A10.9 10.9 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3 3.9M6.6 6.6A17.4 17.4 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3 3 18 18"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="reset-confirm">Repite la contraseña</label>
+            <div class="password">
+              <input id="reset-confirm" name="confirmPassword" type="password" autocomplete="new-password" required>
+              <button class="eye" type="button" data-toggle="reset-confirm" aria-label="Mostrar contraseña" aria-pressed="false">
+                <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.6 5.1A10.9 10.9 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3 3.9M6.6 6.6A17.4 17.4 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3 3 18 18"/></svg>
+              </button>
+            </div>
+          </div>
+          <ul class="rules" aria-label="Requisitos de la contraseña">
+            <li data-rule="length">Al menos 8 caracteres</li>
+            <li data-rule="mix">Letras y números</li>
+            <li data-rule="match">Las dos coinciden</li>
+          </ul>
+          <p class="alert" role="alert" hidden></p>
+          <button class="btn" type="submit"><span>Guardar contraseña</span></button>
+        </form>
+
+        <!-- Enlace no válido -->
+        <section class="view" id="view-invalid" hidden>
+          <div class="badge badge-warn" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></svg>
+          </div>
+          <h1>Este enlace ya no sirve</h1>
+          <p class="lead">Ha caducado o ya se usó. Pide uno nuevo y te llegará en un momento.</p>
+          <a class="btn btn-link" href="/recuperar" data-go="forgot"><span>Pedir un enlace nuevo</span></a>
+        </section>
+
+        <!-- Contraseña cambiada -->
+        <section class="view" id="view-done" hidden>
+          <div class="badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+          </div>
+          <h1>Contraseña actualizada</h1>
+          <p class="lead">Ya puedes entrar con tu nueva contraseña.</p>
+          <a class="btn btn-link" href="/" data-go="login"><span>Iniciar sesión</span></a>
+        </section>
+
+        <!-- Sesión iniciada (provisional hasta que lleguen los módulos) -->
+        <section class="view" id="view-home" hidden>
+          <p class="eyebrow eyebrow-dark">Sesión iniciada</p>
+          <h1>Hola, <span data-user-name></span></h1>
+          <p class="lead">Estamos preparando los módulos de la aplicación. Muy pronto aparecerán aquí.</p>
+          <ul class="modules">
+            <li><span class="mod-dot mod-mint" aria-hidden="true"></span>Gastos y ventas<small>Próximamente</small></li>
+            <li><span class="mod-dot mod-yellow" aria-hidden="true"></span>Facturas<small>Próximamente</small></li>
+            <li><span class="mod-dot mod-pink" aria-hidden="true"></span>Clientes (CRM)<small>Próximamente</small></li>
+            <li><span class="mod-dot mod-sage" aria-hidden="true"></span>Administración<small>Próximamente</small></li>
+          </ul>
+          <button class="btn btn-ghost" type="button" data-logout><span>Cerrar sesión</span></button>
+        </section>
+
+        <footer class="panel-foot">
+          <p>Calle Viera y Clavijo, 1 · Santa Cruz de Tenerife</p>
+        </footer>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

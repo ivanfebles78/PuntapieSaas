@@ -1,0 +1,87 @@
+import { createApp } from '../src/app.js';
+import { createPool } from '../src/db/pool.js';
+import { applySchema, seedAdmin } from '../src/db/migrate.js';
+
+export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? '';
+export const ADMIN_EMAIL = 'admin@puntapie.test';
+export const ADMIN_PASSWORD = 'AdminSecreta1';
+
+export const testConfig = Object.freeze({
+  port: 0,
+  databaseUrl: TEST_DATABASE_URL,
+  isProduction: false,
+  appUrl: 'http://puntapie.test',
+  adminEmail: ADMIN_EMAIL,
+  adminName: 'Iván',
+  adminInitialPassword: ADMIN_PASSWORD,
+  resendApiKey: '',
+  mailFrom: 'test@puntapie.test',
+  sessionTtlMs: 60 * 60 * 1000,
+  resetTokenTtlMs: 60 * 60 * 1000,
+  cookieName: 'puntapie_session',
+  loginMaxFailedAttempts: 1000,
+  forgotMaxRequests: 1000,
+});
+
+const silentLog = { info() {}, warn() {}, error() {} };
+
+/**
+ * Levanta la app sobre una base de datos limpia. El mailer guarda los
+ * correos en memoria para poder leer el enlace de restablecimiento.
+ */
+export async function startTestServer() {
+  const pool = createPool(TEST_DATABASE_URL);
+  await pool.query('DROP TABLE IF EXISTS password_resets, sessions, users CASCADE');
+  await applySchema(pool);
+  await seedAdmin(pool, testConfig, silentLog);
+
+  const sentMail = [];
+  const mailer = {
+    async sendPasswordReset(message) {
+      sentMail.push(message);
+    },
+  };
+
+  const app = createApp({ pool, config: testConfig, log: silentLog, mailer });
+  const server = await new Promise((resolve) => {
+    const s = app.listen(0, () => resolve(s));
+  });
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  function client() {
+    let cookie = '';
+    return async function call(method, path, body) {
+      const response = await fetch(baseUrl + path, {
+        method,
+        headers: {
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+          ...(cookie ? { Cookie: cookie } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const setCookie = response.headers.get('set-cookie');
+      if (setCookie) cookie = setCookie.split(';')[0];
+      const json = await response.json();
+      return { status: response.status, ...json };
+    };
+  }
+
+  // El correo se envía tras responder: espera a que llegue.
+  async function waitForMail(count) {
+    for (let i = 0; i < 50 && sentMail.length < count; i += 1) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return sentMail[count - 1];
+  }
+
+  async function stop() {
+    await new Promise((resolve) => server.close(resolve));
+    await pool.end();
+  }
+
+  return { pool, client, sentMail, waitForMail, stop };
+}
+
+export function tokenFromLink(link) {
+  return new URL(link).searchParams.get('token');
+}
