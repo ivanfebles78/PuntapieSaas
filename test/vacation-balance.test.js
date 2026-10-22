@@ -126,7 +126,7 @@ describe('días pendientes del año anterior', () => {
     const auto = vacationBalance({ contractStart: null, periods: [], today: '2026-10-22' });
     assert.equal(auto.carryOver, 0);
     assert.equal(auto.carryOverSource, 'none');
-    const manual = vacationBalance({ contractStart: null, periods: [], today: '2026-10-22', manualCarryOver: 6 });
+    const manual = vacationBalance({ contractStart: null, periods: [], today: '2026-10-22', manualByYear: { 2026: 6 } });
     assert.equal(manual.carryOver, 6);
     assert.equal(manual.carryOverSource, 'manual');
     assert.equal(manual.remaining, 36);
@@ -135,5 +135,48 @@ describe('días pendientes del año anterior', () => {
   test('el contrato que empieza este año no trae pendientes', () => {
     const balance = vacationBalance({ contractStart: '2027-04-01', periods: [], today: '2027-05-01' });
     assert.equal(balance.carryOver, 0);
+  });
+});
+
+describe('los días arrastrados caducan: se gastan primero', () => {
+  test('ejemplo: trae 6 de 2025, gasta 10 en 2026 → pasan 26 a 2027', () => {
+    const balance = vacationBalance({
+      contractStart: null,
+      periods: [{ start: '2026-08-03', end: '2026-08-12' }], // 10 días
+      today: '2027-02-01',
+      manualByYear: { 2026: 6 },
+    });
+    assert.equal(balance.carryOver, 26);
+  });
+
+  test('si no gasta los arrastrados, se pierden y solo pasan los propios', () => {
+    const balance = vacationBalance({
+      contractStart: null,
+      periods: [{ start: '2026-08-03', end: '2026-08-05' }], // 3 días: todos de los 6 arrastrados
+      today: '2027-02-01',
+      manualByYear: { 2026: 6 },
+    });
+    assert.equal(balance.carryOver, 30, 'quedaban 3 arrastrados sin gastar: caducan');
+  });
+
+  test('la cadena sigue año a año', () => {
+    // 2026: trae 6, gasta 36 → 6 arrastrados + 30 propios → pasan 0 a 2027.
+    // 2027: trae 0, gasta 20 → pasan 10 a 2028.
+    const balance = vacationBalance({
+      contractStart: null,
+      periods: [
+        { start: '2026-06-01', end: '2026-07-06' }, // 36 días
+        { start: '2027-06-01', end: '2027-06-20' }, // 20 días
+      ],
+      today: '2028-01-15',
+      manualByYear: { 2026: 6 },
+    });
+    assert.equal(balance.carryOver, 10);
+  });
+
+  test('un valor escrito a mano para un año corta la cadena', () => {
+    const balance = vacationBalance({ contractStart: null, periods: [], today: '2028-01-15', manualByYear: { 2028: 4 } });
+    assert.equal(balance.carryOver, 4);
+    assert.equal(balance.carryOverSource, 'manual');
   });
 });

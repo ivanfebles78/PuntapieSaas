@@ -68,18 +68,25 @@ function usedInYear(periods, year, today) {
 }
 
 /**
- * Días sin gastar del año anterior que pasan a este. Solo se calculan si
- * el año anterior ya se registraba en la aplicación; si no, se usa el valor
- * escrito a mano (o 0). Solo arrastra lo del año anterior: lo que viniera
- * de dos años atrás y no se gastó no se acumula.
+ * Días sin gastar del año anterior que pasan a `year`.
+ *
+ * Regla: solo pasan los días propios del año anterior. Los que ese año
+ * traía arrastrados caducan, así que se gastan primero:
+ *   propios sin gastar = corresponden − max(0, usados − arrastrados).
+ * Se calcula año a año desde que se registran vacaciones en la aplicación;
+ * para años sin datos (o para corregir) vale el número escrito a mano.
+ * `manualByYear` es { [año]: días pendientes que entran en ese año }.
  */
-export function carryOverDays({ contractStart, periods, year, manual = null }) {
+export function carryOverDays({ contractStart, periods, year, manualByYear = {} }) {
+  const manual = manualByYear[year];
   if (manual !== null && manual !== undefined) return { days: manual, source: 'manual' };
   const previous = year - 1;
   if (previous < VACATION_TRACKING_SINCE) return { days: 0, source: 'none' };
   if (contractStart && contractStart > `${previous}-12-31`) return { days: 0, source: 'auto' };
-  const used = usedInYear(periods, previous, `${previous}-12-31`);
-  const unused = entitledDays(contractStart, previous).days - used.taken;
+  const carriedIntoPrevious = carryOverDays({ contractStart, periods, year: previous, manualByYear }).days;
+  const used = usedInYear(periods, previous, `${previous}-12-31`).taken;
+  const ownUsed = Math.max(0, used - carriedIntoPrevious);
+  const unused = entitledDays(contractStart, previous).days - ownUsed;
   return { days: Math.max(0, unused), source: 'auto' };
 }
 
@@ -88,11 +95,11 @@ export function carryOverDays({ contractStart, periods, year, manual = null }) {
  * anterior, disfrutados (hasta hoy incluido), programados (a partir de
  * mañana) y los que quedan.
  */
-export function vacationBalance({ contractStart, periods, today = todayInShop(), manualCarryOver = null }) {
+export function vacationBalance({ contractStart, periods, today = todayInShop(), manualByYear = {} }) {
   const year = Number(today.slice(0, 4));
   const { taken, planned } = usedInYear(periods, year, today);
   const entitled = entitledDays(contractStart, year);
-  const carry = carryOverDays({ contractStart, periods, year, manual: manualCarryOver });
+  const carry = carryOverDays({ contractStart, periods, year, manualByYear });
   const available = entitled.days + carry.days;
   return {
     year,

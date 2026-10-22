@@ -71,19 +71,21 @@ const MAX_CARRYOVER_DAYS = 60;
 export async function getVacationOverview(pool, userId, today = todayInShop()) {
   const periods = await listVacations(pool, userId);
   const year = Number(today.slice(0, 4));
-  const extra = await pool.query(
-    `SELECT to_char(u.contract_start, 'YYYY-MM-DD') AS contract_start, c.days AS manual_carryover
-       FROM users u
-       LEFT JOIN vacation_carryovers c ON c.user_id = u.id AND c.year = $2
-      WHERE u.id = $1`,
+  const user = await pool.query(
+    "SELECT to_char(contract_start, 'YYYY-MM-DD') AS contract_start FROM users WHERE id = $1",
+    [userId],
+  );
+  // Todos los años con valor a mano: el cálculo encadena año a año.
+  const manual = await pool.query(
+    'SELECT year, days FROM vacation_carryovers WHERE user_id = $1 AND year <= $2',
     [userId, year],
   );
-  const contractStart = extra.rows[0]?.contract_start ?? null;
-  const manualCarryOver = extra.rows[0]?.manual_carryover ?? null;
+  const contractStart = user.rows[0]?.contract_start ?? null;
+  const manualByYear = Object.fromEntries(manual.rows.map((row) => [row.year, row.days]));
   return {
     contractStart,
     periods,
-    summary: vacationBalance({ contractStart, periods, today, manualCarryOver }),
+    summary: vacationBalance({ contractStart, periods, today, manualByYear }),
   };
 }
 

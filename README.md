@@ -30,7 +30,8 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
   persona (periodos sin solapes, días naturales, aviso «De vacaciones hasta…» en su fila) con
   **saldo del año**: 30 días naturales, o la parte proporcional (al alza) si el contrato empezó
   durante el año (p. ej. 07/07 → 15), **más los días sin gastar del año anterior** (solo el
-  inmediatamente anterior; 2025 se escribe a mano porque no hay datos), menos los disfrutados
+  inmediatamente anterior; los arrastrados se gastan primero y, si no se gastan, caducan; 2025
+  se escribe a mano porque no hay datos), menos los disfrutados
   (hasta hoy) y los programados.
   Es la única sección de Admin: todo el equipo se gestiona desde ahí.
 - Protecciones: nadie cambia su propio rol ni se da de baja, y siempre queda un Administrador activo.
