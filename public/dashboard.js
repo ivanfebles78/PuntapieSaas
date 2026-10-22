@@ -117,51 +117,19 @@ function arrowBubble(name = 'arrowRight') {
   return h('span', { class: 'bubble' }, icon(name, 'ico ico-sm'));
 }
 
-function decoration(module) {
-  if (module.slug === 'ventas') {
-    return h('span', { class: 'deco-bunting', 'aria-hidden': 'true' },
-      Array.from({ length: 9 }, () => h('span')));
-  }
-  if (module.slug === 'estadisticas') {
-    return h('span', { class: 'deco-bars', 'aria-hidden': 'true' },
-      Array.from({ length: 7 }, (_, i) => {
-        const bar = h('span');
-        bar.style.setProperty('--b', String(i));
-        return bar;
-      }));
-  }
-  return null;
-}
-
-// La pieza destacada muestra sus secciones como paneles con descripción.
-function tileSubs(module) {
-  const rich = module.featured;
-  return h('ul', { class: rich ? 'tile-subs tile-subs-rich' : 'tile-subs', 'aria-label': `Secciones de ${module.name}` },
-    module.submodules.map((sub) => h('li', {}, rich
-      ? [
-        h('span', { class: 'sub-icon sub-icon-sm' }, icon(sub.icon, 'ico ico-md')),
-        h('span', { class: 'rich-name', text: sub.name }),
-        h('span', { class: 'rich-summary', text: sub.summary }),
-      ]
-      : [icon(sub.icon, 'ico ico-xs'), h('span', { text: sub.name })])));
-}
-
+// Todas las fichas iguales: icono grande, nombre y sus secciones.
 function moduleTile(module, index) {
-  const subs = tileSubs(module);
+  const subs = h('ul', { class: 'tile-subs', 'aria-label': `Secciones de ${module.name}` },
+    module.submodules.map((sub) => h('li', {}, [icon(sub.icon, 'ico ico-xs'), h('span', { text: sub.name })])));
 
   const core = h('span', { class: 'tile-core', 'data-spotlight': '' }, [
-    decoration(module),
     h('span', { class: 'tile-watermark' }, icon(module.icon, 'ico')),
-    h('span', { class: 'tile-head' }, [
-      h('span', { class: 'tile-icon' }, icon(module.icon, 'ico ico-lg')),
-      module.roles ? h('span', { class: 'pill pill-lock', text: 'Solo Administrador' }) : null,
-    ]),
-    h('span', { class: 'tile-body' }, [
-      h('span', { class: 'tile-count', text: sectionsLabel(module) }),
-      h('span', { class: 'tile-title', text: module.name }),
-      h('span', { class: 'tile-summary', text: module.summary }),
-    ]),
-    h('span', { class: 'tile-foot' }, [subs, arrowBubble()]),
+    module.roles ? h('span', { class: 'pill pill-lock', text: 'Solo Administrador' }) : null,
+    h('span', { class: 'tile-icon' }, icon(module.icon, 'ico ico-xl')),
+    h('span', { class: 'tile-title', text: module.name }),
+    h('span', { class: 'tile-count', text: sectionsLabel(module) }),
+    subs,
+    arrowBubble(),
   ]);
 
   return stagger(h('a', {
@@ -177,24 +145,16 @@ function renderHome(user) {
     h('div', { class: 'intro-text' }, [
       stagger(h('p', { class: 'eyebrow-pill', text: todayLabel() }), 0),
       stagger(h('h1', { class: 'intro-title', tabindex: '-1' }, [
-        h('span', { text: `${greeting()},` }),
+        h('span', { text: `${greeting()}, ` }),
         h('em', { text: `${firstName(user)}.` }),
       ]), 0),
       stagger(h('p', { class: 'intro-lead', text: 'Todo Puntapié en un solo sitio. ¿Por dónde empezamos hoy?' }), 1),
-      footsteps(),
     ]),
-    stagger(h('figure', { class: 'intro-photo' }, h('span', { class: 'bezel' }, h('span', { class: 'bezel-core' }, [
-      h('img', {
-        src: '/img/tienda-900.webp',
-        alt: 'Fachada de Puntapié en la calle Viera y Clavijo',
-        width: '900',
-        height: '1200',
-        decoding: 'async',
-      }),
-      h('figcaption', { class: 'photo-tag', text: 'Viera y Clavijo, 1' }),
-    ]))), 1),
+    footsteps(),
   ]);
   const grid = h('nav', { class: 'bento', 'aria-label': 'Módulos' }, modules.map(moduleTile));
+  // Una columna por módulo en escritorio: todos a la vista y del mismo tamaño.
+  grid.style.setProperty('--modules', String(modules.length));
   main.replaceChildren(intro, grid);
   crumb.textContent = '';
   document.title = 'Inicio · Puntapié';

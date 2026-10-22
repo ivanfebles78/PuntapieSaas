@@ -7,7 +7,6 @@ export const MODULES = Object.freeze([
     name: 'Ventas',
     icon: 'shop',
     tone: 'ventas',
-    featured: true,
     summary: 'Lo que vendemos en la tienda y en la web.',
     submodules: [
       { slug: 'tpv', name: 'TPV', icon: 'cardPos', summary: 'Caja de la tienda: cobros, tickets y cierres de caja.' },

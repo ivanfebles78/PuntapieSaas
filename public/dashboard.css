@@ -305,33 +305,28 @@
   text-transform: uppercase;
 }
 
-/* ---------- Bienvenida: split editorial ---------- */
+/* ---------- Bienvenida: saludo en una línea ---------- */
 
 .intro {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr);
-  align-items: end;
-  gap: clamp(32px, 6vw, 96px);
-  margin-bottom: clamp(56px, 8vw, 112px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: clamp(24px, 3.5vw, 44px);
 }
 
 .intro-title {
-  margin: 24px 0 20px;
+  margin: 14px 0 8px;
   font-family: var(--font-display);
   font-variation-settings: 'SOFT' 100;
   font-weight: 500;
-  font-size: clamp(3.1rem, 1.4rem + 5.6vw, 7rem);
-  line-height: 0.94;
-  letter-spacing: -0.04em;
+  font-size: clamp(2.2rem, 1.3rem + 2.6vw, 3.8rem);
+  line-height: 1;
+  letter-spacing: -0.035em;
 }
 
 .intro-title:focus {
   outline: none;
-}
-
-.intro-title span,
-.intro-title em {
-  display: block;
 }
 
 .intro-title em {
@@ -341,19 +336,19 @@
 }
 
 .intro-lead {
-  max-width: 36ch;
   margin: 0;
   color: var(--taupe);
-  font-size: clamp(1.05rem, 0.98rem + 0.3vw, 1.2rem);
+  font-size: clamp(1rem, 0.96rem + 0.2vw, 1.1rem);
 }
 
-/* Spell: unos pasitos que cruzan bajo el saludo. */
+/* Spell: unos pasitos que cruzan junto al saludo. */
 .footsteps {
   display: flex;
   align-items: center;
+  flex: none;
   gap: 18px;
   height: 44px;
-  margin-top: 30px;
+  margin-bottom: 4px;
 }
 
 .step {
@@ -390,18 +385,7 @@
   100% { opacity: 0.16; scale: 1; }
 }
 
-.intro-photo {
-  justify-self: end;
-  width: min(100%, 330px);
-  margin: 0;
-  transform: rotate(2.5deg);
-  transition: transform 1100ms var(--spring);
-}
-
-.intro-photo:hover {
-  transform: rotate(0deg) translateY(-6px);
-}
-
+/* Contenedor de doble bisel (lo usan otras pantallas, p. ej. Usuarios). */
 .bezel {
   display: block;
   padding: var(--bezel-pad);
@@ -418,48 +402,13 @@
   box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.4);
 }
 
-.bezel-core img {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 3 / 4;
-  object-fit: cover;
-  transition: transform 1400ms var(--spring);
-}
-
-.intro-photo:hover img {
-  transform: scale(1.04);
-}
-
-.photo-tag {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  padding: 7px 13px;
-  border-radius: 999px;
-  background: rgb(255 252 246 / 0.92);
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--espresso);
-}
-
-/* ---------- Bento de módulos ---------- */
+/* ---------- Módulos: todas las fichas iguales y a la vista ---------- */
 
 .bento {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-auto-rows: minmax(260px, auto);
-  gap: 20px;
+  grid-template-columns: repeat(var(--modules, 5), minmax(0, 1fr));
+  gap: 16px;
 }
-
-.tile-ventas { grid-column: span 7; grid-row: span 2; }
-.tile-gastos { grid-column: span 5; }
-.tile-stock { grid-column: span 5; }
-.tile-estadisticas { grid-column: span 7; }
-.tile-admin { grid-column: span 5; }
-
-/* Si el rol no ve Admin, Estadísticas ocupa la fila entera. */
-.tile-estadisticas:last-child { grid-column: span 12; }
 
 .tile {
   display: block;
@@ -491,11 +440,13 @@
   isolation: isolate;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   height: 100%;
-  padding: clamp(22px, 2.4vw, 34px);
+  min-height: 300px;
+  padding: 24px 22px 22px;
   overflow: hidden;
   border-radius: var(--radius-core);
-  background: linear-gradient(158deg, var(--tone-wash) 0%, var(--paper-hi) 72%);
+  background: linear-gradient(165deg, var(--tone-wash) 0%, var(--paper-hi) 78%);
   box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.8);
 }
 
@@ -519,13 +470,12 @@
 
 .tile-watermark {
   position: absolute;
-  right: -7%;
-  bottom: -16%;
+  right: -18%;
+  bottom: -14%;
   z-index: -1;
-  width: 54%;
-  max-width: 280px;
+  width: 70%;
   color: var(--tone-deep);
-  opacity: 0.07;
+  opacity: 0.06;
   transform: rotate(-12deg);
   transition: transform 1100ms var(--spring);
 }
@@ -543,22 +493,17 @@
   transform: rotate(-3deg) scale(1.06);
 }
 
-.tile-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
+/* Mismo icono, mismo tamaño en todas las fichas. */
 .tile-icon {
   display: grid;
   place-items: center;
-  width: 78px;
-  height: 78px;
-  border-radius: 24px;
+  width: 92px;
+  height: 92px;
+  flex: none;
+  border-radius: 28px;
   background: var(--paper-hi);
   color: var(--espresso);
-  box-shadow: 0 0 0 1px var(--hairline), 0 16px 30px -18px var(--tone-glow), inset 0 1px 1px #fff;
+  box-shadow: 0 0 0 1px var(--hairline), 0 18px 32px -18px var(--tone-glow), inset 0 1px 1px #fff;
   transition: transform 800ms var(--spring-pop);
 }
 
@@ -566,50 +511,29 @@
   transform: rotate(-7deg) scale(1.07);
 }
 
-.tile-body {
-  display: flex;
-  flex-direction: column;
-  margin-top: auto;
-  padding-top: 28px;
+.tile-title {
+  margin: 22px 0 2px;
+  font-family: var(--font-display);
+  font-variation-settings: 'SOFT' 100;
+  font-weight: 600;
+  font-size: clamp(1.6rem, 1.2rem + 0.9vw, 2.2rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
 }
 
 .tile-count {
   font-size: 10.5px;
   font-weight: 700;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--tone-deep);
-}
-
-.tile-title {
-  margin: 8px 0 8px;
-  font-family: var(--font-display);
-  font-variation-settings: 'SOFT' 100;
-  font-weight: 600;
-  font-size: clamp(2rem, 1.4rem + 1.5vw, 2.9rem);
-  line-height: 1;
-  letter-spacing: -0.03em;
-}
-
-.tile-summary {
-  max-width: 38ch;
-  color: var(--taupe);
-  font-size: 15.5px;
-}
-
-.tile-foot {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 22px;
 }
 
 .tile-subs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
+  gap: 6px;
+  margin: 16px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -617,69 +541,26 @@
 .tile-subs li {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 13px 7px 10px;
+  gap: 6px;
+  padding: 6px 11px 6px 9px;
   border-radius: 999px;
   background: rgb(255 255 255 / 0.72);
   box-shadow: 0 0 0 1px var(--hairline);
   color: var(--espresso-soft);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-}
-
-.tile-subs-rich {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  flex: 1;
-}
-
-.tile-subs-rich li {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 18px;
-  border-radius: 22px;
-  background: rgb(255 255 255 / 0.66);
-  font-size: 14px;
-  font-weight: 400;
-  transition: transform 800ms var(--spring), background-color 500ms var(--spring);
-}
-
-.tile:hover .tile-subs-rich li {
-  background: rgb(255 255 255 / 0.85);
-}
-
-.tile:hover .tile-subs-rich li:nth-child(2) {
-  transform: translateY(-3px);
-}
-
-.sub-icon-sm {
-  width: 52px;
-  height: 52px;
-  margin-bottom: 10px;
-  border-radius: 16px;
-}
-
-.rich-name {
-  font-family: var(--font-display);
-  font-variation-settings: 'SOFT' 100;
-  font-size: 1.4rem;
-  font-weight: 600;
-  line-height: 1.1;
-  color: var(--espresso);
-}
-
-.rich-summary {
-  color: var(--taupe);
-  font-size: 13.5px;
-  line-height: 1.4;
 }
 
 .tile .bubble {
-  width: 50px;
-  height: 50px;
+  width: 42px;
+  height: 42px;
+  margin-top: auto;
+  align-self: flex-end;
+}
+
+/* Deja hueco para que la burbuja no pise las secciones. */
+.tile-subs {
+  margin-bottom: 18px;
 }
 
 .tile:hover .bubble {
@@ -699,101 +580,14 @@
 }
 
 .pill-lock {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 4px 9px;
+  font-size: 10px;
   background: rgb(111 208 186 / 0.14);
   color: var(--mint);
   box-shadow: 0 0 0 1px rgb(111 208 186 / 0.25);
-}
-
-/* Ventas: la pieza grande, con los banderines del escaparate. */
-.tile-ventas .tile-icon {
-  width: 96px;
-  height: 96px;
-  border-radius: 30px;
-  margin-top: 26px;
-}
-
-.tile-ventas .ico-lg {
-  width: 46px;
-  height: 46px;
-}
-
-.tile-ventas .tile-title {
-  font-size: clamp(2.6rem, 1.5rem + 2.8vw, 4.4rem);
-}
-
-.tile-ventas .tile-summary {
-  font-size: 17px;
-}
-
-.deco-bunting {
-  position: absolute;
-  top: 0;
-  left: 30px;
-  right: 30px;
-  display: flex;
-  justify-content: space-between;
-  border-top: 1.5px solid rgb(30 26 22 / 0.3);
-  transform-origin: top center;
-  animation: sway 6s ease-in-out infinite alternate;
-}
-
-.deco-bunting span {
-  width: 18px;
-  height: 22px;
-  clip-path: polygon(0 0, 100% 0, 50% 100%);
-  background: var(--pink);
-  transform-origin: top center;
-  transition: transform 700ms var(--spring-pop);
-}
-
-.deco-bunting span:nth-child(4n + 2) { background: var(--mint); }
-.deco-bunting span:nth-child(4n + 3) { background: var(--yellow); }
-.deco-bunting span:nth-child(4n + 4) { background: var(--sage); }
-
-.tile:hover .deco-bunting span:nth-child(odd) { transform: rotate(8deg); }
-.tile:hover .deco-bunting span:nth-child(even) { transform: rotate(-8deg); }
-
-/* Estadísticas: barras decorativas que crecen al aparecer. */
-.deco-bars {
-  position: absolute;
-  top: clamp(22px, 2.4vw, 34px);
-  right: clamp(22px, 2.4vw, 34px);
-  display: flex;
-  align-items: flex-end;
-  gap: 7px;
-  height: 78px;
-}
-
-.deco-bars span {
-  width: 11px;
-  border-radius: 6px;
-  background: var(--tone-vivid);
-  opacity: 0.25;
-  transform-origin: bottom;
-  transform: scaleY(0.08);
-  transition: transform 1200ms var(--spring-pop), opacity 600ms var(--spring);
-  transition-delay: calc(500ms + var(--b) * 80ms);
-}
-
-.deco-bars span:nth-child(1) { height: 34%; }
-.deco-bars span:nth-child(2) { height: 52%; }
-.deco-bars span:nth-child(3) { height: 44%; }
-.deco-bars span:nth-child(4) { height: 70%; }
-.deco-bars span:nth-child(5) { height: 60%; }
-.deco-bars span:nth-child(6) { height: 86%; }
-.deco-bars span:nth-child(7) { height: 100%; opacity: 0.55; }
-
-.is-in .deco-bars span {
-  transform: scaleY(1);
-}
-
-.tile:hover .deco-bars span {
-  opacity: 0.5;
-  transition-delay: calc(var(--b) * 40ms);
-}
-
-.tile:hover .deco-bars span:nth-child(7) {
-  opacity: 0.85;
 }
 
 /* Admin: núcleo espresso, solo para el rol de Administrador. */
@@ -822,7 +616,6 @@
   box-shadow: 0 0 0 1px rgb(255 255 255 / 0.1), inset 0 1px 1px rgb(255 255 255 / 0.12);
 }
 
-.tone-admin .tile-summary,
 .tone-admin .sub-summary {
   color: rgb(255 252 246 / 0.66);
 }
@@ -1083,12 +876,11 @@ a.sub-core {
 
 /* ---------- Responsive ---------- */
 
+/* Tableta y portátil pequeño: 3 fichas por fila. */
 @media (max-width: 1080px) {
-  .tile-ventas { grid-column: span 12; grid-row: span 1; }
-  .tile-gastos,
-  .tile-stock,
-  .tile-estadisticas,
-  .tile-admin { grid-column: span 6; }
+  .bento {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 767px) {
@@ -1113,56 +905,54 @@ a.sub-core {
   }
 
   .shell-main {
-    padding: 36px 16px 56px;
+    padding: 24px 16px 56px;
   }
 
   .intro {
-    grid-template-columns: 1fr;
-    gap: 32px;
-    margin-bottom: 44px;
+    margin-bottom: 20px;
   }
 
-  .intro-photo {
-    justify-self: stretch;
-    width: 100%;
-    transform: none;
+  .footsteps {
+    display: none;
   }
 
-  .intro-photo:hover {
-    transform: none;
-  }
-
-  .bezel-core img {
-    aspect-ratio: 4 / 3;
-    object-position: 50% 52%;
-  }
-
+  /* Móvil: 2 por fila, más compactas, para ver todos los módulos de un vistazo. */
   .bento {
-    grid-template-columns: 1fr;
-    grid-auto-rows: auto;
-    gap: 16px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 
-  .bento .tile {
-    grid-column: span 1;
-    grid-row: span 1;
+  .tile {
+    border-radius: 26px;
+    padding: 5px;
   }
 
   .tile-core {
-    min-height: 280px;
+    min-height: 0;
+    padding: 16px 14px 14px;
+    border-radius: 21px;
   }
 
-  .tile-subs-rich {
-    grid-template-columns: 1fr;
+  .tile-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 20px;
   }
 
-  .tile-ventas .tile-foot {
-    flex-direction: column;
-    align-items: stretch;
+  .tile-icon .ico-xl {
+    width: 36px;
+    height: 36px;
   }
 
-  .tile-ventas .tile-foot .bubble {
-    align-self: flex-end;
+  .tile-title {
+    margin-top: 14px;
+    font-size: 1.35rem;
+  }
+
+  .tile-subs,
+  .tile .bubble,
+  .pill-lock {
+    display: none;
   }
 
   .module-title-row {
