@@ -49,6 +49,22 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
   **pagado**; borrar el último lo devuelve a **pendiente**. El estado también se cambia a mano.
 - Los documentos se guardan en PostgreSQL (el disco de Railway se borra en cada despliegue).
 
+## Estadísticas (un solo panel)
+
+- `/app/estadisticas?periodo=3m|6m|12m|anio` (y `&simular=1`).
+- **Objetivos de venta** editables por el Administrador (por defecto 500 €/día, 3.000 €/semana,
+  12.000 €/mes), guardados en la tabla `settings`.
+- Ventas de hoy, semana, mes y total del periodo con su avance frente al objetivo; % de días,
+  semanas y meses **cerrados** que lo cumplen (los días sin ventas cuentan como cerrados).
+- Gráficos: ventas diarias (30 días) y semanales con línea de objetivo, ventas vs gastos por mes,
+  métodos de pago (efectivo, tarjeta, Bizum, bonos consumo, vales), media por día de la semana
+  (mejor y más flojo), clientes (tickets) por semana, mañana vs tarde (corte a las 15:00) y ventas
+  por franja horaria; además, histórico mensual con beneficio.
+- Las ventas salen de la tabla `sales`, que rellenará el TPV. Mientras tanto, **«Simular datos»**
+  genera en el servidor ventas y gastos de ejemplo (reproducibles, sin guardar nada).
+- Gráficos SVG propios (sin librerías: la CSP no lo permite), con tooltip por ratón y teclado y
+  paleta categórica validada para daltonismo.
+
 ## Seguridad del acceso
 
 - Contraseñas con bcrypt; sesiones y tokens de recuperación guardados como SHA-256 (nunca en claro).

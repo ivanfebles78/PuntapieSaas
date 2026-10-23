@@ -1,4 +1,5 @@
 import { renderUsers } from './admin-users.js';
+import { renderStats } from './estadisticas.js';
 import { renderExpenses } from './gastos.js';
 import { h, stagger } from './dom.js';
 import { icon } from './icons.js';
@@ -12,7 +13,7 @@ const REVEAL_FALLBACK_MS = 2500;
 
 // Pantallas ya construidas dentro de un módulo: /app/<modulo>/<vista>.
 // Pantallas ya construidas: /app/<modulo>/<vista>, o el propio módulo si tiene `view`.
-const VIEWS = Object.freeze({ usuarios: renderUsers, gastos: renderExpenses });
+const VIEWS = Object.freeze({ usuarios: renderUsers, gastos: renderExpenses, estadisticas: renderStats });
 
 const shell = document.getElementById('shell');
 const main = document.getElementById('shell-main');

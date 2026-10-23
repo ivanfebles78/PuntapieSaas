@@ -33,7 +33,7 @@ const silentLog = { info() {}, warn() {}, error() {} };
  */
 export async function startTestServer() {
   const pool = createPool(TEST_DATABASE_URL);
-  await pool.query('DROP TABLE IF EXISTS expense_files, recurring_entries, recurring_amounts, recurring_expenses, vacations, password_resets, sessions, users CASCADE');
+  await pool.query('DROP TABLE IF EXISTS settings, sales, expense_files, recurring_entries, recurring_amounts, recurring_expenses, vacations, password_resets, sessions, users CASCADE');
   await applySchema(pool);
   await seedAdmin(pool, testConfig, silentLog);
   await seedTeam(pool, undefined, silentLog);

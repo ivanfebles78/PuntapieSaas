@@ -132,3 +132,24 @@ ALTER TABLE recurring_expenses ADD CONSTRAINT recurring_expenses_kind_check
 ALTER TABLE recurring_expenses DROP CONSTRAINT IF EXISTS recurring_expenses_category_check;
 ALTER TABLE recurring_expenses ADD CONSTRAINT recurring_expenses_category_check
   CHECK (category IN ('recurrente', 'esporadico', 'proveedor'));
+
+-- ===================== Ventas y objetivos =====================
+-- Cada venta (ticket) del TPV. De momento solo la lee Estadísticas.
+CREATE TABLE IF NOT EXISTS sales (
+  id             SERIAL PRIMARY KEY,
+  sold_at        TIMESTAMPTZ NOT NULL,
+  total_cents    INTEGER NOT NULL CHECK (total_cents >= 0),
+  payment_method TEXT NOT NULL CHECK (payment_method IN ('efectivo', 'tarjeta', 'bizum', 'bonos', 'vales')),
+  created_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS sales_sold_at_idx ON sales(sold_at);
+
+-- Ajustes de la tienda (p. ej. objetivos de venta), como JSON por clave.
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      JSONB NOT NULL,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

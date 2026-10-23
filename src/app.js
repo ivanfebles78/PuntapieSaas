@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { attachUser, requireAuth, requirePasswordChanged, requireRole } from './auth/middleware.js';
 import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
+import { estadisticasRouter } from './routes/estadisticas.js';
 import { gastosRouter } from './routes/gastos.js';
 import { createMailer } from './services/mail.js';
 
@@ -47,6 +48,7 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
   app.use('/api/admin', requireAuth, requirePasswordChanged, adminRouter({ pool, config, mailer, log }));
   // Gastos: de momento lo ven y editan Administrador y Empleado.
   app.use('/api/gastos', requireAuth, requirePasswordChanged, requireRole('admin', 'empleado'), gastosRouter({ pool }));
+  app.use('/api/estadisticas', requireAuth, requirePasswordChanged, requireRole('admin', 'empleado'), estadisticasRouter({ pool }));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ ok: false, error: 'Ruta no encontrada.' });

@@ -46,12 +46,16 @@ export const MODULES = Object.freeze([
     name: 'Estadísticas',
     icon: 'chart',
     tone: 'estadisticas',
-    summary: 'Facturación, gasto y beneficio de un vistazo.',
-    submodules: [
-      { slug: 'facturacion', name: 'Facturación', icon: 'moneyIn', summary: 'Ingresos por ventas en tienda y web.' },
-      { slug: 'gasto', name: 'Gasto', icon: 'moneyOut', summary: 'Gastos por tipo, proveedor y periodo.' },
-      { slug: 'beneficio', name: 'Beneficio', icon: 'coin', summary: 'Lo que queda: ingresos menos gastos.' },
-      { slug: 'evolucion', name: 'Evolución', icon: 'calendar', summary: 'Comparativas diarias, semanales y mensuales.' },
+    summary: 'Ventas, objetivos, métodos de pago, clientes y horas fuertes.',
+    // Sin submenús: un solo panel.
+    view: 'estadisticas',
+    countLabel: 'Un solo panel',
+    submodules: [],
+    chips: [
+      { name: 'Ventas y objetivo', icon: 'chart' },
+      { name: 'Métodos de pago', icon: 'coin' },
+      { name: 'Clientes', icon: 'people' },
+      { name: 'Horas y turnos', icon: 'clock' },
     ],
   },
   {
