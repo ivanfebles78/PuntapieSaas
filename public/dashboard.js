@@ -1,4 +1,5 @@
 import { renderUsers } from './admin-users.js';
+import { renderRecurring } from './gastos-recurrentes.js';
 import { h, stagger } from './dom.js';
 import { icon } from './icons.js';
 import { ROLE_LABELS, modulesForRole } from './modules.js';
@@ -10,7 +11,7 @@ const FOOTSTEPS = 6;
 const REVEAL_FALLBACK_MS = 2500;
 
 // Pantallas ya construidas dentro de un módulo: /app/<modulo>/<vista>.
-const VIEWS = Object.freeze({ usuarios: renderUsers });
+const VIEWS = Object.freeze({ usuarios: renderUsers, recurrentes: renderRecurring });
 
 const shell = document.getElementById('shell');
 const main = document.getElementById('shell-main');
@@ -221,7 +222,10 @@ export function renderShell(user, path) {
   if (hasView) {
     crumb.textContent = module.name;
     heading = VIEWS[viewSlug]({ main, user, module, params: url.searchParams, backHref: `${APP_ROOT}/${module.slug}` });
-    canonical = `${APP_ROOT}/${module.slug}/${viewSlug}`;
+    // La consulta se conserva (p. ej. ?mes=2026-10) salvo las acciones de un solo uso.
+    const kept = new URLSearchParams(url.search);
+    kept.delete('accion');
+    canonical = `${APP_ROOT}/${module.slug}/${viewSlug}${kept.size ? `?${kept}` : ''}`;
   } else if (module) {
     heading = renderModule(module);
     canonical = `${APP_ROOT}/${module.slug}`;

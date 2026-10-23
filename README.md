@@ -35,6 +35,19 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
 - Protecciones: nadie cambia su propio rol ni se da de baja, y siempre queda un Administrador activo.
   La API exige el rol en el servidor (`/api/admin/*` → 403 para Empleado).
 
+## Gastos › Recurrentes
+
+- Tabla por mes (`/app/gastos/recurrentes?mes=AAAA-MM`) con flechas para ir a meses anteriores o
+  siguientes y totales del mes: total, pagado y pendiente. El total de gastos del mes sumará también
+  los no recurrentes y los pagos a proveedores cuando existan esas pestañas.
+- **Fijo**: su importe se repite cada mes. Se puede cambiar **solo un mes** (puntual) o **desde un
+  mes en adelante** (subida del alquiler o de una nómina).
+- **Variable**: empieza cada mes en 0 y se apunta el importe de ese mes.
+- Facturas y justificantes (PDF o imagen, hasta 10 MB, varios por mes). Subir un justificante deja el
+  mes **pagado**; borrar el último lo devuelve a **pendiente**. El estado también se cambia a mano.
+- Los documentos se guardan en PostgreSQL (el disco de Railway se borra en cada despliegue).
+- «Dejar de pagar» quita el gasto desde el mes elegido sin tocar los anteriores.
+
 ## Seguridad del acceso
 
 - Contraseñas con bcrypt; sesiones y tokens de recuperación guardados como SHA-256 (nunca en claro).

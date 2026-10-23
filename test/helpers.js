@@ -33,7 +33,7 @@ const silentLog = { info() {}, warn() {}, error() {} };
  */
 export async function startTestServer() {
   const pool = createPool(TEST_DATABASE_URL);
-  await pool.query('DROP TABLE IF EXISTS vacations, password_resets, sessions, users CASCADE');
+  await pool.query('DROP TABLE IF EXISTS expense_files, recurring_entries, recurring_amounts, recurring_expenses, vacations, password_resets, sessions, users CASCADE');
   await applySchema(pool);
   await seedAdmin(pool, testConfig, silentLog);
   await seedTeam(pool, undefined, silentLog);
@@ -56,7 +56,7 @@ export async function startTestServer() {
 
   function client() {
     let cookie = '';
-    return async function call(method, path, body) {
+    async function call(method, path, body) {
       const response = await fetch(baseUrl + path, {
         method,
         headers: {
@@ -69,7 +69,14 @@ export async function startTestServer() {
       if (setCookie) cookie = setCookie.split(';')[0];
       const json = await response.json();
       return { status: response.status, ...json };
-    };
+    }
+    // Petición en crudo con la misma sesión (subidas y descargas de archivos).
+    call.raw = (method, path, { body, headers = {} } = {}) => fetch(baseUrl + path, {
+      method,
+      headers: { ...headers, ...(cookie ? { Cookie: cookie } : {}) },
+      body,
+    });
+    return call;
   }
 
   // El correo se envía tras responder: espera a que llegue.

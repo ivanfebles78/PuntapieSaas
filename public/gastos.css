@@ -1,0 +1,571 @@
+/* =========================================================================
+   Gastos › Recurrentes. Tema «Escaparate Puntapié», tono coral de Gastos.
+   ========================================================================= */
+
+/* ---------- Mes ---------- */
+
+.month-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  margin-bottom: 18px;
+}
+
+.month-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
+  background: var(--paper-hi);
+  box-shadow: 0 0 0 1px var(--hairline), 0 14px 30px -22px rgb(30 26 22 / 0.4);
+}
+
+.month-step {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(30 26 22 / 0.05);
+  color: var(--espresso);
+  cursor: pointer;
+  transition: transform 500ms var(--spring-pop), background-color 300ms var(--spring);
+}
+
+.month-step:hover {
+  background: var(--espresso);
+  color: var(--paper-hi);
+}
+
+.month-step[data-shift='-1']:hover { transform: translateX(-2px); }
+.month-step[data-shift='1']:hover { transform: translateX(2px); }
+
+.month-step:focus-visible,
+.month-today:focus-visible {
+  outline: 3px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.month-label {
+  min-width: 190px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-variation-settings: 'SOFT' 100;
+  font-size: 1.45rem;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: -0.02em;
+}
+
+.month-today {
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--hairline);
+  color: var(--espresso-soft);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.month-today:hover {
+  box-shadow: inset 0 0 0 1.5px var(--espresso);
+  color: var(--espresso);
+}
+
+/* ---------- Totales ---------- */
+
+.totals {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 18px 20px;
+  border-radius: 24px;
+  background: var(--paper-hi);
+  box-shadow: 0 0 0 1px var(--hairline);
+}
+
+.total-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--taupe);
+}
+
+.total-value {
+  font-family: var(--font-display);
+  font-variation-settings: 'SOFT' 100;
+  font-size: clamp(1.7rem, 1.3rem + 1vw, 2.3rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.total-detail {
+  color: var(--taupe);
+  font-size: 13px;
+}
+
+.total-main {
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgb(226 115 91 / 0.28), transparent 60%),
+    var(--espresso);
+  color: var(--paper-hi);
+}
+
+.total-main .total-label {
+  color: rgb(255 252 246 / 0.6);
+}
+
+.total-main .total-value {
+  font-size: clamp(2.1rem, 1.5rem + 1.6vw, 3rem);
+}
+
+.total-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.total-breakdown li {
+  display: inline-flex;
+  gap: 8px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.08);
+  font-size: 12.5px;
+}
+
+.total-breakdown li.is-soon {
+  opacity: 0.55;
+}
+
+.total-paid .total-value { color: #1d735f; }
+.total-pending .total-value { color: #9c3f2b; }
+
+/* ---------- Tabla ---------- */
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.expenses {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 14px;
+}
+
+.expenses thead th {
+  padding: 14px 14px 10px;
+  color: var(--taupe);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.expenses tbody td,
+.expenses tbody th {
+  padding: 12px 14px;
+  border-top: 1px solid var(--hairline);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.expense {
+  animation: row-in 600ms var(--spring) backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
+  transition: background-color 300ms var(--spring);
+}
+
+.expense:hover {
+  background: rgb(243 236 224 / 0.55);
+}
+
+.cell-name {
+  min-width: 170px;
+}
+
+.expense-name {
+  display: block;
+  font-weight: 700;
+}
+
+.kind {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.kind-fijo { background: rgb(30 26 22 / 0.07); color: var(--espresso-soft); }
+.kind-variable { background: #e3eff7; color: #205a78; }
+
+.cell-amount {
+  white-space: nowrap;
+}
+
+.amount {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--espresso);
+  font: inherit;
+  font-family: var(--font-display);
+  font-variation-settings: 'SOFT' 100;
+  font-size: 1.2rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color 300ms var(--spring), box-shadow 300ms var(--spring);
+}
+
+.amount:hover {
+  background: var(--paper-hi);
+  box-shadow: 0 0 0 1.5px var(--espresso);
+}
+
+.amount:focus-visible {
+  outline: 3px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.amount-empty {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  color: #9c3f2b;
+  box-shadow: inset 0 0 0 1.5px rgb(156 63 43 / 0.35);
+  border-radius: 999px;
+}
+
+.amount-note {
+  display: block;
+  padding-left: 12px;
+  color: var(--taupe);
+  font-size: 11.5px;
+}
+
+.cell-files {
+  min-width: 180px;
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file {
+  display: inline-flex;
+  align-items: center;
+  max-width: 220px;
+  border-radius: 10px;
+  background: var(--linen);
+}
+
+.file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 4px 5px 9px;
+  color: var(--espresso);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  --tone-vivid: #e2735b;
+}
+
+.file-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-link:hover span {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.file-remove {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--taupe);
+  cursor: pointer;
+}
+
+.file-remove:hover {
+  background: #9c3f2b;
+  color: #fff;
+}
+
+.upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px rgb(30 26 22 / 0.18);
+  color: var(--espresso-soft);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: box-shadow 300ms var(--spring), background-color 300ms var(--spring);
+}
+
+.upload:hover {
+  background: var(--espresso);
+  color: var(--paper-hi);
+  box-shadow: none;
+  --tone-vivid: var(--mint);
+}
+
+.upload[aria-busy='true'] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.upload:focus-visible,
+.file-link:focus-visible,
+.file-remove:focus-visible,
+.state:focus-visible {
+  outline: 2px solid var(--espresso);
+  outline-offset: 2px;
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 400ms var(--spring-pop), background-color 300ms var(--spring);
+}
+
+.state:hover {
+  transform: translateY(-1px);
+}
+
+.state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.state-paid { background: var(--mint-wash); color: #1d735f; }
+.state-pending { background: #fbf0d3; color: #7f5c00; }
+
+.cell-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.expenses tfoot th,
+.expenses tfoot td {
+  padding: 16px 14px;
+  border-top: 2px solid var(--espresso);
+  font-size: 15px;
+}
+
+.expenses tfoot th {
+  text-align: left;
+}
+
+.expenses tfoot strong {
+  font-family: var(--font-display);
+  font-variation-settings: 'SOFT' 100;
+  font-size: 1.4rem;
+  padding-left: 12px;
+}
+
+/* ---------- Responsive: en móvil, cada gasto es una tarjeta ---------- */
+
+@media (max-width: 860px) {
+  .totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .total-main {
+    grid-column: 1 / -1;
+  }
+
+  .expenses thead {
+    display: none;
+  }
+
+  .expenses,
+  .expenses tbody,
+  .expenses tfoot {
+    display: block;
+  }
+
+  /* Tarjeta: concepto | importe · facturas | justificantes · estado | acciones */
+  .expense {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    padding: 14px 6px;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .expense > th,
+  .expense > td {
+    padding: 0;
+    border: 0;
+  }
+
+  .expense .cell-name { grid-column: 1; grid-row: 1; }
+  .expense .cell-amount { grid-column: 2; grid-row: 1; text-align: right; }
+  .expense .cell-files { min-width: 0; }
+  .expense .cell-status { grid-column: 1; grid-row: 3; }
+  .expense .cell-actions { grid-column: 2; grid-row: 3; width: auto; justify-self: end; }
+
+  .expense .file {
+    max-width: 100%;
+  }
+
+  .cell-files::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    color: var(--taupe);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .expenses tfoot tr {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+}
+
+@media (max-width: 767px) {
+  .month-label {
+    min-width: 150px;
+    font-size: 1.2rem;
+  }
+}
+
+/* ---------- Pantalla compacta: la tabla debe verse cuanto antes ---------- */
+
+.recurring .module-head {
+  margin-bottom: 18px;
+}
+
+.recurring .users-title-row {
+  margin-top: 14px;
+}
+
+.recurring .module-title {
+  margin: 8px 0 4px;
+  font-size: clamp(2rem, 1.4rem + 1.6vw, 3rem);
+}
+
+.recurring .module-summary {
+  font-size: 15px;
+}
+
+.recurring .month-bar {
+  margin-bottom: 14px;
+}
+
+.recurring .total {
+  padding: 14px 18px;
+}
+
+.recurring .total-main .total-value {
+  font-size: clamp(1.9rem, 1.4rem + 1.2vw, 2.5rem);
+}
+
+.recurring .total-breakdown {
+  margin-top: 6px;
+}
+
+.month-cta {
+  margin-left: auto;
+}
+
+/* El total principal: importe a la izquierda y desglose a la derecha. */
+.total-main {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 18px;
+}
+
+.total-head {
+  display: flex;
+  flex-direction: column;
+}
+
+.total-main .total-breakdown {
+  flex-direction: column;
+  margin: 0;
+}
+
+@media (max-width: 767px) {
+  .month-cta {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+.recurring .expenses tbody td,
+.recurring .expenses tbody th {
+  padding-top: 9px;
+  padding-bottom: 9px;
+}

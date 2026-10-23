@@ -20,7 +20,7 @@ export const MODULES = Object.freeze([
     tone: 'gastos',
     summary: 'Todo lo que sale: fijos, imprevistos y proveedores.',
     submodules: [
-      { slug: 'recurrentes', name: 'Gastos recurrentes', icon: 'repeat', summary: 'Alquiler, luz, nóminas y demás gastos de cada mes.' },
+      { slug: 'recurrentes', name: 'Gastos recurrentes', icon: 'repeat', summary: 'Alquiler, luz, nóminas y demás gastos de cada mes.', to: 'recurrentes' },
       { slug: 'inesperados', name: 'Gastos inesperados', icon: 'flash', summary: 'Reparaciones, compras puntuales e imprevistos.' },
       { slug: 'proveedores', name: 'Pagos a proveedores', icon: 'truck', summary: 'Vencimientos y pagos de las facturas de proveedores.' },
     ],

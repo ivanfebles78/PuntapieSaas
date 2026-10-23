@@ -40,15 +40,22 @@ export function openDialog({ eyebrow, title, lead, content = [], submitLabel, to
 
     // Si hubo cambios con { stay: true }, cerrar devuelve true para que se refresque la vista.
     let result = null;
-    const finish = (value) => {
-      result = value;
-      dialog.close();
-    };
-    const dismiss = () => finish(result);
-    dialog.addEventListener('close', () => {
+    let settled = false;
+    // Se resuelve al cerrar sin esperar al evento «close» (que el navegador
+    // puede retrasar si la página no se está pintando); Escape llega por él.
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      if (dialog.open) dialog.close();
       dialog.remove();
       resolve(result);
-    });
+    };
+    const finish = (value) => {
+      result = value;
+      settle();
+    };
+    const dismiss = () => finish(result);
+    dialog.addEventListener('close', settle);
     close.addEventListener('click', dismiss);
     form.querySelector('[data-cancel]')?.addEventListener('click', dismiss);
     dialog.addEventListener('click', (event) => {
