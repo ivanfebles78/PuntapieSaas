@@ -1,5 +1,5 @@
 import { HttpError } from '../http-error.js';
-import { ensureEntry, findActive } from './recurring.js';
+import { ensureEntry, findActive } from './expenses.js';
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_FILES_PER_ENTRY = 20;

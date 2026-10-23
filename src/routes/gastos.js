@@ -1,18 +1,19 @@
 import express, { Router } from 'express';
 import { HttpError, httpErrorHandler } from '../http-error.js';
 import { MAX_FILE_BYTES, addFile, deleteFile, getFile, readFileKind } from '../services/expense-files.js';
-import { readCents, readMonth } from '../services/money.js';
+import { readCents, readDay, readMonth } from '../services/money.js';
 import {
   createExpense,
   endExpense,
-  monthView,
+  listExpenses,
+  readCategory,
   readKind,
   readName,
   readStatus,
   renameExpense,
   setAmount,
   setStatus,
-} from '../services/recurring.js';
+} from '../services/expenses.js';
 
 function readId(value, label = 'Ese gasto') {
   const id = Number(value);
@@ -30,74 +31,30 @@ function contentDisposition(filename, mime) {
 /** Wrapper para no repetir try/catch en cada ruta asíncrona. */
 const handle = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 
+function readOptionalCents(value) {
+  return value === undefined || value === null || value === '' ? 0 : readCents(value);
+}
+
+/** Datos de alta según el tipo: recurrente (fijo/variable desde un mes) o pago único con fecha. */
+function readNewExpense(body) {
+  const category = readCategory(body?.category ?? 'recurrente');
+  const base = { name: readName(body?.name), category };
+  if (category === 'recurrente') {
+    return {
+      ...base,
+      kind: readKind(body?.kind),
+      amountCents: readOptionalCents(body?.amount),
+      startMonth: readMonth(body?.startMonth, 'El mes de inicio'),
+    };
+  }
+  const amountCents = readCents(body?.amount);
+  return { ...base, kind: 'unico', amountCents, date: readDay(body?.date) };
+}
+
 export function gastosRouter({ pool }) {
   const router = Router();
 
-  router.get('/recurrentes', handle(async (req, res) => {
-    res.json({ ok: true, data: await monthView(pool, readMonth(req.query.mes)) });
-  }));
-
-  router.post('/recurrentes', handle(async (req, res) => {
-    const kind = readKind(req.body?.kind);
-    const amount = req.body?.amount;
-    const amountCents = amount === undefined || amount === null || amount === '' ? 0 : readCents(amount);
-    const id = await createExpense(pool, {
-      name: readName(req.body?.name),
-      kind,
-      amountCents,
-      startMonth: readMonth(req.body?.startMonth, 'El mes de inicio'),
-      userId: req.user.id,
-    });
-    res.status(201).json({ ok: true, data: { id } });
-  }));
-
-  router.patch('/recurrentes/:id', handle(async (req, res) => {
-    await renameExpense(pool, readId(req.params.id), readName(req.body?.name));
-    res.json({ ok: true });
-  }));
-
-  router.put('/recurrentes/:id/importe', handle(async (req, res) => {
-    const scope = req.body?.scope === 'desde' ? 'desde' : 'mes';
-    await setAmount(pool, {
-      expenseId: readId(req.params.id),
-      month: readMonth(req.body?.month),
-      amountCents: readCents(req.body?.amount),
-      scope,
-    });
-    res.json({ ok: true });
-  }));
-
-  router.put('/recurrentes/:id/estado', handle(async (req, res) => {
-    await setStatus(pool, {
-      expenseId: readId(req.params.id),
-      month: readMonth(req.body?.month),
-      status: readStatus(req.body?.status),
-    });
-    res.json({ ok: true });
-  }));
-
-  router.post('/recurrentes/:id/fin', handle(async (req, res) => {
-    const result = await endExpense(pool, { expenseId: readId(req.params.id), month: readMonth(req.body?.month) });
-    res.json({ ok: true, data: result });
-  }));
-
-  // Subida de un archivo: el cuerpo es el archivo tal cual; el nombre va en X-File-Name.
-  router.post(
-    '/recurrentes/:id/archivos',
-    express.raw({ type: () => true, limit: MAX_FILE_BYTES + 1024 }),
-    handle(async (req, res) => {
-      const id = await addFile(pool, {
-        expenseId: readId(req.params.id),
-        month: readMonth(req.query.mes),
-        kind: readFileKind(req.query.tipo),
-        filename: req.get('X-File-Name'),
-        mime: req.get('Content-Type'),
-        data: req.body,
-        userId: req.user.id,
-      });
-      res.status(201).json({ ok: true, data: { id } });
-    }),
-  );
+  /* ---------- Documentos ---------- */
 
   router.get('/archivos/:fileId', handle(async (req, res) => {
     const file = await getFile(pool, readId(req.params.fileId, 'Ese documento'));
@@ -113,6 +70,67 @@ export function gastosRouter({ pool }) {
     await deleteFile(pool, readId(req.params.fileId, 'Ese documento'));
     res.json({ ok: true });
   }));
+
+  /* ---------- Gastos ---------- */
+
+  // ?mes=AAAA-MM, o ?desde=AAAA-MM&hasta=AAAA-MM para varios meses.
+  router.get('/', handle(async (req, res) => {
+    const from = readMonth(req.query.desde ?? req.query.mes);
+    const to = req.query.hasta ? readMonth(req.query.hasta, 'El mes final') : from;
+    res.json({ ok: true, data: await listExpenses(pool, from, to) });
+  }));
+
+  router.post('/', handle(async (req, res) => {
+    const id = await createExpense(pool, { ...readNewExpense(req.body), userId: req.user.id });
+    res.status(201).json({ ok: true, data: { id } });
+  }));
+
+  router.patch('/:id', handle(async (req, res) => {
+    await renameExpense(pool, readId(req.params.id), readName(req.body?.name));
+    res.json({ ok: true });
+  }));
+
+  router.put('/:id/importe', handle(async (req, res) => {
+    await setAmount(pool, {
+      expenseId: readId(req.params.id),
+      month: readMonth(req.body?.month),
+      amountCents: readCents(req.body?.amount),
+      scope: req.body?.scope === 'desde' ? 'desde' : 'mes',
+    });
+    res.json({ ok: true });
+  }));
+
+  router.put('/:id/estado', handle(async (req, res) => {
+    await setStatus(pool, {
+      expenseId: readId(req.params.id),
+      month: readMonth(req.body?.month),
+      status: readStatus(req.body?.status),
+    });
+    res.json({ ok: true });
+  }));
+
+  router.post('/:id/fin', handle(async (req, res) => {
+    const result = await endExpense(pool, { expenseId: readId(req.params.id), month: readMonth(req.body?.month) });
+    res.json({ ok: true, data: result });
+  }));
+
+  // Subida de un archivo: el cuerpo es el archivo tal cual; el nombre va en X-File-Name.
+  router.post(
+    '/:id/archivos',
+    express.raw({ type: () => true, limit: MAX_FILE_BYTES + 1024 }),
+    handle(async (req, res) => {
+      const id = await addFile(pool, {
+        expenseId: readId(req.params.id),
+        month: readMonth(req.query.mes),
+        kind: readFileKind(req.query.tipo),
+        filename: req.get('X-File-Name'),
+        mime: req.get('Content-Type'),
+        data: req.body,
+        userId: req.user.id,
+      });
+      res.status(201).json({ ok: true, data: { id } });
+    }),
+  );
 
   // Un archivo de más de 10 MB lo corta express.raw antes de llegar a la ruta.
   router.use((error, _req, res, next) => {

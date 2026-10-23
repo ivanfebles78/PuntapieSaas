@@ -120,3 +120,15 @@ CREATE TABLE IF NOT EXISTS expense_files (
 );
 
 CREATE INDEX IF NOT EXISTS expense_files_entry_idx ON expense_files(entry_id);
+
+-- ===================== Una sola tabla de gastos =====================
+-- Cada gasto lleva su tipo: 'recurrente' (fijo o variable, cada mes),
+-- 'esporadico' o 'proveedor' (un único pago, kind = 'unico', en la fecha indicada).
+ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'recurrente';
+ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS expense_date DATE;
+ALTER TABLE recurring_expenses DROP CONSTRAINT IF EXISTS recurring_expenses_kind_check;
+ALTER TABLE recurring_expenses ADD CONSTRAINT recurring_expenses_kind_check
+  CHECK (kind IN ('fijo', 'variable', 'unico'));
+ALTER TABLE recurring_expenses DROP CONSTRAINT IF EXISTS recurring_expenses_category_check;
+ALTER TABLE recurring_expenses ADD CONSTRAINT recurring_expenses_category_check
+  CHECK (category IN ('recurrente', 'esporadico', 'proveedor'));

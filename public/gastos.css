@@ -442,6 +442,11 @@
     display: none;
   }
 
+  /* En tarjetas todo cabe: sin desplazamiento lateral (los avisos ocultos lo provocaban). */
+  .table-scroll {
+    overflow-x: clip;
+  }
+
   .expenses,
   .expenses tbody,
   .expenses tfoot {
@@ -458,19 +463,47 @@
   }
 
   .expense > th,
-  .expense > td {
+  .expense > td,
+  .recurring .expenses tbody .expense > td,
+  .recurring .expenses tbody .expense > th {
     padding: 0;
     border: 0;
+    box-shadow: none;
   }
 
-  .expense .cell-name { grid-column: 1; grid-row: 1; }
-  .expense .cell-amount { grid-column: 2; grid-row: 1; text-align: right; }
-  .expense .cell-files { min-width: 0; }
-  .expense .cell-status { grid-column: 1; grid-row: 3; }
-  .expense .cell-actions { grid-column: 2; grid-row: 3; width: auto; justify-self: end; }
+  /* En tarjeta, el color del tipo va en el borde izquierdo de toda la tarjeta. */
+  .expense {
+    box-shadow: inset 4px 0 0 var(--row-cat, transparent);
+    padding-left: 14px;
+  }
 
+  .expense .cell-when { grid-column: 1 / -1; grid-row: 1; font-size: 12px; }
+  .expense .cell-name { grid-column: 1; grid-row: 2; min-width: 0; }
+  .expense .cell-amount { grid-column: 2; grid-row: 2; text-align: right; }
+  .expense .cell-files { grid-row: 3; min-width: 0; }
+  .expense .cell-status { grid-column: 1; grid-row: 4; }
+  .expense .cell-actions { grid-column: 2; grid-row: 4; width: auto; justify-self: end; }
+
+  .expense .cell-when small {
+    display: inline;
+    margin-left: 6px;
+  }
+
+  .expenses tfoot th,
+  .expenses tfoot td {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .expense .files,
+  .expense .file-list,
   .expense .file {
     max-width: 100%;
+    min-width: 0;
+  }
+
+  .expense .file-list {
+    width: 100%;
   }
 
   .cell-files::before {
@@ -568,4 +601,262 @@
 .recurring .expenses tbody th {
   padding-top: 9px;
   padding-bottom: 9px;
+}
+
+/* =========================================================================
+   Una sola tabla de gastos: color por tipo de gasto
+   ========================================================================= */
+
+.cat-recurrente { --cat: #2f7fa8; --cat-ink: #1d5674; --cat-wash: #e3eff7; }
+.cat-esporadico { --cat: #d6a21c; --cat-ink: #7a5800; --cat-wash: #fbf0d3; }
+.cat-proveedor { --cat: #8a5cc0; --cat-ink: #5b3487; --cat-wash: #efe6f8; }
+
+/* El estado pendiente pasa a coral para no confundirse con «Esporádico». */
+.state-pending { background: #fbe7e1; color: #9c3f2b; }
+
+.cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+  background: var(--cat-wash);
+  color: var(--cat-ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  --tone-vivid: var(--cat);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.tags .kind {
+  margin-top: 0;
+  background: rgb(30 26 22 / 0.06);
+  color: var(--espresso-soft);
+}
+
+/* Barra de color a la izquierda de cada fila según su tipo. */
+.expense > :first-child {
+  box-shadow: inset 4px 0 0 var(--row-cat, transparent);
+}
+
+.cat-row-recurrente { --row-cat: #2f7fa8; }
+.cat-row-esporadico { --row-cat: #d6a21c; }
+.cat-row-proveedor { --row-cat: #8a5cc0; }
+
+.cell-when {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--espresso-soft);
+  font-weight: 600;
+}
+
+.cell-when small {
+  display: block;
+  color: var(--taupe);
+  font-weight: 500;
+}
+
+/* ---------- Periodo ---------- */
+
+.segmented {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgb(30 26 22 / 0.06);
+}
+
+.segmented button {
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--espresso-soft);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 300ms var(--spring), color 300ms var(--spring);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--espresso);
+  color: var(--paper-hi);
+}
+
+.segmented button:focus-visible {
+  outline: 3px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.segmented-sm button {
+  padding: 7px 12px;
+  font-size: 12.5px;
+}
+
+.range {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.range label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--espresso-soft);
+}
+
+.range input {
+  width: auto;
+  height: 46px;
+}
+
+/* ---------- Filtros ---------- */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.cat-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cat-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px 7px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--paper-hi);
+  box-shadow: inset 0 0 0 1.5px var(--cat-wash);
+  color: var(--cat-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  --tone-vivid: var(--cat);
+  transition: background-color 300ms var(--spring), color 300ms var(--spring), transform 400ms var(--spring-pop);
+}
+
+.cat-toggle:hover {
+  transform: translateY(-1px);
+  background: var(--cat-wash);
+}
+
+.cat-toggle[aria-pressed='true'] {
+  background: var(--cat);
+  color: #fff;
+  box-shadow: none;
+  --tone-vivid: #fff;
+}
+
+.cat-toggle:focus-visible {
+  outline: 3px solid var(--cat);
+  outline-offset: 2px;
+}
+
+.cat-count {
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--cat-wash);
+  color: var(--cat-ink);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.cat-toggle[aria-pressed='true'] .cat-count {
+  background: rgb(255 255 255 / 0.25);
+  color: #fff;
+}
+
+.search-sm {
+  flex: 1 1 200px;
+  max-width: 280px;
+  padding: 0 14px;
+}
+
+.search-sm input {
+  height: 42px;
+}
+
+.amount-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--taupe);
+}
+
+.amount-range input {
+  width: 92px;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 999px;
+}
+
+/* ---------- Totales por tipo ---------- */
+
+.total-breakdown li {
+  align-items: center;
+}
+
+.cat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cat);
+}
+
+/* ---------- Alta: tarjetas de tipo con su color ---------- */
+
+.role-cards-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.when-recurring .role-cards,
+.when-recurring .role-cards-3 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cat-card .role-card-icon {
+  background: var(--cat-wash);
+  color: var(--cat-ink);
+  --tone-vivid: var(--cat);
+}
+
+.cat-card:has(input:checked) {
+  box-shadow: 0 0 0 2px var(--cat), 0 18px 30px -22px rgb(30 26 22 / 0.5);
+}
+
+/* ---------- Ficha de Gastos en el inicio ---------- */
+
+.tile-subs li.cat-chip {
+  background: var(--cat-wash);
+  color: var(--cat-ink);
+  box-shadow: none;
+  --tone-vivid: var(--cat);
+}
+
+@media (max-width: 767px) {
+  .role-cards-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .amount-range input {
+    width: 80px;
+  }
 }

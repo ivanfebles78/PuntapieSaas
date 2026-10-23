@@ -26,6 +26,27 @@ export function readMonth(value, label = 'El mes') {
   return `${text}-01`;
 }
 
+/** «2026-10-23» validada (fecha real del calendario). */
+export function readDay(value, label = 'La fecha') {
+  const text = String(value ?? '');
+  const date = new Date(`${text}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== text) {
+    throw new HttpError(400, `${label} no es válida.`, 'INVALID_DATE');
+  }
+  return text;
+}
+
+/** Meses (primer día) entre dos meses, ambos incluidos. */
+export function monthsBetween(fromFirstDay, toFirstDay) {
+  const months = [];
+  const [year, month] = fromFirstDay.split('-').map(Number);
+  for (let i = 0; ; i += 1) {
+    const current = new Date(Date.UTC(year, month - 1 + i, 1)).toISOString().slice(0, 10);
+    if (current > toFirstDay) return months;
+    months.push(current);
+  }
+}
+
 export function previousMonth(firstDay) {
   const [year, month] = firstDay.split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 2, 1));

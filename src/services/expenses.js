@@ -1,9 +1,12 @@
 import { HttpError } from '../http-error.js';
-import { previousMonth } from './money.js';
+import { monthsBetween, previousMonth } from './money.js';
 
-export const KINDS = Object.freeze(['fijo', 'variable']);
+// Tipo de gasto (etiqueta de color) y forma de repetirse.
+export const CATEGORIES = Object.freeze(['recurrente', 'esporadico', 'proveedor']);
+export const RECURRING_KINDS = Object.freeze(['fijo', 'variable']);
 export const STATUSES = Object.freeze(['pendiente', 'pagado']);
 const MAX_NAME_LENGTH = 80;
+export const MAX_RANGE_MONTHS = 24;
 
 export function readName(value) {
   const name = String(value ?? '').trim().replace(/\s+/g, ' ');
@@ -14,8 +17,15 @@ export function readName(value) {
   return name;
 }
 
+export function readCategory(value) {
+  if (!CATEGORIES.includes(value)) {
+    throw new HttpError(400, 'El tipo debe ser recurrente, esporádico o pago a proveedor.', 'INVALID_CATEGORY');
+  }
+  return value;
+}
+
 export function readKind(value) {
-  if (!KINDS.includes(value)) throw new HttpError(400, 'El tipo debe ser «fijo» o «variable».', 'INVALID_KIND');
+  if (!RECURRING_KINDS.includes(value)) throw new HttpError(400, 'Un gasto recurrente es «fijo» o «variable».', 'INVALID_KIND');
   return value;
 }
 
@@ -40,9 +50,9 @@ async function withTransaction(pool, work) {
 }
 
 /** Devuelve el gasto si está activo en `month`; si no, 404/409 claros. */
-async function findActive(db, expenseId, month) {
+export async function findActive(db, expenseId, month) {
   const result = await db.query(
-    `SELECT id, kind, to_char(start_month, 'YYYY-MM-DD') AS start_month,
+    `SELECT id, kind, category, to_char(start_month, 'YYYY-MM-DD') AS start_month,
             to_char(end_month, 'YYYY-MM-DD') AS end_month
        FROM recurring_expenses WHERE id = $1`,
     [expenseId],
@@ -66,22 +76,25 @@ export async function ensureEntry(db, expenseId, month) {
   return result.rows[0].id;
 }
 
-/* ---------- Vista de un mes ---------- */
+/* ---------- Lectura ---------- */
 
 function toFile(row) {
   return { id: row.id, kind: row.kind, filename: row.filename, mime: row.mime, size: row.size_bytes, uploadedAt: row.uploaded_at };
 }
 
-function toItem(row, files) {
+function toItem(row, month, files) {
   const fixedAmount = row.kind === 'fijo' ? row.base_amount ?? 0 : 0;
   const hasOverride = row.amount_cents !== null && row.amount_cents !== undefined;
   return {
     id: row.id,
+    month: month.slice(0, 7),
     name: row.name,
+    category: row.category,
     kind: row.kind,
+    date: row.expense_date ?? null,
     startMonth: row.start_month.slice(0, 7),
     amountCents: hasOverride ? row.amount_cents : fixedAmount,
-    // 'mes': escrito para este mes; 'fijo': el importe fijo vigente; 'vacio': variable sin importe.
+    // 'mes': escrito para este mes; 'fijo': el importe fijo vigente; 'vacio': aún sin importe.
     amountSource: hasOverride ? 'mes' : row.kind === 'fijo' ? 'fijo' : 'vacio',
     fixedAmountCents: row.kind === 'fijo' ? fixedAmount : null,
     status: row.status ?? 'pendiente',
@@ -91,9 +104,11 @@ function toItem(row, files) {
   };
 }
 
-export async function monthView(pool, month) {
+async function monthItems(pool, month) {
   const result = await pool.query(
-    `SELECT e.id, e.name, e.kind, to_char(e.start_month, 'YYYY-MM-DD') AS start_month,
+    `SELECT e.id, e.name, e.kind, e.category,
+            to_char(e.start_month, 'YYYY-MM-DD') AS start_month,
+            to_char(e.expense_date, 'YYYY-MM-DD') AS expense_date,
             (SELECT a.amount_cents FROM recurring_amounts a
               WHERE a.expense_id = e.id AND a.from_month <= $1
               ORDER BY a.from_month DESC LIMIT 1) AS base_amount,
@@ -101,7 +116,8 @@ export async function monthView(pool, month) {
        FROM recurring_expenses e
        LEFT JOIN recurring_entries en ON en.expense_id = e.id AND en.month = $1
       WHERE e.start_month <= $1 AND (e.end_month IS NULL OR e.end_month >= $1)
-      ORDER BY CASE e.kind WHEN 'fijo' THEN 0 ELSE 1 END, lower(e.name), e.id`,
+      ORDER BY CASE e.category WHEN 'recurrente' THEN 0 WHEN 'proveedor' THEN 1 ELSE 2 END,
+               e.expense_date NULLS FIRST, lower(e.name), e.id`,
     [month],
   );
   const entryIds = result.rows.map((r) => r.entry_id).filter(Boolean);
@@ -110,44 +126,60 @@ export async function monthView(pool, month) {
        FROM expense_files WHERE entry_id = ANY($1::int[]) ORDER BY uploaded_at, id`,
     [entryIds],
   )).rows;
+  return result.rows.map((row) => toItem(row, month, files.filter((f) => f.entry_id === row.entry_id).map(toFile)));
+}
 
-  const items = result.rows.map((row) => toItem(row, files.filter((f) => f.entry_id === row.entry_id).map(toFile)));
+export function summarize(items) {
   const sum = (list) => list.reduce((total, item) => total + item.amountCents, 0);
+  const byCategory = Object.fromEntries(CATEGORIES.map((c) => [c, sum(items.filter((i) => i.category === c))]));
   return {
-    month: month.slice(0, 7),
-    items,
-    totals: {
-      totalCents: sum(items),
-      paidCents: sum(items.filter((i) => i.status === 'pagado')),
-      pendingCents: sum(items.filter((i) => i.status === 'pendiente')),
-      count: items.length,
-      pendingCount: items.filter((i) => i.status === 'pendiente').length,
-    },
+    totalCents: sum(items),
+    paidCents: sum(items.filter((i) => i.status === 'pagado')),
+    pendingCents: sum(items.filter((i) => i.status === 'pendiente')),
+    count: items.length,
+    pendingCount: items.filter((i) => i.status === 'pendiente').length,
+    byCategory,
   };
+}
+
+/** Gastos de un mes o de un rango de meses (máx. 24), con sus totales. */
+export async function listExpenses(pool, fromMonth, toMonth = fromMonth) {
+  if (toMonth < fromMonth) throw new HttpError(400, 'El mes final no puede ser anterior al inicial.', 'INVALID_RANGE');
+  const months = monthsBetween(fromMonth, toMonth);
+  if (months.length > MAX_RANGE_MONTHS) {
+    throw new HttpError(400, `Como máximo ${MAX_RANGE_MONTHS} meses a la vez.`, 'INVALID_RANGE');
+  }
+  const items = [];
+  for (const month of months) items.push(...(await monthItems(pool, month)));
+  return { from: fromMonth.slice(0, 7), to: toMonth.slice(0, 7), items, totals: summarize(items) };
 }
 
 /* ---------- Cambios ---------- */
 
 /**
- * Alta de un gasto desde `startMonth`. En los fijos el importe se arrastra
- * a los meses siguientes; en los variables solo cuenta para su primer mes.
+ * Alta de un gasto. Recurrente: desde `startMonth`, fijo (su importe se
+ * arrastra) o variable (cada mes empieza en 0). Esporádico o proveedor: un
+ * único pago en `date` con su importe.
  */
-export async function createExpense(pool, { name, kind, amountCents, startMonth, userId }) {
+export async function createExpense(pool, { name, category, kind, amountCents, startMonth, date, userId }) {
   return withTransaction(pool, async (client) => {
+    const isRecurring = category === 'recurrente';
+    const month = isRecurring ? startMonth : `${date.slice(0, 7)}-01`;
     const inserted = await client.query(
-      `INSERT INTO recurring_expenses (name, kind, start_month, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [name, kind, startMonth, userId],
+      `INSERT INTO recurring_expenses (name, kind, category, start_month, end_month, expense_date, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [name, isRecurring ? kind : 'unico', category, month, isRecurring ? null : month, isRecurring ? null : date, userId],
     );
     const id = inserted.rows[0].id;
-    if (kind === 'fijo') {
+    if (isRecurring && kind === 'fijo') {
       await client.query(
         'INSERT INTO recurring_amounts (expense_id, from_month, amount_cents) VALUES ($1, $2, $3)',
-        [id, startMonth, amountCents ?? 0],
+        [id, month, amountCents ?? 0],
       );
     } else if (amountCents) {
       await client.query(
         'INSERT INTO recurring_entries (expense_id, month, amount_cents) VALUES ($1, $2, $3)',
-        [id, startMonth, amountCents],
+        [id, month, amountCents],
       );
     }
     return id;
@@ -162,8 +194,7 @@ export async function renameExpense(pool, expenseId, name) {
 /**
  * Cambia el importe de `month`. En los fijos, scope 'desde' fija un nuevo
  * importe a partir de ese mes (los cambios puntuales de meses posteriores se
- * respetan); scope 'mes' lo cambia solo ese mes. En los variables siempre es
- * el importe del mes.
+ * respetan); scope 'mes' lo cambia solo ese mes. Los demás, el importe del mes.
  */
 export async function setAmount(pool, { expenseId, month, amountCents, scope }) {
   return withTransaction(pool, async (client) => {
@@ -197,8 +228,9 @@ export async function setStatus(pool, { expenseId, month, status }) {
 }
 
 /**
- * Deja de contar el gasto a partir de `month`. Si empezaba ese mismo mes,
- * se borra entero (con sus facturas y justificantes).
+ * Recurrente: deja de contar a partir de `month` (los meses anteriores no
+ * cambian). Si empezaba ese mes, o es un pago único, se borra entero con sus
+ * facturas y justificantes.
  */
 export async function endExpense(pool, { expenseId, month }) {
   const expense = await findActive(pool, expenseId, month);
@@ -207,9 +239,6 @@ export async function endExpense(pool, { expenseId, month }) {
     return { deleted: true };
   }
   await pool.query('UPDATE recurring_expenses SET end_month = $2 WHERE id = $1', [expenseId, previousMonth(month)]);
-  // Lo apuntado en meses que ya no cuentan desaparece con el gasto.
   await pool.query('DELETE FROM recurring_entries WHERE expense_id = $1 AND month >= $2', [expenseId, month]);
   return { deleted: false };
 }
-
-export { findActive };

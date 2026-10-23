@@ -1,5 +1,5 @@
 import { renderUsers } from './admin-users.js';
-import { renderRecurring } from './gastos-recurrentes.js';
+import { renderExpenses } from './gastos.js';
 import { h, stagger } from './dom.js';
 import { icon } from './icons.js';
 import { ROLE_LABELS, modulesForRole } from './modules.js';
@@ -11,7 +11,8 @@ const FOOTSTEPS = 6;
 const REVEAL_FALLBACK_MS = 2500;
 
 // Pantallas ya construidas dentro de un módulo: /app/<modulo>/<vista>.
-const VIEWS = Object.freeze({ usuarios: renderUsers, recurrentes: renderRecurring });
+// Pantallas ya construidas: /app/<modulo>/<vista>, o el propio módulo si tiene `view`.
+const VIEWS = Object.freeze({ usuarios: renderUsers, gastos: renderExpenses });
 
 const shell = document.getElementById('shell');
 const main = document.getElementById('shell-main');
@@ -34,6 +35,7 @@ function todayLabel(date = new Date()) {
 }
 
 function sectionsLabel(module) {
+  if (module.view) return module.countLabel;
   const n = module.submodules.length;
   return `${n} ${n === 1 ? 'sección' : 'secciones'}`;
 }
@@ -121,7 +123,7 @@ function arrowBubble(name = 'arrowRight') {
 // Todas las fichas iguales: icono grande, nombre y sus secciones.
 function moduleTile(module, index) {
   const subs = h('ul', { class: 'tile-subs', 'aria-label': `Secciones de ${module.name}` },
-    module.submodules.map((sub) => h('li', {}, [icon(sub.icon, 'ico ico-xs'), h('span', { text: sub.name })])));
+    (module.chips ?? module.submodules).map((sub) => h('li', { class: sub.className ?? null }, [icon(sub.icon, 'ico ico-xs'), h('span', { text: sub.name })])));
 
   const core = h('span', { class: 'tile-core', 'data-spotlight': '' }, [
     h('span', { class: 'tile-watermark' }, icon(module.icon, 'ico')),
@@ -216,16 +218,22 @@ export function renderShell(user, path) {
   const [slug, viewSlug] = url.pathname.slice(APP_ROOT.length).replace(/^\/+|\/+$/g, '').split('/');
   const module = slug ? modulesForRole(user.role).find((m) => m.slug === slug) : null;
   const hasView = module && module.submodules.some((sub) => sub.to === viewSlug) && VIEWS[viewSlug];
+  // La consulta se conserva (p. ej. ?mes=2026-10) salvo las acciones de un solo uso.
+  const kept = new URLSearchParams(url.search);
+  kept.delete('accion');
+  const query = kept.size ? `?${kept}` : '';
 
   let heading;
   let canonical = APP_ROOT;
   if (hasView) {
     crumb.textContent = module.name;
     heading = VIEWS[viewSlug]({ main, user, module, params: url.searchParams, backHref: `${APP_ROOT}/${module.slug}` });
-    // La consulta se conserva (p. ej. ?mes=2026-10) salvo las acciones de un solo uso.
-    const kept = new URLSearchParams(url.search);
-    kept.delete('accion');
-    canonical = `${APP_ROOT}/${module.slug}/${viewSlug}${kept.size ? `?${kept}` : ''}`;
+    canonical = `${APP_ROOT}/${module.slug}/${viewSlug}${query}`;
+  } else if (module?.view) {
+    // Módulo sin submenús: su pantalla se abre directamente.
+    crumb.textContent = module.name;
+    heading = VIEWS[module.view]({ main, user, module, params: url.searchParams, backHref: APP_ROOT });
+    canonical = `${APP_ROOT}/${module.slug}${query}`;
   } else if (module) {
     heading = renderModule(module);
     canonical = `${APP_ROOT}/${module.slug}`;

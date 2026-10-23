@@ -18,11 +18,15 @@ export const MODULES = Object.freeze([
     name: 'Gastos',
     icon: 'wallet',
     tone: 'gastos',
-    summary: 'Todo lo que sale: fijos, imprevistos y proveedores.',
-    submodules: [
-      { slug: 'recurrentes', name: 'Gastos recurrentes', icon: 'repeat', summary: 'Alquiler, luz, nóminas y demás gastos de cada mes.', to: 'recurrentes' },
-      { slug: 'inesperados', name: 'Gastos inesperados', icon: 'flash', summary: 'Reparaciones, compras puntuales e imprevistos.' },
-      { slug: 'proveedores', name: 'Pagos a proveedores', icon: 'truck', summary: 'Vencimientos y pagos de las facturas de proveedores.' },
+    summary: 'Todo lo que sale, en una sola tabla con su tipo de gasto.',
+    // Sin submenús: una sola tabla; cada gasto lleva su tipo (con su color).
+    view: 'gastos',
+    countLabel: 'Una sola tabla',
+    submodules: [],
+    chips: [
+      { name: 'Recurrentes', icon: 'repeat', className: 'cat-chip cat-recurrente' },
+      { name: 'Esporádicos', icon: 'flash', className: 'cat-chip cat-esporadico' },
+      { name: 'Proveedores', icon: 'truck', className: 'cat-chip cat-proveedor' },
     ],
   },
   {
