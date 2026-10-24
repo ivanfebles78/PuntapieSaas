@@ -333,6 +333,15 @@ function periodLabel() {
   return PERIODS.find(([id]) => id === state.period)[1].toLowerCase();
 }
 
+/** Aviso cuando el periodo empieza en el día en que la tienda pasó a ser nuestra. */
+function startNote() {
+  const d = state.data;
+  if (!d.businessStart || d.period?.from !== d.businessStart) return null;
+  return h('p', { class: 'notice notice-start' }, [icon('calendar', 'ico ico-sm'), h('span', {
+    text: `Desde el ${d.businessStart.split('-').reverse().join('/')}, cuando la tienda pasó a ser vuestra: lo anterior era del dueño anterior y no cuenta.`,
+  })]);
+}
+
 function notice() {
   if (state.data.simulated) {
     return h('p', { class: 'notice notice-sim' }, [icon('magic', 'ico ico-sm'), h('span', { text: 'Datos simulados: así se verá cuando el TPV registre las ventas. Los gastos también son de ejemplo.' })]);
@@ -368,6 +377,7 @@ function render() {
   state.els.charts = charts;
   state.els.body.replaceChildren(
     notice(),
+    startNote(),
     kpis(),
     goals(),
     h('div', { class: 'stat-grid' }, [

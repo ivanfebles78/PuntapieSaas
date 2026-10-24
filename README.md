@@ -117,7 +117,7 @@ apuntan Administrador y Empleado; el Asesor solo lo ve; todo queda en el log.
 - `/app/estadisticas?periodo=3m|6m|12m|anio` (y `&simular=1`).
 - **Objetivos de venta** editables por el Administrador (por defecto 500 €/día, 3.000 €/semana,
   12.000 €/mes), guardados en la tabla `settings`.
-- Por defecto, **Este año**. Los **vales** se cuentan aparte y **no suman** a las ventas (salen de
+- Por defecto, **Este año**. Nada antes del **16/04/2026** (`BUSINESS_START`): ventas y gastos anteriores eran del dueño anterior. Los **vales** se cuentan aparte y **no suman** a las ventas (salen de
   una devolución de algo ya vendido): no entran en objetivos, medias, turnos ni empleados.
 - Ventas de hoy, semana, mes y total del periodo con su avance frente al objetivo; % de días,
   semanas y meses **cerrados** que lo cumplen (los días sin ventas cuentan como cerrados).

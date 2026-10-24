@@ -46,6 +46,9 @@ export const config = Object.freeze({
   cookieName: 'puntapie_session',
   loginMaxFailedAttempts: LOGIN_MAX_FAILED_ATTEMPTS,
   forgotMaxRequests: FORGOT_MAX_REQUESTS,
+  // Día en que la tienda pasó a ser nuestra: las estadísticas no cuentan ventas
+  // ni gastos anteriores (eran del dueño anterior).
+  businessStart: readEnv('BUSINESS_START', '2026-04-16'),
   proveedores: Object.freeze({
     // CIF/NIF propios (Calzando Sueños): se ignoran al buscar el proveedor en un PDF.
     cifsPropios: readEnv('CIFS_PROPIOS', 'B76766294').split(',').map((s) => s.trim()).filter(Boolean),

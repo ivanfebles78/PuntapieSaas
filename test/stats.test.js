@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, TEST_DATABASE_URL, startTestServer } from './helpers.js';
 import { computeStats, weekStart, weekday } from '../src/services/stats.js';
 import { simulateSales } from '../src/services/stats-sim.js';
-import { nowInShop, periodStart } from '../src/services/sales-stats.js';
+import { nowInShop, periodStart, statsStart } from '../src/services/sales-stats.js';
 
 const TARGETS = { dailyCents: 50000, weeklyCents: 300000, monthlyCents: 1200000 };
 
@@ -98,6 +98,10 @@ describe('simulación', () => {
     assert.equal(periodStart('12m', '2026-10-23'), '2025-11-01');
     assert.equal(periodStart('anio', '2026-10-23'), '2026-01-01');
     assert.throws(() => periodStart('5y', '2026-10-23'));
+    // Nada antes del 16/04/2026: era del dueño anterior.
+    assert.equal(statsStart('anio', '2026-10-23', '2026-04-16'), '2026-04-16');
+    assert.equal(statsStart('3m', '2026-10-23', '2026-04-16'), '2026-08-01');
+    assert.equal(statsStart('12m', '2027-10-23', '2026-04-16'), '2026-11-01');
     assert.deepEqual(nowInShop(new Date('2026-07-01T23:30:00Z')), { day: '2026-07-02', time: '00:30' });
   });
 });

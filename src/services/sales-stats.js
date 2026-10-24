@@ -1,3 +1,4 @@
+import { config } from '../config.js';
 import { HttpError } from '../http-error.js';
 import { listExpenses } from './expenses.js';
 import { readCents } from './money.js';
@@ -26,6 +27,15 @@ export function periodStart(period, today) {
   if (PERIODS[period] === null) return `${year}-01-01`;
   const start = new Date(Date.UTC(year, month - PERIODS[period], 1));
   return start.toISOString().slice(0, 10);
+}
+
+/**
+ * Primer día que cuenta: el del periodo o, si es anterior, el día en que la
+ * tienda pasó a ser nuestra (lo de antes era del dueño anterior).
+ */
+export function statsStart(period, today, businessStart = config.businessStart) {
+  const from = periodStart(period, today);
+  return businessStart && from < businessStart ? businessStart : from;
 }
 
 /* ---------- Objetivos ---------- */
@@ -86,9 +96,13 @@ async function realSales(pool, from, to) {
 }
 
 async function realExpensesByMonth(pool, from, to) {
-  const { items } = await listExpenses(pool, from.slice(0, 7) + '-01', to.slice(0, 7) + '-01');
+  const { items } = await listExpenses(pool, from.slice(0, 7) + '-01', to.slice(0, 7) + '-01', { maxMonths: 240 });
   const byMonth = {};
-  for (const item of items) byMonth[item.month] = (byMonth[item.month] ?? 0) + item.amountCents;
+  for (const item of items) {
+    // Los gastos con fecha anterior al inicio (p. ej. del dueño anterior) no cuentan.
+    if (item.date && item.date < from) continue;
+    byMonth[item.month] = (byMonth[item.month] ?? 0) + item.amountCents;
+  }
   return byMonth;
 }
 
@@ -98,13 +112,13 @@ async function realExpensesByMonth(pool, from, to) {
  */
 export async function salesStats(pool, { period = 'anio', simulate = false, now = new Date() } = {}) {
   const { day: today, time } = nowInShop(now);
-  const from = periodStart(period, today);
+  const from = statsStart(period, today);
   const targets = await getTargets(pool);
   const sales = await loadSales(pool, { from, today, time, simulate });
   const expensesByMonth = simulate
     ? simulateExpenses(monthsList(from, today))
     : await realExpensesByMonth(pool, from, today);
-  return { simulated: simulate, period, hasRealSales: simulate ? null : sales.length > 0, ...computeStats({ sales, expensesByMonth, targets, from, today }) };
+  return { simulated: simulate, period, businessStart: config.businessStart, hasRealSales: simulate ? null : sales.length > 0, ...computeStats({ sales, expensesByMonth, targets, from, today }) };
 }
 
 function monthsList(from, to) {
@@ -157,7 +171,7 @@ async function loadStaffing(pool, from, simulate) {
 /** Ventas por empleado según los turnos en los que estaba. */
 export async function staffStats(pool, { period = 'anio', simulate = false, now = new Date() } = {}) {
   const { day: today, time } = nowInShop(now);
-  const from = periodStart(period, today);
+  const from = statsStart(period, today);
   const sales = await loadSales(pool, { from, today, time, simulate });
   const { team, simulatedTeam, staffing } = await loadStaffing(pool, from, simulate);
   return {
@@ -175,7 +189,7 @@ export async function staffStats(pool, { period = 'anio', simulate = false, now 
 /** Todo lo necesario para exportar las ventas del periodo (reales o simuladas). */
 export async function salesExportData(pool, { period = 'anio', simulate = false, now = new Date() } = {}) {
   const { day: today, time } = nowInShop(now);
-  const from = periodStart(period, today);
+  const from = statsStart(period, today);
   const sales = await loadSales(pool, { from, today, time, simulate });
   const { team, staffing } = await loadStaffing(pool, from, simulate);
   const staff = computeStaffStats({ sales, members: team.map(({ id, name, active }) => ({ id, name, active })), staffing });
