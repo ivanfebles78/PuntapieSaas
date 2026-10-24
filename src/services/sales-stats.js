@@ -81,7 +81,7 @@ async function realExpensesByMonth(pool, from, to) {
  * Estadísticas del periodo. Con `simulate`, ventas y gastos se generan al
  * vuelo (los objetivos sí son los reales); sin él, salen de la base de datos.
  */
-export async function salesStats(pool, { period = '12m', simulate = false, now = new Date() } = {}) {
+export async function salesStats(pool, { period = 'anio', simulate = false, now = new Date() } = {}) {
   const { day: today, time } = nowInShop(now);
   const from = periodStart(period, today);
   const targets = await getTargets(pool);
@@ -111,7 +111,10 @@ async function loadStaffing(pool, from, simulate) {
   const users = await pool.query(
     `SELECT id, name, is_active, to_char(contract_start, 'YYYY-MM-DD') AS contract_start,
             to_char(deactivated_at AT TIME ZONE $1, 'YYYY-MM-DD') AS left_on
-       FROM users WHERE password_hash IS NOT NULL OR is_active ORDER BY lower(name), id`,
+       FROM users
+      -- Solo quien vende en tienda: Iván (administra) queda fuera.
+      WHERE is_seller AND (password_hash IS NOT NULL OR is_active)
+      ORDER BY lower(name), id`,
     [SHOP_TIME_ZONE],
   );
   const members = users.rows.map((u) => ({ id: u.id, name: u.name, active: u.is_active, contractStart: u.contract_start, leftOn: u.left_on }));
@@ -137,7 +140,7 @@ async function loadStaffing(pool, from, simulate) {
 }
 
 /** Ventas por empleado según los turnos en los que estaba. */
-export async function staffStats(pool, { period = '12m', simulate = false, now = new Date() } = {}) {
+export async function staffStats(pool, { period = 'anio', simulate = false, now = new Date() } = {}) {
   const { day: today, time } = nowInShop(now);
   const from = periodStart(period, today);
   const sales = await loadSales(pool, { from, today, time, simulate });
@@ -155,7 +158,7 @@ export async function staffStats(pool, { period = '12m', simulate = false, now =
 }
 
 /** Todo lo necesario para exportar las ventas del periodo (reales o simuladas). */
-export async function salesExportData(pool, { period = '12m', simulate = false, now = new Date() } = {}) {
+export async function salesExportData(pool, { period = 'anio', simulate = false, now = new Date() } = {}) {
   const { day: today, time } = nowInShop(now);
   const from = periodStart(period, today);
   const sales = await loadSales(pool, { from, today, time, simulate });

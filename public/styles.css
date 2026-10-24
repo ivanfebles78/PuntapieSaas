@@ -398,6 +398,11 @@ input[aria-invalid='true'] {
   display: block;
 }
 
+.field-after {
+  margin: 8px 0 0;
+  text-align: right;
+}
+
 .link {
   color: var(--mint-deep);
   font-size: 14px;

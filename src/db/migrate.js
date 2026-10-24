@@ -26,8 +26,8 @@ export async function seedAdmin(pool, cfg, log = console) {
     ? await hashPassword(cfg.adminInitialPassword)
     : cfg.adminPasswordHash;
   const result = await pool.query(
-    `INSERT INTO users (email, name, password_hash, role)
-     VALUES ($1, $2, $3, 'admin')
+    `INSERT INTO users (email, name, password_hash, role, is_seller)
+     VALUES ($1, $2, $3, 'admin', FALSE)
      ON CONFLICT (email) DO NOTHING`,
     [cfg.adminEmail, cfg.adminName, passwordHash],
   );

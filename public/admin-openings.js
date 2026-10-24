@@ -109,7 +109,8 @@ async function load() {
     return;
   }
   state.openings = openings.data;
-  state.team = users.data.filter((u) => u.status === 'activo');
+  // Solo quien vende en tienda trabaja las aperturas.
+  state.team = users.data.filter((u) => u.status === 'activo' && u.isSeller);
   state.hours = hours;
   render();
 }

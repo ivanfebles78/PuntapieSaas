@@ -194,20 +194,25 @@ describe('una sola tabla con tipos de gasto', { skip: !TEST_DATABASE_URL && 'Fal
     assert.deepEqual(oct.items.map((i) => [i.category, i.name]), [
       ['recurrente', 'Alquiler'],
       ['esporadico', 'Reparación persiana'],
-      ['proveedor', 'Garvalín · Fra. 2613'],
-    ]);
+    ], 'la factura de Garvalín se emitió en octubre, pero se paga en noviembre y diciembre');
     const persiana = oct.items.find((i) => i.category === 'esporadico');
     assert.equal(persiana.date, '2026-10-14');
     assert.equal(persiana.kind, 'unico');
     assert.equal(persiana.amountCents, 18050);
     const nov = (await admin('GET', '/api/gastos?mes=2026-11')).data;
-    assert.deepEqual(nov.items.map((i) => i.name), ['Alquiler']);
+    assert.deepEqual(nov.items.map((i) => i.name), ['Alquiler', 'Garvalín · Fra. 2613']);
+    const fra = nov.items[1];
+    assert.equal(fra.amountCents, 117000, 'el importe de ese vencimiento');
+    assert.equal(fra.date, '2026-11-05');
+    assert.deepEqual([fra.duePosition, fra.dueCount, fra.invoiceDate, fra.invoiceTotalCents], [1, 2, '2026-10-05', 234000]);
   });
 
   test('el total del mes suma los tres tipos y se desglosa por tipo', async () => {
     const { totals } = (await admin('GET', '/api/gastos?mes=2026-10')).data;
-    assert.equal(totals.totalCents, 120000 + 18050 + 234000);
-    assert.deepEqual(totals.byCategory, { recurrente: 120000, esporadico: 18050, proveedor: 234000 });
+    assert.equal(totals.totalCents, 120000 + 18050);
+    assert.deepEqual(totals.byCategory, { recurrente: 120000, esporadico: 18050, proveedor: 0 });
+    const dic = (await admin('GET', '/api/gastos?mes=2026-12')).data;
+    assert.equal(dic.totals.byCategory.proveedor, 117000);
   });
 
   test('varios meses a la vez, con el mes en cada fila', async () => {
@@ -215,8 +220,8 @@ describe('una sola tabla con tipos de gasto', { skip: !TEST_DATABASE_URL && 'Fal
     assert.equal(res.status, 200);
     assert.deepEqual(res.data.items.map((i) => `${i.month} ${i.name}`), [
       '2026-09 Alquiler',
-      '2026-10 Alquiler', '2026-10 Reparación persiana', '2026-10 Garvalín · Fra. 2613',
-      '2026-11 Alquiler',
+      '2026-10 Alquiler', '2026-10 Reparación persiana',
+      '2026-11 Alquiler', '2026-11 Garvalín · Fra. 2613',
     ]);
     assert.equal(res.data.totals.byCategory.recurrente, 3 * 120000);
     const reversed = await admin('GET', '/api/gastos?desde=2026-11&hasta=2026-09');
@@ -236,18 +241,18 @@ describe('una sola tabla con tipos de gasto', { skip: !TEST_DATABASE_URL && 'Fal
     assert.equal(tipo.status, 400);
   });
 
-  test('la factura de proveedor sale con su estado y lo pagado a medias', async () => {
-    let fra = (await admin('GET', '/api/gastos?mes=2026-10')).data.items.find((i) => i.source === 'proveedor');
-    assert.equal(fra.invoiceState, 'pendiente');
-    const doc = await admin('GET', `/api/proveedores/documentos/${fra.docId}`);
-    await admin('POST', `/api/proveedores/documentos/${fra.docId}/pagar?vencimiento_id=${doc.data.vencimientos[0].id}&fecha=2026-10-20`);
-    const oct = (await admin('GET', '/api/gastos?mes=2026-10')).data;
-    fra = oct.items.find((i) => i.source === 'proveedor');
-    assert.equal(fra.invoiceState, 'parcial');
-    assert.equal(fra.status, 'pendiente');
-    assert.equal(fra.paidCents, 117000);
-    assert.equal(oct.totals.paidCents, 117000, 'lo pagado cuenta aunque la factura no esté liquidada');
-    assert.equal(oct.totals.pendingCents, 120000 + 18050 + 117000);
+  test('cada vencimiento lleva su propio estado y su pago', async () => {
+    const nov = (await admin('GET', '/api/gastos?mes=2026-11')).data.items.find((i) => i.source === 'proveedor');
+    const doc = await admin('GET', `/api/proveedores/documentos/${nov.docId}`);
+    await admin('POST', `/api/proveedores/documentos/${nov.docId}/pagar?vencimiento_id=${nov.dueId}&fecha=2026-10-20`);
+    const range = (await admin('GET', '/api/gastos?desde=2026-11&hasta=2026-12')).data;
+    const [pagado, pendiente] = range.items.filter((i) => i.source === 'proveedor');
+    assert.equal(pagado.month, '2026-11');
+    assert.equal(pagado.status, 'pagado');
+    assert.equal(pendiente.month, '2026-12');
+    assert.equal(pendiente.status, 'pendiente');
+    assert.equal(pendiente.dueId, doc.data.vencimientos[1].id);
+    assert.equal(range.totals.paidCents, 117000);
   });
 
   test('un pago único se edita, se paga y se borra en su mes', async () => {

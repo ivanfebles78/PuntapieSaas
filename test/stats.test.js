@@ -13,7 +13,7 @@ const SALES = [
   { at: '2026-10-05T18:30', cents: 30000, method: 'efectivo' },
   { at: '2026-10-06T12:00', cents: 20000, method: 'bizum' }, // martes: 200 € (no cumple)
   { at: '2026-10-10T19:45', cents: 80000, method: 'bonos' }, // sábado: 800 € (cumple, tarde)
-  { at: '2026-10-12T10:30', cents: 10000, method: 'vales' }, // lunes 12: 100 €
+  { at: '2026-10-12T10:30', cents: 10000, method: 'vales' }, // lunes 12: 100 € en vales (no suma)
   { at: '2026-10-13T11:00', cents: 55000, method: 'tarjeta' }, // hoy: 550 €
 ];
 
@@ -28,15 +28,16 @@ describe('cálculo de estadísticas', () => {
 
   test('ventas de hoy, semana, mes y totales', () => {
     assert.equal(stats.kpis.today.cents, 55000);
-    assert.equal(stats.kpis.week.cents, 10000 + 55000);
-    assert.equal(stats.kpis.month.cents, 225000);
-    assert.equal(stats.kpis.total.tickets, 6);
-    assert.equal(stats.kpis.total.openDays, 5);
-    assert.equal(stats.kpis.total.avgTicketCents, Math.round(225000 / 6));
+    assert.equal(stats.kpis.week.cents, 55000, 'los vales del lunes 12 no suman');
+    assert.equal(stats.kpis.month.cents, 215000);
+    assert.equal(stats.kpis.total.tickets, 5);
+    assert.equal(stats.kpis.total.openDays, 4);
+    assert.equal(stats.kpis.total.avgTicketCents, Math.round(215000 / 5));
+    assert.deepEqual(stats.kpis.vouchers, { cents: 10000, count: 1 }, 'los vales se cuentan aparte');
   });
 
   test('% de días cumplidos: solo días cerrados con la tienda abierta (sin hoy)', () => {
-    assert.deepEqual(stats.goals.days, { met: 2, total: 4 });
+    assert.deepEqual(stats.goals.days, { met: 2, total: 3 });
     // La semana del 5 al 11 está cerrada: 1.600 € < 3.000 €. La del 28/9 empieza antes del periodo.
     assert.deepEqual(stats.goals.weeks, { met: 0, total: 1 });
     assert.deepEqual(stats.goals.months, { met: 0, total: 0 }, 'octubre aún no ha terminado');
@@ -44,10 +45,10 @@ describe('cálculo de estadísticas', () => {
 
   test('media por día de la semana: mejor y peor, contando solo días abiertos', () => {
     const monday = stats.weekdays.rows.find((r) => r.weekday === 1);
-    assert.equal(monday.days, 2);
-    assert.equal(monday.avgCents, Math.round((60000 + 10000) / 2));
+    assert.equal(monday.days, 1, 'el lunes 12 solo tuvo vales');
+    assert.equal(monday.avgCents, 60000);
     assert.equal(stats.weekdays.best, 6, 'sábado: 800 €');
-    assert.equal(stats.weekdays.worst, 1, 'lunes: (600 + 100) / 2 = 350 €; martes: (200 + 550) / 2 = 375 €');
+    assert.equal(stats.weekdays.worst, 2, 'martes: (200 + 550) / 2 = 375 €');
   });
 
   test('métodos de pago con su parte del total', () => {
@@ -55,25 +56,29 @@ describe('cálculo de estadísticas', () => {
     assert.equal(tarjeta.cents, 85000);
     assert.equal(tarjeta.count, 2);
     assert.ok(Math.abs(stats.methods.reduce((t, m) => t + m.share, 0) - 1) < 1e-9);
+    const vales = stats.methods.find((m) => m.id === 'vales');
+    assert.equal(vales.cents, 10000);
+    assert.equal(vales.revenue, false);
+    assert.equal(vales.share, 0);
   });
 
   test('turnos: mañana antes de las 15:00 y quién gana cada día', () => {
-    assert.equal(stats.shifts.manana.cents, 30000 + 20000 + 10000 + 55000);
+    assert.equal(stats.shifts.manana.cents, 30000 + 20000 + 55000);
     assert.equal(stats.shifts.tarde.cents, 30000 + 80000);
     assert.equal(stats.shifts.tarde.daysWon, 1);
-    assert.equal(stats.shifts.manana.daysWon, 3, 'martes, lunes 12 y hoy; el lunes 5 empata');
+    assert.equal(stats.shifts.manana.daysWon, 2, 'martes y hoy; el lunes 5 empata');
   });
 
   test('franjas horarias: de la primera a la última hora con ventas', () => {
-    assert.equal(stats.hours.rows[0].hour, 10);
+    assert.equal(stats.hours.rows[0].hour, 11, 'a las 10 solo hubo vales');
     assert.equal(stats.hours.rows.at(-1).hour, 19);
     assert.equal(stats.hours.best, 11, '11:00 suma 300 + 550 €');
-    assert.equal(stats.hours.worst, 10, '10:00 suma 100 €');
+    assert.equal(stats.hours.worst, 12, '12:00 suma 200 €');
   });
 
   test('histórico mensual con gastos y beneficio', () => {
     assert.deepEqual(stats.monthly.map((m) => [m.month, m.salesCents, m.expensesCents, m.profitCents]),
-      [['2026-10', 225000, 90000, 135000]]);
+      [['2026-10', 215000, 90000, 125000]]);
     assert.equal(stats.daily.length, 13);
   });
 });

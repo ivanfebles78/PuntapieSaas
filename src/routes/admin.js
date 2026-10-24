@@ -79,7 +79,8 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
   router.use(requireRole('admin', 'asesor'));
   const audit = auditFrom(pool, log);
   const roleName = (id) => ROLES[id]?.label ?? id;
-  const memberFields = (m) => ({ name: m.name, role: roleName(m.role), email: m.email });
+  const memberFields = (m) => ({ name: m.name, role: roleName(m.role), email: m.email, seller: m.isSeller ? 'Sí' : 'No (solo gestiona)' });
+  const MEMBER_LABELS = { name: 'Nombre', email: 'Correo', role: 'Rol', seller: 'Vende en tienda' };
 
   /**
    * Envía la invitación (si aún no tiene contraseña) o un enlace para
@@ -141,6 +142,10 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
       if (req.body?.name !== undefined) changes.name = readName(req.body.name);
       if (req.body?.role !== undefined) changes.role = readRole(req.body.role);
       if (req.body?.email !== undefined) changes.email = readEmail(req.body.email);
+      if (req.body?.isSeller !== undefined) {
+        if (typeof req.body.isSeller !== 'boolean') throw new TeamError(400, 'Indica si vende en tienda (sí o no).', 'INVALID_SELLER');
+        changes.isSeller = req.body.isSeller;
+      }
       if (Object.keys(changes).length === 0) {
         throw new TeamError(400, 'No hay cambios que guardar.', 'NO_CHANGES');
       }
@@ -151,7 +156,7 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
         area: 'usuarios',
         action: 'editar',
         target: member.name,
-        changes: diffFields(memberFields(before), memberFields(member), { name: 'Nombre', email: 'Correo', role: 'Rol' }),
+        changes: diffFields(memberFields(before), memberFields(member), MEMBER_LABELS),
       });
       res.json({ ok: true, data: member });
     } catch (error) {

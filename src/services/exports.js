@@ -2,7 +2,7 @@ import archiver from 'archiver';
 import ExcelJS from 'exceljs';
 import { listExpenses } from './expenses.js';
 import { shiftLabel, shiftOfTime, WEEKDAY_NAMES } from './shop-hours.js';
-import { weekday } from './stats.js';
+import { isRevenue, weekday } from './stats.js';
 
 // Exportaciones en ZIP: un Excel con todos los movimientos y, en Gastos,
 // también las facturas y justificantes tal como se subieron.
@@ -81,15 +81,19 @@ export async function buildExpensesExport(pool, { from, to }) {
   const files = await expenseFiles(pool, from, to);
   const names = new Map(items.filter((i) => !i.source).map((i) => [i.id, i.name]));
   // Facturas de proveedores: su PDF y sus justificantes salen del gestor de pagos a proveedores.
-  const supplierFiles = items.filter((i) => i.source === 'proveedor').flatMap((item) => [
-    ...item.invoices.map((f) => ({ source: 'proveedor-factura', id: item.docId, item, kind: 'factura',
-      path: `facturas/${item.month}/${safeName(item.name)}/fra-${item.docId} - ${safeName(f.filename, 120)}` })),
-    ...item.receipts.map((f) => ({ source: 'proveedor-pago', id: f.id, item, kind: 'justificante',
-      path: `justificantes/${item.month}/${safeName(item.name)}/pago-${f.id} - ${safeName(f.filename, 120)}` })),
-  ]);
-  const pathsOf = (item, kind) => (item.source === 'proveedor'
-    ? supplierFiles.filter((f) => f.item === item && f.kind === kind).map((f) => f.path)
-    : files.filter((f) => f.expense_id === item.id && f.month === item.month && f.kind === kind).map((f) => filePath(f, item.name)));
+  const invoicePath = (item, f) => `facturas/${item.month}/${safeName(item.name)}/fra-${item.docId} - ${safeName(f.filename, 120)}`;
+  const receiptPath = (item, f) => `justificantes/${item.month}/${safeName(item.name)}/pago-${f.id} - ${safeName(f.filename, 120)}`;
+  // Dos vencimientos de la misma factura en el mismo mes comparten su PDF: va una sola vez.
+  const supplierFiles = [...new Map(items.filter((i) => i.source === 'proveedor').flatMap((item) => [
+    ...item.invoices.map((f) => ({ source: 'proveedor-factura', id: item.docId, path: invoicePath(item, f) })),
+    ...item.receipts.map((f) => ({ source: 'proveedor-pago', id: f.id, path: receiptPath(item, f) })),
+  ]).map((f) => [f.path, f])).values()];
+  const pathsOf = (item, kind) => {
+    if (item.source === 'proveedor') {
+      return kind === 'factura' ? item.invoices.map((f) => invoicePath(item, f)) : item.receipts.map((f) => receiptPath(item, f));
+    }
+    return files.filter((f) => f.expense_id === item.id && f.month === item.month && f.kind === kind).map((f) => filePath(f, item.name));
+  };
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Puntapié · Gestión';
@@ -158,7 +162,7 @@ export async function buildExpensesExport(pool, { from, to }) {
     workbook,
     files: [
       ...files.map((f) => ({ source: 'gasto', id: f.id, path: filePath(f, names.get(f.expense_id) ?? `gasto ${f.expense_id}`) })),
-      ...supplierFiles.map(({ source, id, path }) => ({ source, id, path })),
+      ...supplierFiles,
     ],
     count: items.length,
   };
@@ -183,6 +187,7 @@ export function buildSalesWorkbook({ sales, staffing, team, targets, staff, simu
     { header: 'Turno', key: 'shift', width: 22 },
     { header: 'Importe', key: 'amount', width: 13, euros: true },
     { header: 'Método de pago', key: 'method', width: 16 },
+    { header: '¿Suma a ventas?', key: 'counts', width: 15 },
     { header: 'En el turno', key: 'staff', width: 30 },
   ]);
   const byDay = new Map();
@@ -197,11 +202,17 @@ export function buildSalesWorkbook({ sales, staffing, team, targets, staff, simu
       shift: shiftLabel(shift),
       amount: sale.cents / 100,
       method: METHOD_LABELS[sale.method] ?? sale.method,
+      // Los vales salen de una devolución ya contada: se registran, no suman.
+      counts: isRevenue(sale) ? 'Sí' : 'No (vale)',
       staff: staffing(day, shift).map((id) => names.get(id)).filter(Boolean).join(', '),
     });
-    const bucket = byDay.get(day) ?? { cents: 0, tickets: 0 };
-    bucket.cents += sale.cents;
-    bucket.tickets += 1;
+    const bucket = byDay.get(day) ?? { cents: 0, tickets: 0, vales: 0 };
+    if (isRevenue(sale)) {
+      bucket.cents += sale.cents;
+      bucket.tickets += 1;
+    } else {
+      bucket.vales += sale.cents;
+    }
     byDay.set(day, bucket);
   }
 
@@ -210,6 +221,7 @@ export function buildSalesWorkbook({ sales, staffing, team, targets, staff, simu
     { header: 'Día', key: 'weekday', width: 11 },
     { header: 'Ventas', key: 'amount', width: 14, euros: true },
     { header: 'Tickets', key: 'tickets', width: 9 },
+    { header: 'Vales (no suman)', key: 'vales', width: 16, euros: true },
     { header: 'Ticket medio', key: 'avg', width: 13, euros: true },
     { header: 'Objetivo', key: 'target', width: 13, euros: true },
     { header: '¿Cumplido?', key: 'met', width: 11 },
@@ -220,7 +232,8 @@ export function buildSalesWorkbook({ sales, staffing, team, targets, staff, simu
       weekday: WEEKDAY_NAMES[weekday(day)],
       amount: b.cents / 100,
       tickets: b.tickets,
-      avg: b.cents / b.tickets / 100,
+      vales: b.vales / 100,
+      avg: b.tickets ? b.cents / b.tickets / 100 : 0,
       target: targets.dailyCents / 100,
       met: b.cents >= targets.dailyCents ? 'Sí' : 'No',
     });

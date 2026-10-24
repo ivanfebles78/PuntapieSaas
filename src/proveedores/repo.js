@@ -329,9 +329,10 @@ export async function listarDocumentos(db, filtros = {}, hoy = hoyTienda()) {
   return filtros.estado ? docs.filter((d) => d.estado === filtros.estado) : docs;
 }
 
-/** Facturas con fecha dentro de [desde, hasta] (para la tabla de Gastos). */
-export async function facturasEntre(db, desde, hasta, hoy = hoyTienda()) {
-  return cargar(db, "WHERE d.kind = 'factura' AND d.doc_date BETWEEN $1 AND $2", [desde, hasta], hoy);
+/** Facturas con algún vencimiento dentro de [desde, hasta] (para la tabla de Gastos). */
+export async function facturasConVencimientosEntre(db, desde, hasta, hoy = hoyTienda()) {
+  return cargar(db, `WHERE d.kind = 'factura' AND EXISTS (
+    SELECT 1 FROM supplier_dues du WHERE du.doc_id = d.id AND du.due_date BETWEEN $1 AND $2)`, [desde, hasta], hoy);
 }
 
 /* ---------- Duplicados ---------- */

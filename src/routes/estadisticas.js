@@ -18,7 +18,7 @@ export function estadisticasRouter({ pool, log = console }) {
   // ?periodo=3m|6m|12m|anio&simular=1
   router.get('/', handle(async (req, res) => {
     const data = await salesStats(pool, {
-      period: String(req.query.periodo ?? '12m'),
+      period: String(req.query.periodo ?? 'anio'),
       simulate: req.query.simular === '1',
     });
     res.json({ ok: true, data });
@@ -27,7 +27,7 @@ export function estadisticasRouter({ pool, log = console }) {
   // Ventas por empleado: Administrador y Asesor (son datos del equipo).
   router.get('/empleados', requireRole('admin', 'asesor'), handle(async (req, res) => {
     const data = await staffStats(pool, {
-      period: String(req.query.periodo ?? '12m'),
+      period: String(req.query.periodo ?? 'anio'),
       simulate: req.query.simular === '1',
     });
     res.json({ ok: true, data });
@@ -37,7 +37,7 @@ export function estadisticasRouter({ pool, log = console }) {
   // Lleva quién estaba en cada turno: solo Administrador y Asesor.
   router.get('/exportar', requireRole('admin', 'asesor'), handle(async (req, res) => {
     const data = await salesExportData(pool, {
-      period: String(req.query.periodo ?? '12m'),
+      period: String(req.query.periodo ?? 'anio'),
       simulate: req.query.simular === '1',
     });
     const span = `${data.from}_a_${data.to}${data.simulated ? '_SIMULADO' : ''}`;

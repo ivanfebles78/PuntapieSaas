@@ -59,9 +59,10 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
 - **Recurrente fijo**: su importe se repite cada mes; se cambia **solo un mes** o **desde un mes en
   adelante**. **Recurrente variable**: empieza cada mes en 0.
 - **Esporádico**: un único pago con su fecha e importe.
-- **Proveedor**: cada **factura de proveedor** es una fila (en el mes de su fecha) con su PDF, sus
-  justificantes y su estado (pendiente, parcial, vencida, pagada); el filtro «Proveedores» las
-  muestra. No se apuntan a mano: se gestionan en **«Gestionar pagos a proveedores»** (ver abajo).
+- **Proveedor**: las facturas de proveedor salen **cuando hay que pagarlas**: una fila por
+  vencimiento, en el mes de su fecha y con su importe (una factura de agosto que se paga en
+  noviembre y diciembre sale en esos dos meses), con el PDF, el justificante de ese pago y su
+  estado; el filtro «Proveedores» las muestra. No se apuntan a mano: se gestionan en **«Gestionar pagos a proveedores»** (ver abajo).
 - Facturas y justificantes (PDF o imagen, hasta 10 MB, varios). Subir un justificante deja el gasto
   **pagado**; borrar el último lo devuelve a **pendiente**. El estado también se cambia a mano.
 - Los documentos se guardan en PostgreSQL (el disco de Railway se borra en cada despliegue).
@@ -102,9 +103,12 @@ con lo mismo que tenía la app original.
 - `/app/estadisticas?periodo=3m|6m|12m|anio` (y `&simular=1`).
 - **Objetivos de venta** editables por el Administrador (por defecto 500 €/día, 3.000 €/semana,
   12.000 €/mes), guardados en la tabla `settings`.
+- Por defecto, **Este año**. Los **vales** se cuentan aparte y **no suman** a las ventas (salen de
+  una devolución de algo ya vendido): no entran en objetivos, medias, turnos ni empleados.
 - Ventas de hoy, semana, mes y total del periodo con su avance frente al objetivo; % de días,
   semanas y meses **cerrados** que lo cumplen (los días sin ventas cuentan como cerrados).
-- Gráficos: ventas diarias (30 días) y semanales con línea de objetivo, ventas vs gastos por mes,
+- Gráficos: ventas diarias (30 días) y semanales con línea de objetivo, **evolución de ventas y
+  gastos mes a mes** (líneas),
   métodos de pago (efectivo, tarjeta, Bizum, bonos consumo, vales), media por día de la semana
   (mejor y más flojo), clientes (tickets) por semana, mañana vs tarde (corte a las 15:00) y ventas
   por franja horaria; además, histórico mensual con beneficio.
@@ -112,7 +116,9 @@ con lo mismo que tenía la app original.
   genera en el servidor ventas y gastos de ejemplo (reproducibles, sin guardar nada).
 - Gráficos SVG propios (sin librerías: la CSP no lo permite), con tooltip por ratón y teclado y
   paleta categórica validada para daltonismo.
-- Pestaña **Empleados** (Administrador y Asesor): no se sabe quién cobra cada ticket, pero sí el
+- Pestaña **Empleados** (Administrador y Asesor). Solo cuenta quien tiene marcado **«Vende en
+  tienda»** (Admin › Usuarios › Editar): Iván administra y queda fuera.
+  Cómo se atribuye: no se sabe quién cobra cada ticket, pero sí el
   turno y quién estaba (turno fijo − vacaciones − turnos libres + aperturas extra). Cada persona
   suma el total de sus turnos; se compara la **venta media por turno** y un índice frente a la
   media de la tienda en los mismos turnos (la tarde vende más). Vende más / vende menos solo entre

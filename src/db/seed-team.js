@@ -5,16 +5,17 @@ export const TEAM_SEED = Object.freeze([
   { username: 'ctoriz', name: 'Claudia', role: 'admin', passwordHash: '$2b$12$grf/rumTFpGki9ENg584TuD/2Mg0sqUFlZfrflPGT/iQisYnJ01dO' },
   { username: 'epena', name: 'Elena', role: 'empleado', passwordHash: '$2b$12$66Ip0EdOHBK4kDq3TbpP1.WgCe9T9kPYij0r2rtnVeDqkjZnX0Vje' },
   { username: 'rperez', name: 'Raquel', role: 'empleado', passwordHash: '$2b$12$tMJOs3gsdeDdyPSz3cTWj.fPTRSnoRh8caMtVyrZ5baM8mYTJivBq' },
-  { username: 'ifebles', name: 'Iván', role: 'admin', passwordHash: '$2b$12$aVO8tOY5uok7krBl22YpQ.PoWsejI.n8/9MqQbOvf9Eiv7hrui.Oy' },
+  // Iván administra pero no vende: fuera de las ventas por empleado.
+  { username: 'ifebles', name: 'Iván', role: 'admin', isSeller: false, passwordHash: '$2b$12$aVO8tOY5uok7krBl22YpQ.PoWsejI.n8/9MqQbOvf9Eiv7hrui.Oy' },
 ]);
 
 export async function seedTeam(pool, seed = TEAM_SEED, log = console) {
   for (const member of seed) {
     const result = await pool.query(
-      `INSERT INTO users (username, name, role, password_hash, must_change_password)
-       SELECT $1, $2, $3, $4, TRUE
+      `INSERT INTO users (username, name, role, password_hash, must_change_password, is_seller)
+       SELECT $1, $2, $3, $4, TRUE, $5
         WHERE NOT EXISTS (SELECT 1 FROM users WHERE lower(username) = lower($1))`,
-      [member.username, member.name, member.role, member.passwordHash],
+      [member.username, member.name, member.role, member.passwordHash, member.isSeller !== false],
     );
     if (result.rowCount > 0) {
       log.info(`[seed] Usuario ${member.username} (${member.role}) creado.`);

@@ -154,28 +154,56 @@ export function barChart(container, { bars, format, target, height = 230, title 
   container.replaceChildren(root);
 }
 
-/** Dos series del mismo tipo de dato (€) por grupo, lado a lado, con un único eje. */
-export function groupedBarChart(container, { groups, series, format, target, height = 240, title }) {
+/* ---------- Líneas ---------- */
+
+/** Curva suave por los puntos (Catmull-Rom → Bézier), sin pasarse por arriba ni por abajo de más. */
+function smoothPath(points) {
+  if (points.length < 2) return points.length ? `M${points[0][0]},${points[0][1]}` : '';
+  let d = `M${points[0][0]},${points[0][1]}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const [x0, y0] = points[i - 1] ?? points[i];
+    const [x1, y1] = points[i];
+    const [x2, y2] = points[i + 1];
+    const [x3, y3] = points[i + 2] ?? points[i + 1];
+    const t = 1 / 6;
+    d += `C${x1 + (x2 - x0) * t},${y1 + (y2 - y0) * t} ${x2 - (x3 - x1) * t},${y2 - (y3 - y1) * t} ${x2},${y2}`;
+  }
+  return d;
+}
+
+/**
+ * Evolución de varias series del mismo tipo de dato (€) con un único eje.
+ * series: [{ name, slot, values, dashed? }]; labels: etiqueta de cada punto;
+ * tooltips: líneas del tooltip de cada punto (todas las series a la vez).
+ */
+export function lineChart(container, { series, labels, tooltips, format, height = 260, title }) {
   const { width, plotW, plotH, root } = frame(container, height);
   root.setAttribute('aria-label', title);
-  const max = Math.max(...groups.flatMap((g) => g.values), target?.value ?? 0);
+  const max = Math.max(...series.flatMap((s) => s.values), 0);
   const scale = niceScale(max * 1.08);
-  const bandW = plotW / groups.length;
-  const barW = Math.max(2, Math.min(28, (bandW * 0.78 - 2) / series.length));
-  const bandX = (i) => PAD.left + i * bandW;
+  const n = labels.length;
+  const bandW = plotW / Math.max(1, n);
+  const x = (i) => PAD.left + bandW * i + bandW / 2;
   const y = (v) => PAD.top + plotH - (v / scale.max) * plotH;
 
   root.append(yAxis(width, plotH, scale, format));
-  groups.forEach((group, i) => {
-    const start = bandX(i) + (bandW - (barW * series.length + 2 * (series.length - 1))) / 2;
-    group.values.forEach((value, s) => {
-      const top = y(value);
-      root.append(svg('path', { d: barPath(start + s * (barW + 2), top, barW, PAD.top + plotH - top), class: `chart-bar series-${series[s].slot}` }));
-    });
+  const cursor = svg('line', { class: 'chart-cursor', x1: 0, x2: 0, y1: PAD.top, y2: PAD.top + plotH, visibility: 'hidden' });
+  root.append(cursor);
+  for (const s of series) {
+    const points = s.values.map((v, i) => [x(i), y(v)]);
+    root.append(svg('path', { d: smoothPath(points), class: `chart-line series-${s.slot}${s.dashed ? ' is-dashed' : ''}` }));
+    root.append(svg('g', {}, points.map(([px, py]) => svg('circle', { cx: px, cy: py, r: s.dashed ? 4 : 5.5, class: `chart-dot series-${s.slot}` }))));
+  }
+  root.append(xLabels(labels, (i) => PAD.left + bandW * i, bandW, PAD.top + plotH));
+  labels.forEach((_, i) => {
+    const hit = hitArea(PAD.left + bandW * i, PAD.top, bandW, plotH, tooltips[i]);
+    hit.addEventListener('pointerenter', () => { cursor.setAttribute('x1', x(i)); cursor.setAttribute('x2', x(i)); cursor.setAttribute('visibility', 'visible'); });
+    hit.addEventListener('focus', () => { cursor.setAttribute('x1', x(i)); cursor.setAttribute('x2', x(i)); cursor.setAttribute('visibility', 'visible'); });
+    const hide = () => cursor.setAttribute('visibility', 'hidden');
+    hit.addEventListener('pointerleave', hide);
+    hit.addEventListener('blur', hide);
+    root.append(hit);
   });
-  if (target) root.append(targetLine(width, y(target.value), target.label));
-  root.append(xLabels(groups.map((g) => g.label), bandX, bandW, PAD.top + plotH));
-  groups.forEach((group, i) => root.append(hitArea(bandX(i), PAD.top, bandW, plotH, group.tooltip)));
   container.replaceChildren(root);
 }
 

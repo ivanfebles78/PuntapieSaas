@@ -33,6 +33,21 @@
   font-style: italic;
 }
 
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 4px 0 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--linen);
+  cursor: pointer;
+}
+
+.check-row input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--espresso); }
+.check-row span { display: flex; flex-direction: column; gap: 2px; }
+.check-row small { color: var(--taupe); font-size: 12.5px; }
+
 /* ---------- Diálogo de turno ---------- */
 
 .slot-presets {

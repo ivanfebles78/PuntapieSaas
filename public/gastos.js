@@ -21,9 +21,9 @@ const CATEGORY = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
 const KIND_LABEL = Object.freeze({ fijo: 'Fijo', variable: 'Variable' });
 // Estado de una factura de proveedor (viene del gestor de pagos a proveedores).
 const INVOICE_STATE = Object.freeze({
-  pagada: { label: 'Pagada', className: 'state-paid' },
+  pagada: { label: 'Pagado', className: 'state-paid' },
   parcial: { label: 'Parcial', className: 'state-partial' },
-  vencida: { label: 'Vencida', className: 'state-overdue' },
+  vencida: { label: 'Vencido', className: 'state-overdue' },
   pendiente: { label: 'Pendiente', className: 'state-pending' },
 });
 
@@ -251,21 +251,19 @@ function whenCell(item) {
 function invoiceRow(item, index) {
   const cat = CATEGORY.proveedor;
   const st = INVOICE_STATE[item.invoiceState] ?? INVOICE_STATE.pendiente;
-  const pendingDues = item.dues.filter((d) => !d.paid);
   const filesTd = (label, files, empty) => h('td', { class: 'cell-files', 'data-label': label }, h('div', { class: 'files' },
     files.length ? h('ul', { class: 'file-list' }, files.map((f) => fileChip(f, false))) : h('span', { class: 'files-empty', text: empty })));
-  const dueNote = item.invoiceState === 'parcial'
-    ? `Pagado ${formatEuros(item.paidCents)} · falta ${formatEuros(item.pendingCents)}`
-    : item.invoiceState !== 'pagada' && item.nextDue
-      ? `Próximo pago ${formatDay(item.nextDue)}${pendingDues.length > 1 ? ` · ${pendingDues.length} plazos` : ''}`
-      : null;
+  // Se ve en el mes en que vence; aquí se recuerda cuándo se emitió y su total.
+  const dueNote = item.dueCount > 1
+    ? `Factura del ${formatDay(item.invoiceDate)} · total ${formatEuros(item.invoiceTotalCents)}`
+    : item.invoiceDate !== item.date ? `Factura del ${formatDay(item.invoiceDate)}` : null;
   const tr = h('tr', { class: 'expense cat-row-proveedor is-invoice', 'data-id': item.id, 'data-month': item.month }, [
     whenCell(item),
     h('th', { scope: 'row', class: 'cell-name' }, [
       h('span', { class: 'expense-name', text: item.name }),
       h('span', { class: 'tags' }, [
         h('span', { class: 'cat-badge cat-proveedor' }, [icon(cat.icon, 'ico ico-xs'), h('span', { text: cat.label })]),
-        h('span', { class: 'kind', text: item.dues.length > 1 ? `${item.dues.length} vencimientos` : 'Factura' }),
+        h('span', { class: 'kind', text: item.dueCount > 1 ? `Vencimiento ${item.duePosition} de ${item.dueCount}` : 'Factura' }),
       ]),
     ]),
     h('td', { class: 'cell-amount', 'data-label': 'Importe' }, [
@@ -273,7 +271,7 @@ function invoiceRow(item, index) {
       dueNote ? h('span', { class: 'amount-note', text: dueNote }) : null,
     ]),
     filesTd('Facturas', item.invoices, 'Sin PDF'),
-    filesTd('Justificantes', item.receipts, item.paidCents > 0 ? 'Pagada sin justificante' : '—'),
+    filesTd('Justificantes', item.receipts, item.status === 'pagado' ? 'Pagado sin justificante' : '—'),
     h('td', { class: 'cell-status', 'data-label': 'Estado' }, h('span', { class: `state ${st.className} state-static` }, [
       h('span', { class: 'state-dot', 'aria-hidden': 'true' }), h('span', { text: st.label }),
     ])),

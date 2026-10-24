@@ -623,3 +623,28 @@
 .history tbody tr:hover {
   background: rgb(243 236 224 / 0.55);
 }
+
+/* Vales: se cuentan pero no suman a la facturación. */
+.method-list li.is-excluded { opacity: 0.75; }
+.method-list li.is-excluded strong { text-decoration: line-through; text-decoration-color: rgb(30 26 22 / 0.35); }
+
+/* Gráfico de líneas: ventas continua, gastos discontinua. */
+.chart-line {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart-line.series-1 { stroke: var(--series-1); }
+.chart-line.series-2 { stroke: var(--series-2); }
+.chart-line.is-dashed { stroke-width: 2; stroke-dasharray: 5 6; }
+
+.chart-dot { stroke: var(--paper-hi); stroke-width: 2; }
+.chart-dot.series-1 { fill: var(--series-1); }
+.chart-dot.series-2 { fill: var(--series-2); }
+
+.chart-cursor { stroke: rgb(30 26 22 / 0.25); stroke-width: 1; stroke-dasharray: 3 3; }
+
+.legend-swatch.is-line { width: 20px; height: 3px; border-radius: 2px; }
+.legend-swatch.is-dashed { background: repeating-linear-gradient(90deg, var(--series-2) 0 5px, transparent 5px 8px); }

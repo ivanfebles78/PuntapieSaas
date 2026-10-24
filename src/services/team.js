@@ -12,7 +12,7 @@ export class TeamError extends Error {
 
 const USER_COLUMNS = `
   u.id, u.email, u.username, u.name, u.role, u.is_active, u.created_at, u.invited_at,
-  u.last_login_at, u.deactivated_at, u.must_change_password,
+  u.last_login_at, u.deactivated_at, u.must_change_password, u.is_seller,
   (u.password_hash IS NOT NULL) AS has_password, inviter.name AS invited_by_name,
   (SELECT to_char(v.end_date, 'YYYY-MM-DD') FROM vacations v
     WHERE v.user_id = u.id AND CURRENT_DATE BETWEEN v.start_date AND v.end_date
@@ -37,6 +37,8 @@ export function toTeamMember(row) {
     role: row.role,
     status: userStatus(row),
     mustChangePassword: row.must_change_password,
+    // false = administra pero no vende: no entra en ventas por empleado ni turnos.
+    isSeller: row.is_seller !== false,
     createdAt: row.created_at,
     invitedAt: row.invited_at,
     invitedBy: row.invited_by_name ?? null,
@@ -115,7 +117,7 @@ function assertNotLastAdmin(adminIds, userId) {
   }
 }
 
-export async function updateMember(pool, actorId, id, { name, role, email }) {
+export async function updateMember(pool, actorId, id, { name, role, email, isSeller }) {
   return withAdminLock(pool, async (client, adminIds) => {
     const current = await findMember(client, id);
     if (role !== undefined && role !== current.role) {
@@ -129,9 +131,10 @@ export async function updateMember(pool, actorId, id, { name, role, email }) {
       if (taken.rowCount > 0) throw new TeamError(409, 'Ya existe una cuenta con ese correo.', 'EMAIL_TAKEN');
     }
     await client.query(
-      `UPDATE users SET name = COALESCE($2, name), role = COALESCE($3, role), email = COALESCE($4, email)
+      `UPDATE users SET name = COALESCE($2, name), role = COALESCE($3, role), email = COALESCE($4, email),
+              is_seller = COALESCE($5, is_seller)
         WHERE id = $1`,
-      [id, name ?? null, role ?? null, email ?? null],
+      [id, name ?? null, role ?? null, email ?? null, isSeller ?? null],
     );
     return toTeamMember(await findMember(client, id));
   });

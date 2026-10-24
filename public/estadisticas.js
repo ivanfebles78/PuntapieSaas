@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { barChart, donutChart, groupedBarChart } from './charts.js';
+import { barChart, donutChart, lineChart } from './charts.js';
 import { field, openDialog } from './dialogs.js';
 import { h, stagger } from './dom.js';
 import { centsToInput, formatEuros, monthLabel } from './format.js';
@@ -32,7 +32,8 @@ const axisEuros = (cents) => (cents >= 1000000 ? `${count.format(Math.round(cent
 const dayLabel = (day) => `${Number(day.slice(8))} ${SHORT_MONTHS[Number(day.slice(5, 7)) - 1]}`;
 const monthShort = (month) => `${SHORT_MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(2, 4)}`;
 
-const state = { view: 'tienda', period: '12m', simulate: false, data: null, user: null, els: null, resize: null, drawStaff: null };
+const DEFAULT_PERIOD = 'anio';
+const state = { view: 'tienda', period: DEFAULT_PERIOD, simulate: false, data: null, user: null, els: null, resize: null, drawStaff: null };
 
 /* ---------- Cabecera y controles ---------- */
 
@@ -123,6 +124,7 @@ function kpis() {
       h('span', { class: 'kpi-label', text: `Total · ${periodLabel()}` }),
       h('span', { class: 'kpi-value', text: formatEuros(k.total.cents) }),
       h('span', { class: 'kpi-detail', text: `${count.format(k.total.tickets)} ventas · ticket medio ${formatEuros(k.total.avgTicketCents)} · ${k.total.openDays} días abiertos` }),
+      k.vouchers?.count ? h('span', { class: 'kpi-detail', text: `Aparte: ${formatEuros(k.vouchers.cents)} en vales (${count.format(k.vouchers.count)}), que no suman` }) : null,
     ]),
   ]);
 }
@@ -159,10 +161,14 @@ function methodsBlock() {
   const donut = h('div', { class: 'donut-wrap' });
   const list = h('ul', { class: 'method-list' }, METHODS.map((m) => {
     const row = state.data.methods.find((x) => x.id === m.id);
-    return h('li', {}, [
+    // Los vales vienen de devoluciones ya contadas: se ven, pero no suman.
+    const detail = row.revenue === false
+      ? `${count.format(row.count)} pagos · no suman a ventas`
+      : `${pct.format(row.share)} · ${count.format(row.count)} ventas`;
+    return h('li', { class: row.revenue === false ? 'is-excluded' : null }, [
       h('span', { class: `legend-swatch series-${m.slot}`, 'aria-hidden': 'true' }),
       h('span', { class: 'method-name', text: m.label }),
-      h('span', { class: 'method-amount' }, [h('strong', { text: formatEuros(row.cents) }), h('small', { text: `${pct.format(row.share)} · ${count.format(row.count)} ventas` })]),
+      h('span', { class: 'method-amount' }, [h('strong', { text: formatEuros(row.cents) }), h('small', { text: detail })]),
     ]);
   }));
   return { node: h('div', { class: 'methods' }, [donut, list]), donut, total };
@@ -230,16 +236,16 @@ function drawCharts() {
       tooltip: [`Semana del ${dayLabel(w.weekStart)}`, formatEuros(w.cents), `${count.format(w.tickets)} ventas`],
     })),
   });
-  groupedBarChart(c.monthly, {
-    title: 'Ventas y gastos por mes',
+  lineChart(c.monthly, {
+    title: 'Evolución de ventas y gastos mes a mes',
     format: axisEuros,
-    series: [{ name: 'Ventas', slot: 1 }, { name: 'Gastos', slot: 2 }],
-    target: { value: t.monthlyCents, label: `Objetivo ${eurosShort(t.monthlyCents)}` },
-    groups: d.monthly.map((m) => ({
-      label: monthShort(m.month),
-      values: [m.salesCents, m.expensesCents],
-      tooltip: [monthLabel(m.month), `Ventas ${formatEuros(m.salesCents)}`, `Gastos ${formatEuros(m.expensesCents)}`, `Beneficio ${formatEuros(m.profitCents)}`],
-    })),
+    series: [
+      { name: 'Ventas', slot: 1, values: d.monthly.map((m) => m.salesCents) },
+      { name: 'Gastos', slot: 2, dashed: true, values: d.monthly.map((m) => m.expensesCents) },
+    ],
+    labels: d.monthly.map((m) => monthShort(m.month)),
+    tooltips: d.monthly.map((m) => [monthLabel(m.month), `Ventas ${formatEuros(m.salesCents)}`, `Gastos ${formatEuros(m.expensesCents)}`,
+      `${m.profitCents >= 0 ? 'Beneficio' : 'Pérdida'} ${formatEuros(Math.abs(m.profitCents))}`]),
   });
   const open = d.weekdays.rows.filter((r) => r.days > 0);
   barChart(c.weekdays, {
@@ -275,7 +281,7 @@ function drawCharts() {
   donutChart(c.methods, {
     centerLabel: 'Total ventas',
     centerValue: eurosShort(state.data.kpis.total.cents),
-    segments: METHODS.map((m) => {
+    segments: METHODS.filter((m) => d.methods.find((x) => x.id === m.id).revenue !== false).map((m) => {
       const row = d.methods.find((x) => x.id === m.id);
       return { slot: m.slot, value: row.cents, tooltip: [m.label, formatEuros(row.cents), `${pct.format(row.share)} · ${count.format(row.count)} ventas`] };
     }),
@@ -324,8 +330,9 @@ function render() {
     h('div', { class: 'stat-grid' }, [
       card('Ventas diarias', 'Últimos 30 días. Más claras, las que no llegan al objetivo.', charts.daily, 'is-wide'),
       card('Ventas semanales', 'Cada barra es una semana de lunes a domingo.', charts.weekly),
-      card('Ventas y gastos por mes', 'Los gastos salen de la tabla de Gastos (los tres tipos).', h('div', {}, [legend([['series-1', 'Ventas'], ['series-2', 'Gastos']]), charts.monthly])),
-      card('Métodos de pago', `Reparto del total vendido en ${periodLabel()}.`, methods.node),
+      card('Evolución de ventas y gastos', 'Mes a mes. Los gastos salen de la tabla de Gastos (los tres tipos, cada factura de proveedor en el mes de su vencimiento).',
+        h('div', {}, [legend([['series-1 is-line', 'Ventas'], ['series-2 is-line is-dashed', 'Gastos']]), charts.monthly]), 'is-wide'),
+      card('Métodos de pago', `Reparto del total vendido en ${periodLabel()}. Los vales se muestran aparte: vienen de devoluciones y no suman.`, methods.node),
       card('Media por día de la semana', 'Suma de cada día dividida entre los días abiertos (sin cierres ni festivos).', charts.weekdays),
       card('Clientes por semana', 'Número de ventas (tickets) de cada semana.', charts.clients),
       card('Mañana vs tarde', 'Cuánto se vende en cada turno y cuántos días gana cada uno.', shiftsBlock()),
@@ -418,7 +425,7 @@ function bindEvents(root) {
 export function renderStats({ main, user, params, backHref }) {
   state.user = user;
   state.view = ['admin', 'asesor'].includes(user.role) && params.get('vista') === 'empleados' ? 'empleados' : 'tienda';
-  state.period = PERIODS.some(([id]) => id === params.get('periodo')) ? params.get('periodo') : '12m';
+  state.period = PERIODS.some(([id]) => id === params.get('periodo')) ? params.get('periodo') : DEFAULT_PERIOD;
   state.simulate = params.get('simular') === '1';
   const body = h('div', { class: 'stats-body' }, h('p', { class: 'notice', text: 'Cargando estadísticas…' }));
   const root = h('div', { class: 'recurring stats-view' }, [header(backHref), controls(), stagger(body, 3)]);

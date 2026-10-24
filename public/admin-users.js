@@ -154,7 +154,9 @@ function actionButton(action, label, iconName, extraClass = '') {
 
 function actions(member, isMe) {
   if (member.status === 'baja') return [actionButton('reactivate', 'Reactivar', 'userTick')];
-  const list = [actionButton('edit', 'Editar', 'magic'), actionButton('schedule', 'Turno', 'clock'), actionButton('vacations', 'Vacaciones', 'sun')];
+  const list = [actionButton('edit', 'Editar', 'magic')];
+  if (member.isSeller) list.push(actionButton('schedule', 'Turno', 'clock'));
+  list.push(actionButton('vacations', 'Vacaciones', 'sun'));
   if (!isMe) {
     list.push(member.email
       ? actionButton('access', member.status === 'invitado' ? 'Reenviar invitación' : 'Enviar enlace de contraseña', 'sms')
@@ -172,9 +174,9 @@ function memberRow(member, index) {
     h('span', { class: 'member-id' }, [
       h('span', { class: 'member-name' }, [h('span', { text: member.name }), isMe ? h('span', { class: 'me-tag', text: 'Tú' }) : null]),
       h('span', { class: 'member-handle', text: handle }),
-      member.status === 'baja' ? null : h('span', { class: `member-shift${member.slots?.length ? '' : ' is-empty'}` }, [
+      member.status === 'baja' ? null : h('span', { class: `member-shift${member.slots?.length && member.isSeller ? '' : ' is-empty'}` }, [
         icon('clock', 'ico ico-xs'),
-        h('span', { text: describeSlots(member.slots) }),
+        h('span', { text: member.isSeller ? describeSlots(member.slots) : 'Solo gestiona · no cuenta en ventas' }),
       ]),
     ]),
     roleControl(member, isMe),
@@ -272,10 +274,17 @@ async function editMember(member) {
         label: 'Correo electrónico', name: 'email', type: 'email', value: member.email ?? '', inputmode: 'email', autocomplete: 'off',
         hint: member.email ? null : 'Con correo podrá recuperar su contraseña por su cuenta.',
       }),
+      h('label', { class: 'check-row' }, [
+        h('input', { type: 'checkbox', name: 'isSeller', checked: member.isSeller }),
+        h('span', {}, [
+          h('strong', { text: 'Vende en tienda' }),
+          h('small', { text: 'Desmárcalo si solo gestiona: no tendrá turno ni contará en las ventas por empleado.' }),
+        ]),
+      ]),
     ],
     submitLabel: 'Guardar cambios',
     onSubmit: async (form) => {
-      const body = { name: form.elements.namedItem('name').value };
+      const body = { name: form.elements.namedItem('name').value, isSeller: form.elements.namedItem('isSeller').checked };
       if (form.elements.namedItem('email').value.trim()) body.email = form.elements.namedItem('email').value;
       const res = await api('PATCH', `/api/admin/users/${member.id}`, body);
       return res.ok ? res.data : { error: res.error };

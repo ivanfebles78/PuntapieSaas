@@ -301,3 +301,15 @@ CREATE TABLE IF NOT EXISTS supplier_uploads (
   created_by  INTEGER REFERENCES users(id) ON DELETE CASCADE,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ===================== Quién vende =====================
+-- Solo quien vende en tienda entra en las ventas por empleado y en los turnos.
+-- Iván administra pero no vende: al crear la columna se le marca como «no vende»
+-- (una sola vez; luego se cambia desde Admin › Usuarios › Editar).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'is_seller') THEN
+    ALTER TABLE users ADD COLUMN is_seller BOOLEAN NOT NULL DEFAULT TRUE;
+    UPDATE users SET is_seller = FALSE WHERE lower(username) = 'ifebles' OR lower(email) = 'ivan.febles@gmail.com';
+  END IF;
+END $$;

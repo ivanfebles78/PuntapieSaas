@@ -1,5 +1,6 @@
 import { HttpError } from '../http-error.js';
-import { facturasEntre } from '../proveedores/repo.js';
+import { facturasConVencimientosEntre } from '../proveedores/repo.js';
+import { todayInShop } from './vacation-balance.js';
 import { monthsBetween, previousMonth } from './money.js';
 
 // Tipo de gasto (etiqueta de color) y forma de repetirse.
@@ -87,44 +88,52 @@ function toFile(row) {
 }
 
 /**
- * Una factura de proveedor (del gestor de pagos a proveedores) como fila de
- * la tabla de Gastos: una fila por factura, en el mes de su fecha. Su estado
- * y sus documentos se gestionan desde el gestor, no desde la tabla.
+ * Las facturas de proveedor se ven en Gastos cuando hay que pagarlas: una fila
+ * por vencimiento, en el mes de su fecha y con su importe (una factura a 30 y
+ * 60 días sale en esos dos meses, aunque se emitiera antes). Sus pagos y
+ * documentos se gestionan en el gestor de pagos a proveedores.
  */
-export function invoiceItem(d) {
-  const receipts = [];
-  const seen = new Set();
-  for (const v of d.vencimientos) {
-    if (!v.pago?.archivo || seen.has(v.pago.archivo)) continue;
-    seen.add(v.pago.archivo);
-    receipts.push({ id: v.pago.id, kind: 'justificante', filename: v.pago.archivo_nombre, mime: null, size: null, url: `/api/proveedores/pagos/${v.pago.id}/archivo` });
-  }
-  const month = d.fecha.slice(0, 7);
-  return {
-    id: `p${d.id}`,
-    docId: d.id,
-    source: 'proveedor',
-    month,
-    name: `${d.proveedor.nombre} · Fra. ${d.numero}`,
-    supplier: d.proveedor.nombre,
-    number: d.numero,
-    category: 'proveedor',
-    kind: 'factura',
-    date: d.fecha,
-    startMonth: month,
-    amountCents: d.total_cent,
-    amountSource: 'factura',
-    fixedAmountCents: null,
-    status: d.estado === 'pagada' ? 'pagado' : 'pendiente',
-    invoiceState: d.estado,
-    paidCents: d.pagado_cent,
-    pendingCents: d.pendiente_cent,
-    nextDue: d.proximo_vencimiento,
-    dues: d.vencimientos.map((v) => ({ date: v.fecha, amountCents: v.importe_cent, paid: Boolean(v.pago) })),
-    paidAt: null,
-    invoices: d.archivo ? [{ id: d.id, kind: 'factura', filename: d.archivo_nombre, mime: 'application/pdf', size: null, url: `/api/proveedores/documentos/${d.id}/archivo` }] : [],
-    receipts,
-  };
+export function dueItems(d, from, to, today = todayInShop()) {
+  const pdf = d.archivo
+    ? [{ id: d.id, kind: 'factura', filename: d.archivo_nombre, mime: 'application/pdf', size: null, url: `/api/proveedores/documentos/${d.id}/archivo` }]
+    : [];
+  const name = `${d.proveedor.nombre} · Fra. ${d.numero}`;
+  return d.vencimientos
+    .map((v, i) => ({ v, position: i + 1 }))
+    .filter(({ v }) => v.fecha >= from && v.fecha <= to)
+    .map(({ v, position }) => {
+      const paid = Boolean(v.pago);
+      return {
+        id: `p${d.id}-${v.id}`,
+        docId: d.id,
+        dueId: v.id,
+        source: 'proveedor',
+        month: v.fecha.slice(0, 7),
+        name,
+        supplier: d.proveedor.nombre,
+        number: d.numero,
+        category: 'proveedor',
+        kind: 'factura',
+        date: v.fecha,
+        invoiceDate: d.fecha,
+        invoiceTotalCents: d.total_cent,
+        duePosition: position,
+        dueCount: d.vencimientos.length,
+        startMonth: v.fecha.slice(0, 7),
+        amountCents: v.importe_cent,
+        amountSource: 'factura',
+        fixedAmountCents: null,
+        status: paid ? 'pagado' : 'pendiente',
+        invoiceState: paid ? 'pagada' : v.fecha < today ? 'vencida' : 'pendiente',
+        paidCents: paid ? v.importe_cent : 0,
+        pendingCents: paid ? 0 : v.importe_cent,
+        paidAt: v.pago?.fecha ?? null,
+        invoices: pdf,
+        receipts: v.pago?.archivo
+          ? [{ id: v.pago.id, kind: 'justificante', filename: v.pago.archivo_nombre, mime: null, size: null, url: `/api/proveedores/pagos/${v.pago.id}/archivo` }]
+          : [],
+      };
+    });
 }
 
 function toItem(row, month, files) {
@@ -212,9 +221,11 @@ export async function listExpenses(pool, fromMonth, toMonth = fromMonth, { maxMo
   if (months.length > maxMonths) {
     throw new HttpError(400, `Como máximo ${maxMonths} meses a la vez.`, 'INVALID_RANGE');
   }
-  // Facturas de proveedores del periodo: una fila por factura, en el mes de su fecha.
+  // Facturas de proveedores: una fila por vencimiento, en el mes en que hay que pagarlo.
   const lastDay = new Date(Date.UTC(Number(toMonth.slice(0, 4)), Number(toMonth.slice(5, 7)), 0)).toISOString().slice(0, 10);
-  const invoices = (await facturasEntre(pool, fromMonth, lastDay)).map(invoiceItem)
+  const today = todayInShop();
+  const invoices = (await facturasConVencimientosEntre(pool, fromMonth, lastDay))
+    .flatMap((d) => dueItems(d, fromMonth, lastDay, today))
     .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
   const items = [];
   for (const month of months) {

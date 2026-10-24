@@ -6,6 +6,10 @@ import { SHIFTS, SHIFT_CUTOFF_HOUR } from './shop-hours.js';
 
 export { SHIFT_CUTOFF_HOUR };
 export const PAYMENT_METHODS = Object.freeze(['efectivo', 'tarjeta', 'bizum', 'bonos', 'vales']);
+// Un vale sale de una devolución de algo ya vendido (y ya contado): se cuenta
+// cuánto se cobra en vales, pero no suma a la facturación.
+export const NON_REVENUE_METHODS = Object.freeze(['vales']);
+export const isRevenue = (sale) => !NON_REVENUE_METHODS.includes(sale.method);
 const DAILY_CHART_DAYS = 30;
 const DAY_MS = 86400000;
 
@@ -76,12 +80,14 @@ function weekdayAverages(days, byDay) {
   return { rows: result, best: best?.weekday ?? null, worst: worst?.weekday ?? null };
 }
 
+/** Reparto por método. `share` es sobre la facturación (sin vales); los vales van aparte. */
 function paymentMethods(sales) {
-  const total = sales.reduce((t, s) => t + s.cents, 0);
+  const total = sales.filter(isRevenue).reduce((t, s) => t + s.cents, 0);
   return PAYMENT_METHODS.map((id) => {
     const list = sales.filter((s) => s.method === id);
     const cents = list.reduce((t, s) => t + s.cents, 0);
-    return { id, cents, count: list.length, share: total ? cents / total : 0 };
+    const revenue = !NON_REVENUE_METHODS.includes(id);
+    return { id, cents, count: list.length, revenue, share: revenue && total ? cents / total : 0 };
   });
 }
 
@@ -154,7 +160,9 @@ function goals({ days, byDay, today, targets }) {
  * @param {string} input.from  primer día del periodo
  * @param {string} input.today  hoy (último día del periodo)
  */
-export function computeStats({ sales, expensesByMonth = {}, targets, from, today }) {
+export function computeStats({ sales: allSales, expensesByMonth = {}, targets, from, today }) {
+  const sales = allSales.filter(isRevenue);
+  const vouchers = allSales.filter((s) => !isRevenue(s));
   const days = daysBetween(from, today);
   const byDay = groupByDay(sales);
   const openDays = [...byDay.keys()].length;
@@ -187,13 +195,14 @@ export function computeStats({ sales, expensesByMonth = {}, targets, from, today
       week: { cents: sum(thisWeek), targetCents: targets.weeklyCents },
       month: { cents: sum(thisMonth), targetCents: targets.monthlyCents },
       total: { cents: totalCents, tickets, openDays, avgTicketCents: tickets ? Math.round(totalCents / tickets) : 0 },
+      vouchers: { cents: vouchers.reduce((t, s) => t + s.cents, 0), count: vouchers.length },
     },
     goals: goals({ days, byDay, today, targets }),
     daily: days.slice(-DAILY_CHART_DAYS).map((day) => ({ day, cents: byDay.get(day)?.cents ?? 0, tickets: byDay.get(day)?.tickets ?? 0 })),
     weekly,
     monthly,
     weekdays: weekdayAverages(days, byDay),
-    methods: paymentMethods(sales),
+    methods: paymentMethods(allSales),
     shifts: shifts(sales, byDay),
     hours: hours(sales, openDays),
   };

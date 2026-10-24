@@ -1,4 +1,4 @@
-import { weekday } from './stats.js';
+import { isRevenue, weekday } from './stats.js';
 import { REGULAR_SLOTS, SHIFT_IDS, shiftOfTime, slotKey } from './shop-hours.js';
 
 // Ventas por empleado. No sabemos quién cobra cada ticket, pero sí en qué
@@ -56,7 +56,8 @@ function emptyShiftStats() {
  */
 export function computeStaffStats({ sales, members, staffing }) {
   const instances = new Map();
-  for (const sale of sales) {
+  // Los vales no son facturación: no cuentan para nadie.
+  for (const sale of sales.filter(isRevenue)) {
     const day = sale.at.slice(0, 10);
     const shift = shiftOfTime(sale.at.slice(11, 16));
     const bucket = instances.get(key(day, shift)) ?? { day, shift, cents: 0, tickets: 0 };

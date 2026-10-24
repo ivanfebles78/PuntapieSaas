@@ -158,10 +158,22 @@ describe('API de turnos, aperturas extra, horas bonificadas y log', { skip: !TES
     assert.equal((await admin('GET', '/api/admin/log?area=nada')).status, 400);
   });
 
-  test('ventas por empleado: solo el Administrador', async () => {
+  test('ventas por empleado: solo el Administrador, y sin quien solo gestiona', async () => {
+    const users = (await admin('GET', '/api/admin/users')).data;
+    const ivan = users.find((u) => u.username === 'ifebles');
+    assert.equal(ivan.isSeller, false, 'Iván administra, no vende');
+    await admin('PUT', `/api/admin/users/${ivan.id}/turno`, { slots: ['1-manana'], validFrom: '2026-01-01' });
     const res = await admin('GET', '/api/estadisticas/empleados?periodo=3m&simular=1');
     assert.equal(res.status, 200);
     assert.ok(res.data.rows.some((r) => r.id === elenaId && r.shifts > 0));
+    assert.ok(!res.data.rows.some((r) => r.id === ivan.id), 'Iván no sale en las ventas');
+
+    const raquel = users.find((u) => u.username === 'rperez');
+    const off = await admin('PATCH', `/api/admin/users/${raquel.id}`, { isSeller: false });
+    assert.equal(off.data.isSeller, false);
+    const log = await admin('GET', '/api/admin/log?area=usuarios&q=Vende');
+    assert.equal(log.data.items[0].newValue, 'No (solo gestiona)');
+    await admin('PATCH', `/api/admin/users/${raquel.id}`, { isSeller: true });
 
     const elena = await ctx.loginAs('epena', 'Test1234');
     await elena('POST', '/api/auth/change-password', { newPassword: 'Elena2026x', confirmPassword: 'Elena2026x' });
