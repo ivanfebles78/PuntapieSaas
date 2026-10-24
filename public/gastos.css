@@ -860,3 +860,64 @@
     width: 80px;
   }
 }
+
+/* ---------- Foto de la factura al añadir un gasto ---------- */
+
+.photo-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.photo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+}
+
+.photo-btn.is-soft {
+  background: var(--linen);
+  color: var(--espresso);
+}
+
+.photo-btn.is-soft:hover { background: rgb(30 26 22 / 0.1); }
+
+.photo-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.photo-list:empty { display: none; }
+
+.photo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--linen);
+  font-size: 13.5px;
+}
+
+.photo-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.photo-item small { color: var(--taupe); }

@@ -4,6 +4,7 @@ import { h, stagger } from './dom.js';
 import { centsToInput, currentMonth, formatBytes, formatEuros, isMonth, monthLabel, shiftMonth } from './format.js';
 import { chooseExport, exportButton } from './export.js';
 import { icon } from './icons.js';
+import { invoicePicker, uploadInvoices } from './invoice-photo.js';
 import { openSupplierManager } from './proveedores/manager.js';
 import { showToast } from './toast.js';
 
@@ -376,7 +377,7 @@ function choiceCards(name, legend, items, selected) {
 
 const valueOf = (form, name) => form.elements.namedItem(name).value;
 
-function newExpenseFields() {
+function newExpenseFields(photos) {
   const today = new Date();
   const todayIso = `${state.from}-${String(state.from === currentMonth() ? today.getDate() : 1).padStart(2, '0')}`;
   const recurring = h('div', { class: 'when-recurring' }, [
@@ -407,14 +408,17 @@ function newExpenseFields() {
     recurring,
     once,
     field({ label: 'Importe (€)', name: 'amount', inputmode: 'decimal', autocomplete: 'off', hint: 'En los variables es opcional: el importe de ese mes.' }),
+    photos.node,
   ];
 }
 
 async function newExpense() {
+  const photos = invoicePicker();
+  let month = null;
   const created = await openDialog({
     eyebrow: 'Nuevo gasto',
     title: 'Añadir un gasto',
-    content: newExpenseFields(),
+    content: newExpenseFields(photos),
     submitLabel: 'Añadir gasto',
     onSubmit: async (form) => {
       const category = valueOf(form, 'category');
@@ -428,11 +432,16 @@ async function newExpense() {
         if (!amount) return { error: 'Escribe el importe del gasto.' };
       }
       const res = await api('POST', '/api/gastos', body);
+      // La factura se guarda en el mes del gasto: su primer mes o el de su fecha.
+      month = category === 'recurrente' ? body.startMonth : body.date.slice(0, 7);
       return res.ok ? res.data : { error: res.error };
     },
   });
   if (!created) return;
-  showToast('Gasto añadido.');
+  const files = photos.files();
+  const failed = files.length ? await uploadInvoices(created.id, month, files) : 0;
+  if (failed) showToast(`Gasto añadido, pero ${failed === 1 ? 'una factura no se pudo subir' : `${failed} facturas no se pudieron subir`}: súbela desde su fila.`, { tone: 'error' });
+  else showToast(files.length ? `Gasto añadido con ${files.length === 1 ? 'su factura' : `${files.length} facturas`}.` : 'Gasto añadido.');
   await load();
 }
 
