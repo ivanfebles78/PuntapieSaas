@@ -6,6 +6,7 @@ import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
 import { estadisticasRouter } from './routes/estadisticas.js';
 import { gastosRouter } from './routes/gastos.js';
+import { proveedoresRouter } from './routes/proveedores.js';
 import { createMailer } from './services/mail.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
@@ -52,6 +53,8 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
   // Gastos y Estadísticas: los ven los tres roles; cambian Administrador y Empleado.
   app.use('/api/gastos', ...guard, requireRole('admin', 'asesor', 'empleado'), gastosRouter({ pool, log }));
   app.use('/api/estadisticas', ...guard, requireRole('admin', 'asesor', 'empleado'), estadisticasRouter({ pool, log }));
+  // Pagos a proveedores (facturas, pedidos, previsión): mismos permisos que Gastos.
+  app.use('/api/proveedores', ...guard, requireRole('admin', 'asesor', 'empleado'), proveedoresRouter({ pool, config, log }));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ ok: false, error: 'Ruta no encontrada.' });

@@ -178,7 +178,12 @@ describe('una sola tabla con tipos de gasto', { skip: !TEST_DATABASE_URL && 'Fal
     admin = await ctx.loginAs(ADMIN_EMAIL, ADMIN_PASSWORD);
     await admin('POST', '/api/gastos', { category: 'recurrente', kind: 'fijo', name: 'Alquiler', amount: 1200, startMonth: '2026-09' });
     await admin('POST', '/api/gastos', { category: 'esporadico', name: 'Reparación persiana', amount: '180,50', date: '2026-10-14' });
-    await admin('POST', '/api/gastos', { category: 'proveedor', name: 'Garvalín · pedido otoño', amount: '2.340', date: '2026-10-05' });
+    // Los pagos a proveedores vienen del gestor: una factura con dos vencimientos.
+    const fra = await admin('POST', '/api/proveedores/documentos', {
+      tipo: 'factura', proveedor: { nombre: 'Garvalín', cif: 'B03406949' }, numero: '2613', fecha: '2026-10-05', total_cent: 234000,
+      vencimientos: [{ fecha: '2026-11-05', importe_cent: 117000 }, { fecha: '2026-12-05', importe_cent: 117000 }],
+    });
+    assert.equal(fra.status, 201);
   });
   after(async () => {
     await ctx?.stop();
@@ -188,8 +193,8 @@ describe('una sola tabla con tipos de gasto', { skip: !TEST_DATABASE_URL && 'Fal
     const oct = (await admin('GET', '/api/gastos?mes=2026-10')).data;
     assert.deepEqual(oct.items.map((i) => [i.category, i.name]), [
       ['recurrente', 'Alquiler'],
-      ['proveedor', 'Garvalín · pedido otoño'],
       ['esporadico', 'Reparación persiana'],
+      ['proveedor', 'Garvalín · Fra. 2613'],
     ]);
     const persiana = oct.items.find((i) => i.category === 'esporadico');
     assert.equal(persiana.date, '2026-10-14');
@@ -210,7 +215,7 @@ describe('una sola tabla con tipos de gasto', { skip: !TEST_DATABASE_URL && 'Fal
     assert.equal(res.status, 200);
     assert.deepEqual(res.data.items.map((i) => `${i.month} ${i.name}`), [
       '2026-09 Alquiler',
-      '2026-10 Alquiler', '2026-10 Garvalín · pedido otoño', '2026-10 Reparación persiana',
+      '2026-10 Alquiler', '2026-10 Reparación persiana', '2026-10 Garvalín · Fra. 2613',
       '2026-11 Alquiler',
     ]);
     assert.equal(res.data.totals.byCategory.recurrente, 3 * 120000);
@@ -221,23 +226,39 @@ describe('una sola tabla con tipos de gasto', { skip: !TEST_DATABASE_URL && 'Fal
   });
 
   test('un pago único necesita importe y fecha válidos', async () => {
-    const sinImporte = await admin('POST', '/api/gastos', { category: 'proveedor', name: 'X', date: '2026-10-01' });
+    const sinImporte = await admin('POST', '/api/gastos', { category: 'esporadico', name: 'X', date: '2026-10-01' });
     assert.equal(sinImporte.status, 400);
+    const proveedor = await admin('POST', '/api/gastos', { category: 'proveedor', name: 'X', amount: 10, date: '2026-10-01' });
+    assert.equal(proveedor.code, 'USE_SUPPLIER_MANAGER', 'los pagos a proveedores se apuntan en el gestor');
     const sinFecha = await admin('POST', '/api/gastos', { category: 'esporadico', name: 'X', amount: 10, date: '2026-02-30' });
     assert.equal(sinFecha.status, 400);
     const tipo = await admin('POST', '/api/gastos', { category: 'otro', name: 'X', amount: 10, date: '2026-10-01' });
     assert.equal(tipo.status, 400);
   });
 
+  test('la factura de proveedor sale con su estado y lo pagado a medias', async () => {
+    let fra = (await admin('GET', '/api/gastos?mes=2026-10')).data.items.find((i) => i.source === 'proveedor');
+    assert.equal(fra.invoiceState, 'pendiente');
+    const doc = await admin('GET', `/api/proveedores/documentos/${fra.docId}`);
+    await admin('POST', `/api/proveedores/documentos/${fra.docId}/pagar?vencimiento_id=${doc.data.vencimientos[0].id}&fecha=2026-10-20`);
+    const oct = (await admin('GET', '/api/gastos?mes=2026-10')).data;
+    fra = oct.items.find((i) => i.source === 'proveedor');
+    assert.equal(fra.invoiceState, 'parcial');
+    assert.equal(fra.status, 'pendiente');
+    assert.equal(fra.paidCents, 117000);
+    assert.equal(oct.totals.paidCents, 117000, 'lo pagado cuenta aunque la factura no esté liquidada');
+    assert.equal(oct.totals.pendingCents, 120000 + 18050 + 117000);
+  });
+
   test('un pago único se edita, se paga y se borra en su mes', async () => {
     const oct = (await admin('GET', '/api/gastos?mes=2026-10')).data;
-    const proveedor = oct.items.find((i) => i.category === 'proveedor');
-    await admin('PUT', `/api/gastos/${proveedor.id}/importe`, { month: '2026-10', amount: '2.300' });
-    await admin('PUT', `/api/gastos/${proveedor.id}/estado`, { month: '2026-10', status: 'pagado' });
-    const after = (await admin('GET', '/api/gastos?mes=2026-10')).data.items.find((i) => i.id === proveedor.id);
-    assert.equal(after.amountCents, 230000);
+    const persiana = oct.items.find((i) => i.category === 'esporadico');
+    await admin('PUT', `/api/gastos/${persiana.id}/importe`, { month: '2026-10', amount: '200' });
+    await admin('PUT', `/api/gastos/${persiana.id}/estado`, { month: '2026-10', status: 'pagado' });
+    const after = (await admin('GET', '/api/gastos?mes=2026-10')).data.items.find((i) => i.id === persiana.id);
+    assert.equal(after.amountCents, 20000);
     assert.equal(after.status, 'pagado');
-    const del = await admin('POST', `/api/gastos/${proveedor.id}/fin`, { month: '2026-10' });
+    const del = await admin('POST', `/api/gastos/${persiana.id}/fin`, { month: '2026-10' });
     assert.equal(del.data.deleted, true);
   });
 });

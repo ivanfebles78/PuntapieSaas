@@ -58,13 +58,44 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
   se recalculan con lo filtrado.
 - **Recurrente fijo**: su importe se repite cada mes; se cambia **solo un mes** o **desde un mes en
   adelante**. **Recurrente variable**: empieza cada mes en 0.
-- **Proveedor / Esporádico**: un único pago con su fecha e importe.
+- **Esporádico**: un único pago con su fecha e importe.
+- **Proveedor**: cada **factura de proveedor** es una fila (en el mes de su fecha) con su PDF, sus
+  justificantes y su estado (pendiente, parcial, vencida, pagada); el filtro «Proveedores» las
+  muestra. No se apuntan a mano: se gestionan en **«Gestionar pagos a proveedores»** (ver abajo).
 - Facturas y justificantes (PDF o imagen, hasta 10 MB, varios). Subir un justificante deja el gasto
   **pagado**; borrar el último lo devuelve a **pendiente**. El estado también se cambia a mano.
 - Los documentos se guardan en PostgreSQL (el disco de Railway se borra en cada despliegue).
 - **Exportar**: ZIP con un Excel (todos los movimientos y resumen por mes, con enlaces a cada
   documento) y las carpetas `facturas/` y `justificantes/` por mes y concepto; del periodo en
   pantalla o de todo el historial.
+
+## Pagos a proveedores (antes «Control de facturas»)
+
+Migrado de la app FacturasPuntaPie. Botón **«Gestionar pagos a proveedores»** en Gastos: un modal
+con lo mismo que tenía la app original.
+
+- **Facturas**: tarjetas (pendiente, vence en 7 días, vencido, pagado, pedidos abiertos), filtros por
+  proveedor, estado y texto, tabla con vencimientos de colores (rojo ≤ 7 días, morado vencido) y
+  totales de lo filtrado; CSV.
+- **Detalle**: pagar un vencimiento o toda la factura con justificante, anular pagos, adjuntar o
+  sustituir el PDF y los justificantes, editar datos y vencimientos (los pagos se conservan si no
+  cambian fecha e importe), asociar factura ↔ pedido y eliminar.
+- **Previsión**: vencido + 3, 6 o 12 meses, con «pagado con/sin justificante» en cada línea, y
+  **calendario de pagos en PDF** (3, 6 o 9 meses).
+- **Pedidos**: «facturado» automático cuando una factura cita su número; recibido / cancelado.
+- **Proveedores**: se crean solos por CIF al importar; renombrar y CIF.
+- **Importar PDF**: hasta 30 PDF; 8 lectores por proveedor (Garvalín, Lejan, Pablosky, Titanitos,
+  Gioseppo, Condor, Etika, Victoria) y uno genérico; **IA opcional** con `ANTHROPIC_API_KEY`
+  (`AI_MODE=auto|always|off`, `AI_MODEL`). Antiduplicados: mismo PDF (SHA-256), mismo número del
+  proveedor o misma fecha + importe. Los PDF «envueltos» (cabecera HTTP de la descarga o sobre
+  MIME del banco) se limpian solos.
+- **Traer los datos de la app antigua** (solo Administrador, en Proveedores): sube el ZIP exportado
+  (`datos/datos.json` + `archivos/`). Es idempotente y comprueba que los totales cuadran con
+  `datos/resumen.json`.
+- Permisos como Gastos: Administrador y Empleado trabajan; el Asesor solo consulta. Todo queda en el
+  log. API en `/api/proveedores/*` (mismo contrato que la app original).
+- Los tests de los lectores (`lectores.test.js`) y las facturas reales que usan viven en `test/fixtures-proveedores/`, que **no se sube**
+  (el repositorio es público): sin esa carpeta, esos tests se saltan.
 
 ## Estadísticas (un solo panel)
 

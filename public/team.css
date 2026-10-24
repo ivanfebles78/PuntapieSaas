@@ -584,6 +584,7 @@
 /* ---------- Solo consulta (Asesor) ---------- */
 
 .is-readonly :is(
+  [data-write],
   [data-new],
   [data-invite],
   [data-new-opening],

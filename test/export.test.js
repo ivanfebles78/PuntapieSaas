@@ -40,7 +40,7 @@ describe('exportar a ZIP', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATABASE_UR
 
   test('gastos: Excel con todos los movimientos y los documentos en carpetas', async () => {
     const luz = await admin('POST', '/api/gastos', { name: 'Luz', category: 'recurrente', kind: 'fijo', amount: '120,50', startMonth: '2026-09' });
-    await admin('POST', '/api/gastos', { name: 'Garvalín', category: 'proveedor', amount: '1.500', date: '2026-10-05' });
+    await admin('POST', '/api/gastos', { name: 'Garvalín', category: 'esporadico', amount: '1.500', date: '2026-10-05' });
     const upload = (tipo, body, mime, name) => admin.raw('POST', `/api/gastos/${luz.data.id}/archivos?mes=2026-10&tipo=${tipo}`, {
       body, headers: { 'Content-Type': mime, 'X-File-Name': encodeURIComponent(name) },
     });

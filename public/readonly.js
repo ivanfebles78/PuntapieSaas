@@ -6,6 +6,7 @@ import { showToast } from './toast.js';
 // muestran un dato y además lo editan (importe, estado).
 
 const HIDE = [
+  '[data-write]',
   '[data-new]',
   '[data-invite]',
   '[data-new-opening]',

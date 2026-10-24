@@ -4,6 +4,7 @@ import { h, stagger } from './dom.js';
 import { centsToInput, currentMonth, formatBytes, formatEuros, isMonth, monthLabel, shiftMonth } from './format.js';
 import { chooseExport, exportButton } from './export.js';
 import { icon } from './icons.js';
+import { openSupplierManager } from './proveedores/manager.js';
 import { showToast } from './toast.js';
 
 const BASE_PATH = '/app/gastos';
@@ -18,6 +19,13 @@ export const CATEGORIES = Object.freeze([
 ]);
 const CATEGORY = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
 const KIND_LABEL = Object.freeze({ fijo: 'Fijo', variable: 'Variable' });
+// Estado de una factura de proveedor (viene del gestor de pagos a proveedores).
+const INVOICE_STATE = Object.freeze({
+  pagada: { label: 'Pagada', className: 'state-paid' },
+  parcial: { label: 'Parcial', className: 'state-partial' },
+  vencida: { label: 'Vencida', className: 'state-overdue' },
+  pendiente: { label: 'Pendiente', className: 'state-pending' },
+});
 
 const state = {
   mode: 'mes',
@@ -26,6 +34,7 @@ const state = {
   data: null,
   filters: { cats: new Set(), status: 'todos', q: '', min: '', max: '' },
   els: null,
+  user: null,
 };
 
 /* ---------- Utilidades ---------- */
@@ -64,12 +73,16 @@ function visibleItems() {
     && (max === null || item.amountCents <= max));
 }
 
+// Las facturas de proveedor pueden estar pagadas a medias: cuenta lo realmente pagado.
+const paidOf = (i) => i.paidCents ?? (i.status === 'pagado' ? i.amountCents : 0);
+const pendingOf = (i) => i.pendingCents ?? (i.status === 'pagado' ? 0 : i.amountCents);
+
 function summarize(items) {
-  const sum = (list) => list.reduce((t, i) => t + i.amountCents, 0);
+  const sum = (list, of = (i) => i.amountCents) => list.reduce((t, i) => t + of(i), 0);
   return {
     total: sum(items),
-    paid: sum(items.filter((i) => i.status === 'pagado')),
-    pending: sum(items.filter((i) => i.status === 'pendiente')),
+    paid: sum(items, paidOf),
+    pending: sum(items, pendingOf),
     pendingCount: items.filter((i) => i.status === 'pendiente').length,
     byCategory: Object.fromEntries(CATEGORIES.map((c) => [c.id, sum(items.filter((i) => i.category === c.id))])),
   };
@@ -107,6 +120,10 @@ function periodBar() {
     ]),
     h('button', { class: 'month-today', type: 'button', 'data-today': '', text: 'Mes actual' }),
     exportButton(),
+    h('button', { class: 'month-today supplier-btn', type: 'button', 'data-suppliers': '' }, [
+      icon('truck', 'ico ico-xs'),
+      h('span', { text: 'Gestionar pagos a proveedores' }),
+    ]),
     h('button', { class: 'cta month-cta', type: 'button', 'data-new': '' }, [
       h('span', { text: 'Nuevo gasto' }),
       h('span', { class: 'bubble bubble-cta' }, icon('wallet', 'ico ico-sm')),
@@ -192,11 +209,13 @@ function actionButton(action, label, iconName, extra = '') {
   ]);
 }
 
-function fileChip(file) {
+function fileChip(file, removable = true) {
   return h('li', { class: 'file' }, [
-    h('a', { class: 'file-link', href: `/api/gastos/archivos/${file.id}`, target: '_blank', rel: 'noopener', title: `${file.filename} · ${formatBytes(file.size)}` },
-      [icon(file.mime === 'application/pdf' ? 'receipt' : 'docDown', 'ico ico-xs'), h('span', { text: file.filename })]),
-    h('button', { class: 'file-remove', type: 'button', 'data-remove-file': String(file.id), 'data-filename': file.filename, 'aria-label': `Borrar ${file.filename}` }, icon('close', 'ico ico-xs')),
+    h('a', { class: 'file-link', href: file.url, target: '_blank', rel: 'noopener', title: file.size ? `${file.filename} · ${formatBytes(file.size)}` : file.filename },
+      [icon(file.mime === 'application/pdf' || file.kind === 'factura' ? 'receipt' : 'docDown', 'ico ico-xs'), h('span', { text: file.filename })]),
+    removable
+      ? h('button', { class: 'file-remove', type: 'button', 'data-remove-file': String(file.id), 'data-filename': file.filename, 'aria-label': `Borrar ${file.filename}` }, icon('close', 'ico ico-xs'))
+      : null,
   ]);
 }
 
@@ -225,7 +244,49 @@ function whenCell(item) {
   return h('td', { class: 'cell-when', 'data-label': 'Fecha' }, [h('span', { text }), detail ? h('small', { text: detail }) : null]);
 }
 
+/**
+ * Factura de proveedor: una fila por factura. El importe, los documentos y
+ * los pagos se gestionan en el gestor de pagos a proveedores, no aquí.
+ */
+function invoiceRow(item, index) {
+  const cat = CATEGORY.proveedor;
+  const st = INVOICE_STATE[item.invoiceState] ?? INVOICE_STATE.pendiente;
+  const pendingDues = item.dues.filter((d) => !d.paid);
+  const filesTd = (label, files, empty) => h('td', { class: 'cell-files', 'data-label': label }, h('div', { class: 'files' },
+    files.length ? h('ul', { class: 'file-list' }, files.map((f) => fileChip(f, false))) : h('span', { class: 'files-empty', text: empty })));
+  const dueNote = item.invoiceState === 'parcial'
+    ? `Pagado ${formatEuros(item.paidCents)} · falta ${formatEuros(item.pendingCents)}`
+    : item.invoiceState !== 'pagada' && item.nextDue
+      ? `Próximo pago ${formatDay(item.nextDue)}${pendingDues.length > 1 ? ` · ${pendingDues.length} plazos` : ''}`
+      : null;
+  const tr = h('tr', { class: 'expense cat-row-proveedor is-invoice', 'data-id': item.id, 'data-month': item.month }, [
+    whenCell(item),
+    h('th', { scope: 'row', class: 'cell-name' }, [
+      h('span', { class: 'expense-name', text: item.name }),
+      h('span', { class: 'tags' }, [
+        h('span', { class: 'cat-badge cat-proveedor' }, [icon(cat.icon, 'ico ico-xs'), h('span', { text: cat.label })]),
+        h('span', { class: 'kind', text: item.dues.length > 1 ? `${item.dues.length} vencimientos` : 'Factura' }),
+      ]),
+    ]),
+    h('td', { class: 'cell-amount', 'data-label': 'Importe' }, [
+      h('span', { class: 'amount amount-static', text: formatEuros(item.amountCents) }),
+      dueNote ? h('span', { class: 'amount-note', text: dueNote }) : null,
+    ]),
+    filesTd('Facturas', item.invoices, 'Sin PDF'),
+    filesTd('Justificantes', item.receipts, item.paidCents > 0 ? 'Pagada sin justificante' : '—'),
+    h('td', { class: 'cell-status', 'data-label': 'Estado' }, h('span', { class: `state ${st.className} state-static` }, [
+      h('span', { class: 'state-dot', 'aria-hidden': 'true' }), h('span', { text: st.label }),
+    ])),
+    h('td', { class: 'cell-actions' }, h('span', { class: 'member-actions' }, h('button', {
+      class: 'act act-open', type: 'button', 'data-open-invoice': String(item.docId), title: 'Abrir en el gestor de pagos a proveedores', 'aria-label': 'Gestionar factura',
+    }, [icon('truck', 'ico ico-sm'), h('span', { class: 'act-label', text: 'Gestionar' })]))),
+  ]);
+  tr.style.setProperty('--i', String(index));
+  return tr;
+}
+
 function row(item, index) {
+  if (item.source === 'proveedor') return invoiceRow(item, index);
   const cat = CATEGORY[item.category];
   const paid = item.status === 'pagado';
   const tr = h('tr', { class: `expense cat-row-${item.category}`, 'data-id': String(item.id), 'data-month': item.month }, [
@@ -298,7 +359,7 @@ function setPeriod(mode, from, to = from) {
 
 function itemFor(el) {
   const rowEl = el.closest('[data-id]');
-  return state.data.items.find((i) => i.id === Number(rowEl.dataset.id) && i.month === rowEl.dataset.month);
+  return state.data.items.find((i) => String(i.id) === rowEl.dataset.id && i.month === rowEl.dataset.month);
 }
 
 /* ---------- Diálogos ---------- */
@@ -328,17 +389,23 @@ function newExpenseFields() {
     field({ label: 'Desde el mes', name: 'startMonth', type: 'month', value: state.from }),
   ]);
   const once = h('div', { class: 'when-once', hidden: true }, field({ label: 'Fecha', name: 'date', type: 'date', value: todayIso }));
-  const categories = choiceCards('category', 'Tipo de gasto', CATEGORIES.map((c) => ({
+  // Los pagos a proveedores se dan de alta en su gestor (factura con sus vencimientos).
+  const categories = choiceCards('category', 'Tipo de gasto', CATEGORIES.filter((c) => c.id !== 'proveedor').map((c) => ({
     value: c.id, label: c.label, icon: c.icon, description: c.description, className: `cat-card cat-${c.id}`,
   })), 'recurrente');
+  const supplierHint = h('p', { class: 'supplier-hint' }, [
+    icon('truck', 'ico ico-xs'),
+    h('span', { text: '¿Un pago a proveedor? Se apunta en «Gestionar pagos a proveedores», con su factura y sus vencimientos.' }),
+  ]);
   categories.addEventListener('change', () => {
     const isRecurring = categories.querySelector('input:checked').value === 'recurrente';
     recurring.hidden = !isRecurring;
     once.hidden = isRecurring;
   });
   return [
-    field({ label: 'Concepto', name: 'name', autocomplete: 'off', hint: 'Por ejemplo: Alquiler, Luz, Factura Garvalín 1234, Reparación persiana…' }),
+    field({ label: 'Concepto', name: 'name', autocomplete: 'off', hint: 'Por ejemplo: Alquiler, Luz, Reparación persiana…' }),
     categories,
+    supplierHint,
     recurring,
     once,
     field({ label: 'Importe (€)', name: 'amount', inputmode: 'decimal', autocomplete: 'off', hint: 'En los variables es opcional: el importe de ese mes.' }),
@@ -495,6 +562,13 @@ async function removeFile(button) {
   if (done) await load();
 }
 
+/* ---------- Pagos a proveedores ---------- */
+
+async function manageSuppliers(options = {}) {
+  const changed = await openSupplierManager({ ...options, user: state.user });
+  if (changed) await load();
+}
+
 /* ---------- Eventos ---------- */
 
 const ROW_ACTIONS = Object.freeze({ rename: renameExpense, end: endExpense });
@@ -571,6 +645,9 @@ function bindEvents(root) {
   root.addEventListener('click', (event) => {
     const { target } = event;
     if (target.closest('[data-new]')) return void newExpense();
+    if (target.closest('[data-suppliers]')) return void manageSuppliers();
+    const invoice = target.closest('[data-open-invoice]');
+    if (invoice) return void manageSuppliers({ docId: Number(invoice.dataset.openInvoice) });
     if (onPeriodClick(target) || onFilterClick(target)) return undefined;
     return void onRowClick(target);
   });
@@ -592,7 +669,8 @@ function bindEvents(root) {
 /* ---------- Pantalla ---------- */
 
 /** Pinta Gastos (una sola tabla). Admite ?mes=AAAA-MM o ?desde=AAAA-MM&hasta=AAAA-MM. */
-export function renderExpenses({ main, params, backHref }) {
+export function renderExpenses({ main, user, params, backHref }) {
+  state.user = user;
   const from = params.get('desde');
   const to = params.get('hasta');
   if (isMonth(from) && isMonth(to)) Object.assign(state, { mode: 'rango', from, to });

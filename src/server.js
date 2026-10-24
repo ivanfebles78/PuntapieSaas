@@ -3,12 +3,15 @@ import { createApp } from './app.js';
 import { createPool } from './db/pool.js';
 import { applySchema, seedAdmin } from './db/migrate.js';
 import { seedTeam } from './db/seed-team.js';
+import { limpiarTemporales } from './proveedores/analisis.js';
 
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
 async function cleanupExpired(pool) {
   await pool.query('DELETE FROM sessions WHERE expires_at < NOW()');
   await pool.query("DELETE FROM password_resets WHERE expires_at < NOW() - INTERVAL '1 day'");
+  // PDF analizados en «Importar PDF» y nunca guardados (24 h).
+  await limpiarTemporales(pool);
 }
 
 async function main() {

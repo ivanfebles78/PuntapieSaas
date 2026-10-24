@@ -1,4 +1,5 @@
 import { HttpError } from '../http-error.js';
+import { facturasEntre } from '../proveedores/repo.js';
 import { monthsBetween, previousMonth } from './money.js';
 
 // Tipo de gasto (etiqueta de color) y forma de repetirse.
@@ -79,7 +80,51 @@ export async function ensureEntry(db, expenseId, month) {
 /* ---------- Lectura ---------- */
 
 function toFile(row) {
-  return { id: row.id, kind: row.kind, filename: row.filename, mime: row.mime, size: row.size_bytes, uploadedAt: row.uploaded_at };
+  return {
+    id: row.id, kind: row.kind, filename: row.filename, mime: row.mime, size: row.size_bytes, uploadedAt: row.uploaded_at,
+    url: `/api/gastos/archivos/${row.id}`,
+  };
+}
+
+/**
+ * Una factura de proveedor (del gestor de pagos a proveedores) como fila de
+ * la tabla de Gastos: una fila por factura, en el mes de su fecha. Su estado
+ * y sus documentos se gestionan desde el gestor, no desde la tabla.
+ */
+export function invoiceItem(d) {
+  const receipts = [];
+  const seen = new Set();
+  for (const v of d.vencimientos) {
+    if (!v.pago?.archivo || seen.has(v.pago.archivo)) continue;
+    seen.add(v.pago.archivo);
+    receipts.push({ id: v.pago.id, kind: 'justificante', filename: v.pago.archivo_nombre, mime: null, size: null, url: `/api/proveedores/pagos/${v.pago.id}/archivo` });
+  }
+  const month = d.fecha.slice(0, 7);
+  return {
+    id: `p${d.id}`,
+    docId: d.id,
+    source: 'proveedor',
+    month,
+    name: `${d.proveedor.nombre} · Fra. ${d.numero}`,
+    supplier: d.proveedor.nombre,
+    number: d.numero,
+    category: 'proveedor',
+    kind: 'factura',
+    date: d.fecha,
+    startMonth: month,
+    amountCents: d.total_cent,
+    amountSource: 'factura',
+    fixedAmountCents: null,
+    status: d.estado === 'pagada' ? 'pagado' : 'pendiente',
+    invoiceState: d.estado,
+    paidCents: d.pagado_cent,
+    pendingCents: d.pendiente_cent,
+    nextDue: d.proximo_vencimiento,
+    dues: d.vencimientos.map((v) => ({ date: v.fecha, amountCents: v.importe_cent, paid: Boolean(v.pago) })),
+    paidAt: null,
+    invoices: d.archivo ? [{ id: d.id, kind: 'factura', filename: d.archivo_nombre, mime: 'application/pdf', size: null, url: `/api/proveedores/documentos/${d.id}/archivo` }] : [],
+    receipts,
+  };
 }
 
 function toItem(row, month, files) {
@@ -129,13 +174,17 @@ async function monthItems(pool, month) {
   return result.rows.map((row) => toItem(row, month, files.filter((f) => f.entry_id === row.entry_id).map(toFile)));
 }
 
+// Lo pagado de cada fila: las facturas de proveedor pueden estar pagadas a medias.
+const paidOf = (i) => i.paidCents ?? (i.status === 'pagado' ? i.amountCents : 0);
+const pendingOf = (i) => i.pendingCents ?? (i.status === 'pagado' ? 0 : i.amountCents);
+
 export function summarize(items) {
-  const sum = (list) => list.reduce((total, item) => total + item.amountCents, 0);
+  const sum = (list, of = (i) => i.amountCents) => list.reduce((total, item) => total + of(item), 0);
   const byCategory = Object.fromEntries(CATEGORIES.map((c) => [c, sum(items.filter((i) => i.category === c))]));
   return {
     totalCents: sum(items),
-    paidCents: sum(items.filter((i) => i.status === 'pagado')),
-    pendingCents: sum(items.filter((i) => i.status === 'pendiente')),
+    paidCents: sum(items, paidOf),
+    pendingCents: sum(items, pendingOf),
     count: items.length,
     pendingCount: items.filter((i) => i.status === 'pendiente').length,
     byCategory,
@@ -163,8 +212,14 @@ export async function listExpenses(pool, fromMonth, toMonth = fromMonth, { maxMo
   if (months.length > maxMonths) {
     throw new HttpError(400, `Como máximo ${maxMonths} meses a la vez.`, 'INVALID_RANGE');
   }
+  // Facturas de proveedores del periodo: una fila por factura, en el mes de su fecha.
+  const lastDay = new Date(Date.UTC(Number(toMonth.slice(0, 4)), Number(toMonth.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  const invoices = (await facturasEntre(pool, fromMonth, lastDay)).map(invoiceItem)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
   const items = [];
-  for (const month of months) items.push(...(await monthItems(pool, month)));
+  for (const month of months) {
+    items.push(...(await monthItems(pool, month)), ...invoices.filter((i) => `${i.month}-01` === month));
+  }
   return { from: fromMonth.slice(0, 7), to: toMonth.slice(0, 7), items, totals: summarize(items) };
 }
 

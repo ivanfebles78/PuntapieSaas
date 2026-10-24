@@ -1,6 +1,8 @@
 import express, { Router } from 'express';
 import { HttpError, httpErrorHandler } from '../http-error.js';
+import { sendStoredFile } from '../http-files.js';
 import { MAX_FILE_BYTES, addFile, deleteFile, getFile, readFileKind } from '../services/expense-files.js';
+import { docDePago, leerArchivo, obtenerDocumento } from '../proveedores/repo.js';
 import { auditFrom } from '../services/audit.js';
 import { buildExpensesExport, writeZip } from '../services/exports.js';
 import { todayInShop } from '../services/vacation-balance.js';
@@ -26,13 +28,6 @@ function readId(value, label = 'Ese gasto') {
   return id;
 }
 
-// Cabecera Content-Disposition con nombre UTF-8 (RFC 5987) y alternativa ASCII.
-function contentDisposition(filename, mime) {
-  const disposition = mime === 'application/pdf' || mime.startsWith('image/') ? 'inline' : 'attachment';
-  const ascii = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
-  return `${disposition}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
-}
-
 /** Wrapper para no repetir try/catch en cada ruta asíncrona. */
 const handle = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 
@@ -43,6 +38,9 @@ function readOptionalCents(value) {
 /** Datos de alta según el tipo: recurrente (fijo/variable desde un mes) o pago único con fecha. */
 function readNewExpense(body) {
   const category = readCategory(body?.category ?? 'recurrente');
+  if (category === 'proveedor') {
+    throw new HttpError(400, 'Los pagos a proveedores se registran en «Gestionar pagos a proveedores».', 'USE_SUPPLIER_MANAGER');
+  }
   const base = { name: readName(body?.name), category };
   if (category === 'recurrente') {
     return {
@@ -77,13 +75,7 @@ export function gastosRouter({ pool, log = console }) {
   /* ---------- Documentos ---------- */
 
   router.get('/archivos/:fileId', handle(async (req, res) => {
-    const file = await getFile(pool, readId(req.params.fileId, 'Ese documento'));
-    res.setHeader('Content-Type', file.mime);
-    res.setHeader('Content-Disposition', contentDisposition(file.filename, file.mime));
-    res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
-    // Los documentos se abren en su propia pestaña, sin poder ejecutar nada.
-    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
-    res.send(file.data);
+    sendStoredFile(res, await getFile(pool, readId(req.params.fileId, 'Ese documento')));
   }));
 
   router.delete('/archivos/:fileId', handle(async (req, res) => {
@@ -116,7 +108,13 @@ export function gastosRouter({ pool, log = console }) {
         workbook: data.workbook,
         workbookName: `gastos_${span}.xlsx`,
         files: data.files,
-        readFile: async (id) => (await getFile(pool, id)).data,
+        readFile: async (file) => {
+          if (file.source === 'gasto') return (await getFile(pool, file.id)).data;
+          const fileId = file.source === 'proveedor-factura'
+            ? (await obtenerDocumento(pool, file.id)).archivo
+            : (await docDePago(pool, file.id)).file_id;
+          return (await leerArchivo(pool, fileId)).data;
+        },
         readme: `Puntapié · Exportación de gastos (${span.replace('_a_', ' a ')})\r\n\r\n`
           + `- gastos_${span}.xlsx: todos los movimientos (hoja «Gastos») y el resumen por mes.\r\n`
           + '- facturas/ y justificantes/: los documentos, por mes y concepto. Las celdas del Excel enlazan a cada archivo.\r\n',

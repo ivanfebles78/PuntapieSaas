@@ -16,8 +16,8 @@ const state = { filters: {}, page: 1, data: null, team: [], els: null, searchTim
 
 // Tono de cada tipo de acción (siempre con su texto al lado).
 function actionTone(action) {
-  if (['crear', 'subir', 'reactivar', 'entrar', 'restablecer'].includes(action)) return 'is-add';
-  if (['borrar', 'quitar', 'baja', 'entrar_fallido'].includes(action)) return 'is-remove';
+  if (['crear', 'subir', 'reactivar', 'entrar', 'restablecer', 'pagar', 'importar'].includes(action)) return 'is-add';
+  if (['borrar', 'quitar', 'baja', 'entrar_fallido', 'anular_pago'].includes(action)) return 'is-remove';
   if (action === 'salir') return 'is-neutral';
   return 'is-change';
 }

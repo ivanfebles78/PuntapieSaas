@@ -46,6 +46,17 @@ export const config = Object.freeze({
   cookieName: 'puntapie_session',
   loginMaxFailedAttempts: LOGIN_MAX_FAILED_ATTEMPTS,
   forgotMaxRequests: FORGOT_MAX_REQUESTS,
+  proveedores: Object.freeze({
+    // CIF/NIF propios (Calzando Sueños): se ignoran al buscar el proveedor en un PDF.
+    cifsPropios: readEnv('CIFS_PROPIOS', 'B76766294').split(',').map((s) => s.trim()).filter(Boolean),
+    // Lector con IA para proveedores sin lector propio: solo con ANTHROPIC_API_KEY.
+    // AI_MODE: 'auto' (solo si el lector es el genérico), 'always' u 'off'.
+    ai: Object.freeze({
+      apiKey: readEnv('ANTHROPIC_API_KEY', ''),
+      model: readEnv('AI_MODEL', 'claude-sonnet-5-5'),
+      mode: readEnv('AI_MODE', 'auto'),
+    }),
+  }),
 });
 
 export function assertConfig(cfg = config) {

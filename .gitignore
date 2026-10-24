@@ -1,3 +1,6 @@
 node_modules
 .env
 *.log
+
+# Facturas reales de proveedores para los tests de los lectores: nunca al repositorio (es público)
+test/fixtures-proveedores/

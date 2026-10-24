@@ -216,3 +216,88 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS audit_log_at_idx ON audit_log(at DESC);
 CREATE INDEX IF NOT EXISTS audit_log_user_idx ON audit_log(user_id, at DESC);
+
+-- ===================== Pagos a proveedores =====================
+-- Migrado de «Control de facturas» (FacturasPuntaPie). Facturas y pedidos de
+-- proveedores con sus vencimientos y pagos. Los PDF y justificantes viven en
+-- supplier_files (un mismo justificante puede cubrir varios vencimientos).
+CREATE TABLE IF NOT EXISTS supplier_files (
+  id          SERIAL PRIMARY KEY,
+  filename    TEXT NOT NULL,
+  mime        TEXT NOT NULL,
+  size_bytes  INTEGER NOT NULL,
+  sha256      TEXT NOT NULL,
+  data        BYTEA NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS supplier_files_sha_idx ON supplier_files(sha256);
+
+CREATE TABLE IF NOT EXISTS suppliers (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  cif         TEXT UNIQUE,
+  notes       TEXT,
+  legacy_id   INTEGER UNIQUE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS supplier_docs (
+  id              SERIAL PRIMARY KEY,
+  kind            TEXT NOT NULL CHECK (kind IN ('factura', 'pedido')),
+  supplier_id     INTEGER NOT NULL REFERENCES suppliers(id),
+  number          TEXT NOT NULL,
+  doc_date        DATE,
+  total_cents     INTEGER NOT NULL DEFAULT 0 CHECK (total_cents >= 0),
+  payment_terms   TEXT,
+  delivery_date   DATE,
+  orders          JSONB NOT NULL DEFAULT '[]',
+  delivery_notes  JSONB NOT NULL DEFAULT '[]',
+  file_id         INTEGER REFERENCES supplier_files(id) ON DELETE SET NULL,
+  file_hash       TEXT,
+  notes           TEXT,
+  parser          TEXT,
+  confidence      TEXT,
+  manual_state    TEXT CHECK (manual_state IN ('recibido', 'cancelado')),
+  legacy_id       INTEGER UNIQUE,
+  created_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (supplier_id, kind, number)
+);
+
+CREATE INDEX IF NOT EXISTS supplier_docs_date_idx ON supplier_docs(doc_date);
+CREATE INDEX IF NOT EXISTS supplier_docs_hash_idx ON supplier_docs(file_hash);
+
+CREATE TABLE IF NOT EXISTS supplier_dues (
+  id            SERIAL PRIMARY KEY,
+  doc_id        INTEGER NOT NULL REFERENCES supplier_docs(id) ON DELETE CASCADE,
+  due_date      DATE NOT NULL,
+  amount_cents  INTEGER NOT NULL,
+  position      INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS supplier_dues_doc_idx ON supplier_dues(doc_id);
+CREATE INDEX IF NOT EXISTS supplier_dues_date_idx ON supplier_dues(due_date);
+
+-- Un pago por vencimiento.
+CREATE TABLE IF NOT EXISTS supplier_payments (
+  id            SERIAL PRIMARY KEY,
+  due_id        INTEGER NOT NULL UNIQUE REFERENCES supplier_dues(id) ON DELETE CASCADE,
+  paid_on       DATE NOT NULL,
+  amount_cents  INTEGER NOT NULL,
+  file_id       INTEGER REFERENCES supplier_files(id) ON DELETE SET NULL,
+  notes         TEXT,
+  created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- PDF subidos para analizar y aún sin confirmar (se borran a las 24 h).
+CREATE TABLE IF NOT EXISTS supplier_uploads (
+  temp_id     UUID PRIMARY KEY,
+  filename    TEXT NOT NULL,
+  sha256      TEXT NOT NULL,
+  data        BYTEA NOT NULL,
+  created_by  INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

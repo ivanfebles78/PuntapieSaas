@@ -79,10 +79,17 @@ function filePath(file, expenseName) {
 export async function buildExpensesExport(pool, { from, to }) {
   const { items, totals } = await listExpenses(pool, from, to, { maxMonths: MAX_EXPORT_MONTHS });
   const files = await expenseFiles(pool, from, to);
-  const names = new Map(items.map((i) => [i.id, i.name]));
-  const pathsOf = (item, kind) => files
-    .filter((f) => f.expense_id === item.id && f.month === item.month && f.kind === kind)
-    .map((f) => filePath(f, item.name));
+  const names = new Map(items.filter((i) => !i.source).map((i) => [i.id, i.name]));
+  // Facturas de proveedores: su PDF y sus justificantes salen del gestor de pagos a proveedores.
+  const supplierFiles = items.filter((i) => i.source === 'proveedor').flatMap((item) => [
+    ...item.invoices.map((f) => ({ source: 'proveedor-factura', id: item.docId, item, kind: 'factura',
+      path: `facturas/${item.month}/${safeName(item.name)}/fra-${item.docId} - ${safeName(f.filename, 120)}` })),
+    ...item.receipts.map((f) => ({ source: 'proveedor-pago', id: f.id, item, kind: 'justificante',
+      path: `justificantes/${item.month}/${safeName(item.name)}/pago-${f.id} - ${safeName(f.filename, 120)}` })),
+  ]);
+  const pathsOf = (item, kind) => (item.source === 'proveedor'
+    ? supplierFiles.filter((f) => f.item === item && f.kind === kind).map((f) => f.path)
+    : files.filter((f) => f.expense_id === item.id && f.month === item.month && f.kind === kind).map((f) => filePath(f, item.name)));
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Puntapié · Gestión';
@@ -149,7 +156,10 @@ export async function buildExpensesExport(pool, { from, to }) {
 
   return {
     workbook,
-    files: files.map((f) => ({ id: f.id, path: filePath(f, names.get(f.expense_id) ?? `gasto ${f.expense_id}`) })),
+    files: [
+      ...files.map((f) => ({ source: 'gasto', id: f.id, path: filePath(f, names.get(f.expense_id) ?? `gasto ${f.expense_id}`) })),
+      ...supplierFiles.map(({ source, id, path }) => ({ source, id, path })),
+    ],
     count: items.length,
   };
 }
@@ -279,7 +289,7 @@ export async function writeZip(output, { workbook, workbookName, files = [], rea
     await add(Buffer.from(await workbook.xlsx.writeBuffer()), workbookName);
     if (readme) await add(readme, 'LEEME.txt');
     for (const file of files) {
-      await add(await Promise.race([readFile(file.id), failed]), file.path);
+      await add(await Promise.race([readFile(file), failed]), file.path);
     }
     await Promise.race([zip.finalize(), failed]);
     await Promise.race([done, failed]);

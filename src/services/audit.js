@@ -11,6 +11,7 @@ export const AUDIT_AREAS = Object.freeze({
   aperturas: 'Aperturas extra',
   horas: 'Horas bonificadas',
   gastos: 'Gastos',
+  proveedores: 'Pagos a proveedores',
   ventas: 'Ventas',
   objetivos: 'Objetivos de venta',
 });
@@ -32,6 +33,10 @@ export const AUDIT_ACTIONS = Object.freeze({
   subir: 'Documento subido',
   quitar: 'Documento quitado',
   exportar: 'Exportación',
+  pagar: 'Pago registrado',
+  anular_pago: 'Pago anulado',
+  asociar: 'Asociación',
+  importar: 'Importación',
 });
 
 const MAX_TEXT = 500;
