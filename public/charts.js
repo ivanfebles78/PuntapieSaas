@@ -154,6 +154,52 @@ export function barChart(container, { bars, format, target, height = 230, title 
   container.replaceChildren(root);
 }
 
+/* ---------- Barras con negativos ---------- */
+
+/** Escala que incluye el cero: de lo más negativo a lo más positivo, con pasos «redondos». */
+function divergingScale(min, max) {
+  const span = Math.max(max, 0) - Math.min(min, 0) || 1;
+  const { step } = niceScale(span);
+  return { min: Math.floor(Math.min(min, 0) / step) * step, max: Math.ceil(Math.max(max, 0) / step) * step || step, step };
+}
+
+/**
+ * Barras que pueden ser negativas (p. ej. beneficio): las positivas suben desde
+ * el cero y las negativas bajan. bars: [{ label, value, tooltip }].
+ */
+export function divergingBarChart(container, { bars, format, height = 240, title }) {
+  const { width, plotW, plotH, root } = frame(container, height);
+  root.setAttribute('aria-label', title);
+  const scale = divergingScale(Math.min(...bars.map((b) => b.value)), Math.max(...bars.map((b) => b.value)));
+  const y = (v) => PAD.top + plotH - ((v - scale.min) / (scale.max - scale.min)) * plotH;
+  const bandW = plotW / bars.length;
+  const barW = Math.max(2, Math.min(bandW - 2, bandW * 0.62, 56));
+  const bandX = (i) => PAD.left + i * bandW;
+
+  const axis = svg('g', { class: 'chart-axis' });
+  for (let v = scale.min; v <= scale.max + 1e-9; v += scale.step) {
+    axis.append(svg('line', { x1: PAD.left, x2: width - PAD.right, y1: y(v), y2: y(v), class: Math.abs(v) < 1e-9 ? 'chart-base' : 'chart-grid' }));
+    axis.append(text(PAD.left - 8, y(v) + 4, format(v), { 'text-anchor': 'end' }));
+  }
+  root.append(axis);
+  const zero = y(0);
+  bars.forEach((bar, i) => {
+    const x = bandX(i) + (bandW - barW) / 2;
+    const top = Math.min(y(bar.value), zero);
+    const h = Math.abs(y(bar.value) - zero);
+    const r = Math.min(BAR_RADIUS, barW / 2, h);
+    // La punta redondeada va siempre en el extremo del dato (arriba o abajo).
+    const d = h <= 0 ? '' : bar.value >= 0
+      ? barPath(x, top, barW, h)
+      : `M${x},${top}V${top + h - r}Q${x},${top + h} ${x + r},${top + h}H${x + barW - r}Q${x + barW},${top + h} ${x + barW},${top + h - r}V${top}Z`;
+    root.append(svg('path', { d, class: `chart-bar ${bar.value >= 0 ? 'is-gain' : 'is-loss'}` }));
+    if (bar.mark) root.append(text(x + barW / 2, bar.value >= 0 ? top - 6 : top + h + 14, bar.mark, { class: 'chart-mark', 'text-anchor': 'middle' }));
+  });
+  root.append(xLabels(bars.map((b) => b.label), bandX, bandW, PAD.top + plotH));
+  bars.forEach((bar, i) => root.append(hitArea(bandX(i), PAD.top, bandW, plotH, bar.tooltip)));
+  container.replaceChildren(root);
+}
+
 /* ---------- Líneas ---------- */
 
 /** Curva suave por los puntos (Catmull-Rom → Bézier), sin pasarse por arriba ni por abajo de más. */

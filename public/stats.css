@@ -648,3 +648,42 @@
 
 .legend-swatch.is-line { width: 20px; height: 3px; border-radius: 2px; }
 .legend-swatch.is-dashed { background: repeating-linear-gradient(90deg, var(--series-2) 0 5px, transparent 5px 8px); }
+
+/* Beneficio mes a mes: verde ganancia, rojo pérdida (siempre con su importe al lado). */
+.chart-bar.is-gain { fill: var(--good); }
+.chart-bar.is-loss { fill: var(--bad); }
+
+.profit-summary {
+  display: grid;
+  grid-template-columns: 1.6fr repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.profit-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--linen);
+}
+
+.profit-value {
+  font-family: var(--font-display);
+  font-variation-settings: 'SOFT' 100;
+  font-size: 1.25rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.profit-tile.is-main .profit-value { font-size: 1.7rem; }
+.profit-tile.is-gain { background: var(--mint-wash); }
+.profit-tile.is-gain .profit-value { color: var(--good); }
+.profit-tile.is-loss { background: #fbe7e1; }
+.profit-tile.is-loss .profit-value { color: var(--bad); }
+
+@media (max-width: 767px) {
+  .profit-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profit-tile.is-main { grid-column: 1 / -1; }
+}

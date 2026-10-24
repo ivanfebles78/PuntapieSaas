@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { barChart, donutChart, lineChart } from './charts.js';
+import { barChart, divergingBarChart, donutChart, lineChart } from './charts.js';
 import { field, openDialog } from './dialogs.js';
 import { h, stagger } from './dom.js';
 import { centsToInput, formatEuros, monthLabel } from './format.js';
@@ -208,6 +208,28 @@ function historyTable() {
   ]));
 }
 
+/* ---------- Beneficio ---------- */
+
+/** «+1.234 €» / «−567 €» (sin céntimos, para las etiquetas del gráfico). */
+const signedEuros = (cents) => `${cents >= 0 ? '+' : '−'}${eurosShort(Math.abs(cents))}`;
+
+function profitSummary() {
+  const months = state.data.monthly;
+  const sales = months.reduce((t, m) => t + m.salesCents, 0);
+  const expenses = months.reduce((t, m) => t + m.expensesCents, 0);
+  const profit = sales - expenses;
+  const active = months.filter((m) => m.salesCents || m.expensesCents);
+  const gains = active.filter((m) => m.profitCents > 0).length;
+  const tile = (label, value, extra = '') => h('div', { class: `profit-tile ${extra}` }, [h('span', { class: 'kpi-label', text: label }), h('span', { class: 'profit-value', text: value })]);
+  return h('div', { class: 'profit-summary' }, [
+    tile(`${profit >= 0 ? 'Beneficio' : 'Pérdida'} total · ${periodLabel()}`, `${profit >= 0 ? '+' : '−'}${formatEuros(Math.abs(profit))}`, profit >= 0 ? 'is-gain is-main' : 'is-loss is-main'),
+    tile('Ventas', formatEuros(sales)),
+    tile('Gastos', formatEuros(expenses)),
+    tile('Margen', sales ? pct.format(profit / sales) : '—'),
+    tile('Meses en positivo', active.length ? `${gains} de ${active.length}` : '—'),
+  ]);
+}
+
 /* ---------- Gráficos ---------- */
 
 function drawCharts() {
@@ -234,6 +256,18 @@ function drawCharts() {
       value: w.cents,
       tone: w.cents >= t.weeklyCents ? null : 'soft',
       tooltip: [`Semana del ${dayLabel(w.weekStart)}`, formatEuros(w.cents), `${count.format(w.tickets)} ventas`],
+    })),
+  });
+  divergingBarChart(c.profit, {
+    title: 'Beneficio mes a mes',
+    format: (cents) => (cents < 0 ? `−${axisEuros(-cents)}` : axisEuros(cents)),
+    bars: d.monthly.map((m) => ({
+      label: monthShort(m.month),
+      value: m.profitCents,
+      mark: m.salesCents || m.expensesCents ? signedEuros(m.profitCents) : null,
+      tooltip: [monthLabel(m.month), `${m.profitCents >= 0 ? 'Beneficio' : 'Pérdida'} ${formatEuros(Math.abs(m.profitCents))}`,
+        `Ventas ${formatEuros(m.salesCents)} · Gastos ${formatEuros(m.expensesCents)}`,
+        m.salesCents ? `Margen ${pct.format(m.profitCents / m.salesCents)}` : 'Sin ventas'],
     })),
   });
   lineChart(c.monthly, {
@@ -325,6 +359,7 @@ function render() {
     daily: h('div', { class: 'chart-box' }),
     weekly: h('div', { class: 'chart-box' }),
     monthly: h('div', { class: 'chart-box' }),
+    profit: h('div', { class: 'chart-box' }),
     weekdays: h('div', { class: 'chart-box' }),
     clients: h('div', { class: 'chart-box' }),
     hours: h('div', { class: 'chart-box' }),
@@ -340,6 +375,8 @@ function render() {
       card('Ventas semanales', 'Cada barra es una semana de lunes a domingo.', charts.weekly),
       card('Evolución de ventas y gastos', 'Mes a mes. Los gastos salen de la tabla de Gastos (los tres tipos, cada factura de proveedor en el mes de su vencimiento).',
         h('div', {}, [legend([['series-1 is-line', 'Ventas'], ['series-2 is-line is-dashed', 'Gastos']]), charts.monthly]), 'is-wide'),
+      card('Beneficio mes a mes', 'Ventas (sin vales) menos gastos de cada mes. En verde, los meses con beneficio; en rojo, con pérdidas.',
+        h('div', {}, [profitSummary(), charts.profit]), 'is-wide'),
       card('Métodos de pago', `Reparto del total vendido en ${periodLabel()}. Los vales se muestran aparte: vienen de devoluciones y no suman.`, methods.node),
       card('Media por día de la semana', 'Suma de cada día dividida entre los días abiertos (sin cierres ni festivos).', charts.weekdays),
       card('Clientes por semana', 'Número de ventas (tickets) de cada semana.', charts.clients),
