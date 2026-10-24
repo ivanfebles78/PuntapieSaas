@@ -134,6 +134,18 @@ describe('API de turnos, aperturas extra, horas bonificadas y log', { skip: !TES
     assert.equal((await admin('PATCH', `/api/admin/aperturas/${sunday.id}`, { staff: [] })).code, 'BONUS_ALREADY_USED');
   });
 
+  test('turno libre en un día anterior a su primer turno guardado: vale ese primer turno', async () => {
+    const raquel = (await admin('GET', '/api/admin/users')).data.find((u) => u.username === 'rperez');
+    // Turno guardado «desde hoy», pero el día libre fue antes.
+    await admin('PUT', `/api/admin/users/${raquel.id}/turno`, { slots: ['5-tarde'], validFrom: '2026-10-24' });
+    await admin('POST', '/api/admin/aperturas', { day: '2026-10-04', shift: 'manana', staff: [raquel.id] });
+    const ok = await admin('POST', `/api/admin/users/${raquel.id}/horas`, { day: '2026-10-09', shift: 'tarde', note: 'Día libre por domingo' });
+    assert.equal(ok.status, 201, ok.error);
+    const wrong = await admin('POST', `/api/admin/users/${raquel.id}/horas`, { day: '2026-10-09', shift: 'manana' });
+    assert.equal(wrong.code, 'NOT_IN_SCHEDULE');
+    assert.match(wrong.error, /09\/10\/2026/);
+  });
+
   test('el log guarda quién, qué, campo, valor previo y nuevo', async () => {
     await admin('PATCH', `/api/admin/users/${elenaId}`, { name: 'Elena Peña' });
     const log = await admin('GET', '/api/admin/log?area=usuarios');
@@ -145,7 +157,7 @@ describe('API de turnos, aperturas extra, horas bonificadas y log', { skip: !TES
     assert.equal(row.target, 'Elena Peña');
 
     const turnos = await admin('GET', '/api/admin/log?area=turnos');
-    assert.match(turnos.data.items[0].newValue, /Lunes mañana/);
+    assert.match(turnos.data.items.find((i) => i.target.startsWith('Elena')).newValue, /Lunes mañana/);
 
     const failed = await ctx.client()('POST', '/api/auth/login', { identifier: 'nadie', password: 'x' });
     assert.equal(failed.status, 401);

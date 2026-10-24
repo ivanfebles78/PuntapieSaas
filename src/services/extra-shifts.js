@@ -233,9 +233,15 @@ export async function addFreeShift(pool, { userId, day, shift, note, createdBy, 
     if (!isRegularSlot(weekday(day), shift)) {
       throw new TeamError(400, 'Ese día y turno la tienda no abre de forma normal.', 'NOT_REGULAR_SLOT');
     }
-    const { current } = await getSchedule(client, userId, day);
-    if (!current?.slots.includes(slotKey(weekday(day), shift))) {
-      throw new TeamError(409, 'Según su turno, ese día no trabaja en ese horario.', 'NOT_IN_SCHEDULE');
+    // Si el día es anterior a su primer turno guardado (se guardó «desde hoy»),
+    // vale ese primer turno: es lo que ya hacía antes de apuntarlo en la app.
+    const { current, history } = await getSchedule(client, userId, day);
+    const schedule = current ?? history.at(-1) ?? null;
+    if (!schedule) {
+      throw new TeamError(409, 'Primero define su turno (botón «Turno» en su fila).', 'NO_SCHEDULE');
+    }
+    if (!schedule.slots.includes(slotKey(weekday(day), shift))) {
+      throw new TeamError(409, `Según su turno, el ${day.split('-').reverse().join('/')} no trabaja por la ${shift === 'manana' ? 'mañana' : 'tarde'}: elige un turno que sí trabaje.`, 'NOT_IN_SCHEDULE');
     }
     const vacation = await client.query(
       'SELECT 1 FROM vacations WHERE user_id = $1 AND $2::date BETWEEN start_date AND end_date',

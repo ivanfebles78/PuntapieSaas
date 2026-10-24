@@ -122,7 +122,8 @@ export async function manageSchedule(member) {
       presets,
       grid,
       total,
-      field({ label: 'Válido desde', name: 'validFrom', type: 'date', value: todayIso(), required: true, hint: 'Los turnos anteriores a esta fecha no cambian: las estadísticas de esos días siguen igual.' }),
+      // El primer turno vale desde el 1 de enero: así cuenta para todo el año (estadísticas y turnos libres).
+      field({ label: 'Válido desde', name: 'validFrom', type: 'date', value: res.data.history.length ? todayIso() : `${todayIso().slice(0, 4)}-01-01`, required: true, hint: 'Los turnos anteriores a esta fecha no cambian: las estadísticas de esos días siguen igual.' }),
       upcoming,
     ],
     submitLabel: 'Guardar turno',
