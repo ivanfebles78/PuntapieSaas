@@ -44,6 +44,18 @@ export function requireAuth(req, res, next) {
   return next();
 }
 
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/** El Asesor solo lee: cualquier cambio se rechaza en el servidor, no solo en pantalla. */
+export function forbidReadOnlyWrites(readOnlyRoles) {
+  return (req, res, next) => {
+    if (req.user && readOnlyRoles.includes(req.user.role) && !READ_METHODS.has(req.method)) {
+      return res.status(403).json({ ok: false, error: 'Tu rol es de solo consulta: no puedes cambiar nada.', code: 'READ_ONLY' });
+    }
+    return next();
+  };
+}
+
 export function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) {

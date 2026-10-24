@@ -3,11 +3,15 @@ import { barChart, donutChart, groupedBarChart } from './charts.js';
 import { field, openDialog } from './dialogs.js';
 import { h, stagger } from './dom.js';
 import { centsToInput, formatEuros, monthLabel } from './format.js';
+import { download, exportButton } from './export.js';
 import { icon } from './icons.js';
+import { renderStaffView } from './stats-staff.js';
 import { showToast } from './toast.js';
 
 const BASE_PATH = '/app/estadisticas';
 const PERIODS = Object.freeze([['3m', '3 meses'], ['6m', '6 meses'], ['12m', '12 meses'], ['anio', 'Este año']]);
+// Pestañas: la tienda en general y, para el Administrador, el equipo.
+const VIEWS = Object.freeze([['tienda', 'Tienda', 'shop'], ['empleados', 'Empleados', 'people']]);
 const WEEKDAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const SHORT_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic'];
 // Orden fijo de colores (categórico, validado): efectivo, tarjeta, bizum, bonos, vales.
@@ -28,7 +32,7 @@ const axisEuros = (cents) => (cents >= 1000000 ? `${count.format(Math.round(cent
 const dayLabel = (day) => `${Number(day.slice(8))} ${SHORT_MONTHS[Number(day.slice(5, 7)) - 1]}`;
 const monthShort = (month) => `${SHORT_MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(2, 4)}`;
 
-const state = { period: '12m', simulate: false, data: null, user: null, els: null, resize: null };
+const state = { view: 'tienda', period: '12m', simulate: false, data: null, user: null, els: null, resize: null, drawStaff: null };
 
 /* ---------- Cabecera y controles ---------- */
 
@@ -47,7 +51,10 @@ function header(backHref) {
 
 function controls() {
   const isAdmin = state.user.role === 'admin';
+  const seesTeam = isAdmin || state.user.role === 'asesor';
   return stagger(h('div', { class: 'month-bar stats-controls' }, [
+    seesTeam ? h('div', { class: 'segmented stats-tabs', role: 'group', 'aria-label': 'Qué ver' },
+      VIEWS.map(([id, label, ico]) => h('button', { type: 'button', 'data-view': id }, [icon(ico, 'ico ico-xs'), h('span', { text: label })]))) : null,
     h('div', { class: 'segmented', role: 'group', 'aria-label': 'Periodo' },
       PERIODS.map(([id, label]) => h('button', { type: 'button', 'data-period': id, text: label }))),
     h('label', { class: 'switch' }, [
@@ -57,12 +64,14 @@ function controls() {
     ]),
     h('div', { class: 'targets-chip', 'data-targets': '' }),
     isAdmin ? h('button', { class: 'month-today', type: 'button', 'data-edit-targets': '', text: 'Cambiar objetivos' }) : null,
+    seesTeam ? exportButton({ title: 'Ventas del periodo en Excel (cada ticket, por día y por empleado)' }) : null,
   ]), 2);
 }
 
 function syncControls() {
   const root = state.els.root;
   root.querySelectorAll('[data-period]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.period === state.period)));
+  root.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === state.view)));
   root.querySelector('[data-simulate]').checked = state.simulate;
   const t = state.data?.targets;
   if (t) {
@@ -160,7 +169,7 @@ function methodsBlock() {
 }
 
 function shiftsBlock() {
-  const { manana, tarde, cutoffHour } = state.data.shifts;
+  const { manana, tarde } = state.data.shifts;
   const total = manana.cents + tarde.cents;
   const split = h('div', { class: 'shift-split', role: 'img', 'aria-label': `Mañana ${pct.format(total ? manana.cents / total : 0)}, tarde ${pct.format(total ? tarde.cents / total : 0)}` }, [
     h('span', { class: 'shift-am' }),
@@ -174,7 +183,7 @@ function shiftsBlock() {
     h('span', { class: 'shift-wins' }, [h('strong', { text: String(s.daysWon) }), h('span', { text: ' días gana' })]),
   ]);
   return h('div', { class: 'shifts' }, [
-    h('div', { class: 'shift-tiles' }, [tile(`Mañana (antes de las ${cutoffHour}:00)`, manana, 'is-am'), tile(`Tarde (desde las ${cutoffHour}:00)`, tarde, 'is-pm')]),
+    h('div', { class: 'shift-tiles' }, [tile(`Mañana (${manana.start}–${manana.end})`, manana, 'is-am'), tile(`Tarde (${tarde.start}–${tarde.end})`, tarde, 'is-pm')]),
     split,
   ]);
 }
@@ -291,6 +300,12 @@ function notice() {
 
 function render() {
   syncControls();
+  if (state.view === 'empleados') {
+    state.drawStaff = renderStaffView(state.els.body, state.data, { card });
+    state.drawStaff();
+    return;
+  }
+  state.drawStaff = null;
   const methods = methodsBlock();
   const charts = {
     daily: h('div', { class: 'chart-box' }),
@@ -321,11 +336,20 @@ function render() {
   drawCharts();
 }
 
+function query() {
+  return `periodo=${state.period}${state.simulate ? '&simular=1' : ''}`;
+}
+
 async function load() {
-  const res = await api('GET', `/api/estadisticas?periodo=${state.period}${state.simulate ? '&simular=1' : ''}`);
+  const path = state.view === 'empleados' ? '/api/estadisticas/empleados' : '/api/estadisticas';
+  const [res, targets] = await Promise.all([
+    api('GET', `${path}?${query()}`),
+    // La franja de objetivos se mantiene también en la pestaña de empleados.
+    state.view === 'empleados' ? api('GET', '/api/estadisticas/objetivos') : null,
+  ]);
   if (!res.ok) return void showToast(res.error, { tone: 'error' });
-  state.data = res.data;
-  history.replaceState(history.state, '', `${BASE_PATH}?periodo=${state.period}${state.simulate ? '&simular=1' : ''}`);
+  state.data = targets?.ok ? { ...res.data, targets: targets.data } : res.data;
+  history.replaceState(history.state, '', `${BASE_PATH}?${state.view === 'empleados' ? 'vista=empleados&' : ''}${query()}`);
   return void render();
 }
 
@@ -354,12 +378,21 @@ async function editTargets() {
 
 function bindEvents(root) {
   root.addEventListener('click', (event) => {
+    const view = event.target.closest('[data-view]');
+    if (view && view.dataset.view !== state.view) {
+      state.view = view.dataset.view;
+      state.els.body.replaceChildren(h('p', { class: 'notice', text: 'Cargando…' }));
+      load();
+      return;
+    }
     const period = event.target.closest('[data-period]');
     if (period) {
       state.period = period.dataset.period;
       load();
     } else if (event.target.closest('[data-edit-targets]')) {
       editTargets();
+    } else if (event.target.closest('[data-export]')) {
+      download(`/api/estadisticas/exportar?${query()}`);
     }
   });
   root.addEventListener('change', (event) => {
@@ -372,14 +405,19 @@ function bindEvents(root) {
   let frame = 0;
   state.resize = new ResizeObserver(() => {
     clearTimeout(frame);
-    frame = setTimeout(() => { if (state.data && root.isConnected) drawCharts(); }, 120);
+    frame = setTimeout(() => {
+      if (!state.data || !root.isConnected) return;
+      if (state.drawStaff) state.drawStaff();
+      else drawCharts();
+    }, 120);
   });
   state.resize.observe(root);
 }
 
-/** Pinta Estadísticas. Admite ?periodo=3m|6m|12m|anio y ?simular=1. */
+/** Pinta Estadísticas. Admite ?periodo=3m|6m|12m|anio, ?simular=1 y ?vista=empleados. */
 export function renderStats({ main, user, params, backHref }) {
   state.user = user;
+  state.view = ['admin', 'asesor'].includes(user.role) && params.get('vista') === 'empleados' ? 'empleados' : 'tienda';
   state.period = PERIODS.some(([id]) => id === params.get('periodo')) ? params.get('periodo') : '12m';
   state.simulate = params.get('simular') === '1';
   const body = h('div', { class: 'stats-body' }, h('p', { class: 'notice', text: 'Cargando estadísticas…' }));

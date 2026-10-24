@@ -1,6 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
-import { attachUser, requireAuth, requirePasswordChanged, requireRole } from './auth/middleware.js';
+import { attachUser, forbidReadOnlyWrites, requireAuth, requirePasswordChanged, requireRole } from './auth/middleware.js';
+import { READ_ONLY_ROLES } from './roles.js';
 import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
 import { estadisticasRouter } from './routes/estadisticas.js';
@@ -44,11 +45,13 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
 
   app.use('/api', attachUser(pool, config.cookieName));
   app.use('/api/auth', authRouter({ pool, config, mailer, log }));
-  // A partir de aquí, todo exige haber cambiado la contraseña inicial.
-  app.use('/api/admin', requireAuth, requirePasswordChanged, adminRouter({ pool, config, mailer, log }));
-  // Gastos: de momento lo ven y editan Administrador y Empleado.
-  app.use('/api/gastos', requireAuth, requirePasswordChanged, requireRole('admin', 'empleado'), gastosRouter({ pool }));
-  app.use('/api/estadisticas', requireAuth, requirePasswordChanged, requireRole('admin', 'empleado'), estadisticasRouter({ pool }));
+  // A partir de aquí, todo exige haber cambiado la contraseña inicial, y el
+  // Asesor solo puede leer.
+  const guard = [requireAuth, requirePasswordChanged, forbidReadOnlyWrites(READ_ONLY_ROLES)];
+  app.use('/api/admin', ...guard, adminRouter({ pool, config, mailer, log }));
+  // Gastos y Estadísticas: los ven los tres roles; cambian Administrador y Empleado.
+  app.use('/api/gastos', ...guard, requireRole('admin', 'asesor', 'empleado'), gastosRouter({ pool, log }));
+  app.use('/api/estadisticas', ...guard, requireRole('admin', 'asesor', 'empleado'), estadisticasRouter({ pool, log }));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ ok: false, error: 'Ruta no encontrada.' });

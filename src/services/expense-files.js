@@ -76,12 +76,21 @@ export async function getFile(pool, fileId) {
   return result.rows[0];
 }
 
-/** Borra un documento. Si era el último justificante, el mes vuelve a «pendiente». */
+/**
+ * Borra un documento. Si era el último justificante, el mes vuelve a
+ * «pendiente». Devuelve qué se borró (para el log).
+ */
 export async function deleteFile(pool, fileId) {
-  const removed = await pool.query('DELETE FROM expense_files WHERE id = $1 RETURNING entry_id, kind', [fileId]);
+  const removed = await pool.query(
+    `DELETE FROM expense_files f USING recurring_entries en, recurring_expenses e
+      WHERE f.id = $1 AND en.id = f.entry_id AND e.id = en.expense_id
+      RETURNING f.entry_id, f.kind, f.filename, e.name, to_char(en.month, 'YYYY-MM') AS month`,
+    [fileId],
+  );
   if (removed.rowCount === 0) throw new HttpError(404, 'Ese documento no existe.', 'FILE_NOT_FOUND');
   const { entry_id: entryId, kind } = removed.rows[0];
-  if (kind !== 'justificante') return;
+  const info = { kind, filename: removed.rows[0].filename, expenseName: removed.rows[0].name, month: removed.rows[0].month };
+  if (kind !== 'justificante') return info;
   const left = await pool.query(
     "SELECT 1 FROM expense_files WHERE entry_id = $1 AND kind = 'justificante' LIMIT 1",
     [entryId],
@@ -89,4 +98,5 @@ export async function deleteFile(pool, fileId) {
   if (left.rowCount === 0) {
     await pool.query("UPDATE recurring_entries SET status = 'pendiente', paid_at = NULL WHERE id = $1", [entryId]);
   }
+  return info;
 }

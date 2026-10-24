@@ -122,6 +122,10 @@ export async function addVacation(pool, { userId, start, end, note, createdBy })
 }
 
 export async function deleteVacation(pool, userId, vacationId) {
-  const result = await pool.query('DELETE FROM vacations WHERE id = $1 AND user_id = $2', [vacationId, userId]);
+  const result = await pool.query(
+    `DELETE FROM vacations WHERE id = $1 AND user_id = $2 RETURNING ${VACATION_COLUMNS}`,
+    [vacationId, userId],
+  );
   if (result.rowCount === 0) throw new TeamError(404, 'Ese periodo de vacaciones no existe.', 'VACATION_NOT_FOUND');
+  return toVacation(result.rows[0]);
 }

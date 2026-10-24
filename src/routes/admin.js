@@ -2,7 +2,10 @@ import { randomInt } from 'node:crypto';
 import { Router } from 'express';
 import { requireRole } from '../auth/middleware.js';
 import { hashPassword } from '../auth/password.js';
+import { httpErrorHandler } from '../http-error.js';
 import { ROLES, ROLE_IDS, isValidRole } from '../roles.js';
+import { auditFrom, diffFields } from '../services/audit.js';
+import { esDate, registerShiftRoutes } from './admin-shifts.js';
 import {
   TeamError,
   createInvitedMember,
@@ -68,9 +71,15 @@ function readId(value) {
   return id;
 }
 
+const vacationText = (v) => `${esDate(v.start)} → ${esDate(v.end)} (${v.days} ${v.days === 1 ? 'día' : 'días'})${v.note ? ` · ${v.note}` : ''}`;
+
 export function adminRouter({ pool, config: cfg, mailer, log = console }) {
   const router = Router();
-  router.use(requireRole('admin'));
+  // El Asesor también entra, pero solo a leer (las escrituras las corta forbidReadOnlyWrites).
+  router.use(requireRole('admin', 'asesor'));
+  const audit = auditFrom(pool, log);
+  const roleName = (id) => ROLES[id]?.label ?? id;
+  const memberFields = (m) => ({ name: m.name, role: roleName(m.role), email: m.email });
 
   /**
    * Envía la invitación (si aún no tiene contraseña) o un enlace para
@@ -114,6 +123,12 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
         invitedBy: req.user.id,
       });
       const delivery = await sendAccessLink(member, req.user);
+      await audit(req, {
+        area: 'usuarios',
+        action: 'crear',
+        target: member.name,
+        changes: diffFields({}, memberFields(member), { name: 'Nombre', email: 'Correo', role: 'Rol' }),
+      });
       res.status(201).json({ ok: true, data: { user: member, ...delivery } });
     } catch (error) {
       next(error);
@@ -129,7 +144,15 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
       if (Object.keys(changes).length === 0) {
         throw new TeamError(400, 'No hay cambios que guardar.', 'NO_CHANGES');
       }
-      const member = await updateMember(pool, req.user.id, readId(req.params.id), changes);
+      const id = readId(req.params.id);
+      const before = await getMember(pool, id);
+      const member = await updateMember(pool, req.user.id, id, changes);
+      await audit(req, {
+        area: 'usuarios',
+        action: 'editar',
+        target: member.name,
+        changes: diffFields(memberFields(before), memberFields(member), { name: 'Nombre', email: 'Correo', role: 'Rol' }),
+      });
       res.json({ ok: true, data: member });
     } catch (error) {
       next(error);
@@ -138,7 +161,9 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
 
   router.post('/users/:id/deactivate', async (req, res, next) => {
     try {
-      res.json({ ok: true, data: await deactivateMember(pool, req.user.id, readId(req.params.id)) });
+      const member = await deactivateMember(pool, req.user.id, readId(req.params.id));
+      await audit(req, { area: 'usuarios', action: 'baja', target: member.name, changes: [{ field: 'Estado', from: 'Activo', to: 'De baja' }] });
+      res.json({ ok: true, data: member });
     } catch (error) {
       next(error);
     }
@@ -146,7 +171,9 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
 
   router.post('/users/:id/reactivate', async (req, res, next) => {
     try {
-      res.json({ ok: true, data: await reactivateMember(pool, readId(req.params.id)) });
+      const member = await reactivateMember(pool, readId(req.params.id));
+      await audit(req, { area: 'usuarios', action: 'reactivar', target: member.name, changes: [{ field: 'Estado', from: 'De baja', to: 'Activo' }] });
+      res.json({ ok: true, data: member });
     } catch (error) {
       next(error);
     }
@@ -162,7 +189,14 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
       if (!member.email) {
         throw new TeamError(409, 'Esta cuenta no tiene correo. Añádelo o usa una contraseña provisional.', 'NO_EMAIL');
       }
-      res.json({ ok: true, data: { user: member, ...(await sendAccessLink(member, req.user)) } });
+      const delivery = await sendAccessLink(member, req.user);
+      await audit(req, {
+        area: 'usuarios',
+        action: 'enviar_acceso',
+        target: member.name,
+        changes: [{ field: delivery.kind === 'invite' ? 'Invitación' : 'Enlace de contraseña', from: null, to: delivery.mailSent ? `Enviado a ${member.email}` : `No salió el correo a ${member.email}` }],
+      });
+      res.json({ ok: true, data: { user: member, ...delivery } });
     } catch (error) {
       next(error);
     }
@@ -178,6 +212,8 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
       }
       const temporaryPassword = generateTemporaryPassword();
       const user = await setTemporaryPassword(pool, id, await hashPassword(temporaryPassword));
+      // La contraseña nunca va al log: solo que se generó.
+      await audit(req, { area: 'usuarios', action: 'contrasena_provisional', target: user.name });
       res.json({ ok: true, data: { user, temporaryPassword } });
     } catch (error) {
       next(error);
@@ -195,7 +231,17 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
   router.put('/users/:id/contract-start', async (req, res, next) => {
     try {
       const id = readId(req.params.id);
-      await setContractStart(pool, id, req.body?.contractStart ?? null);
+      const before = await getVacationOverview(pool, id);
+      const member = await getMember(pool, id);
+      const contractStart = await setContractStart(pool, id, req.body?.contractStart ?? null);
+      if (contractStart !== before.contractStart) {
+        await audit(req, {
+          area: 'vacaciones',
+          action: 'editar',
+          target: member.name,
+          changes: [{ field: 'Inicio de contrato', from: esDate(before.contractStart), to: esDate(contractStart) }],
+        });
+      }
       res.json({ ok: true, data: await getVacationOverview(pool, id) });
     } catch (error) {
       next(error);
@@ -205,7 +251,14 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
   router.post('/users/:id/vacations', async (req, res, next) => {
     try {
       const period = readVacation(req.body);
-      const vacation = await addVacation(pool, { userId: readId(req.params.id), ...period, createdBy: req.user.id });
+      const userId = readId(req.params.id);
+      const vacation = await addVacation(pool, { userId, ...period, createdBy: req.user.id });
+      await audit(req, {
+        area: 'vacaciones',
+        action: 'crear',
+        target: (await getMember(pool, userId)).name,
+        changes: [{ field: 'Periodo', from: null, to: vacationText(vacation) }],
+      });
       res.status(201).json({ ok: true, data: vacation });
     } catch (error) {
       next(error);
@@ -218,13 +271,23 @@ export function adminRouter({ pool, config: cfg, mailer, log = console }) {
       if (!Number.isInteger(vacationId) || vacationId <= 0) {
         throw new TeamError(404, 'Ese periodo de vacaciones no existe.', 'VACATION_NOT_FOUND');
       }
-      await deleteVacation(pool, readId(req.params.id), vacationId);
+      const userId = readId(req.params.id);
+      const removed = await deleteVacation(pool, userId, vacationId);
+      await audit(req, {
+        area: 'vacaciones',
+        action: 'borrar',
+        target: (await getMember(pool, userId)).name,
+        changes: [{ field: 'Periodo', from: vacationText(removed), to: null }],
+      });
       res.json({ ok: true });
     } catch (error) {
       next(error);
     }
   });
 
+  registerShiftRoutes(router, { pool, audit, readUserId: readId });
+
+  router.use(httpErrorHandler);
   router.use((error, _req, res, next) => {
     if (!(error instanceof TeamError)) return next(error);
     return res.status(error.status).json({ ok: false, error: error.message, code: error.code });

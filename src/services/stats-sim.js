@@ -11,8 +11,12 @@ const WEEKDAY_FACTOR = [0, 0.82, 0.9, 0.95, 0.92, 1.12, 1.38, 0];
 // Enero (rebajas), septiembre (vuelta al cole), diciembre (Navidad) tiran;
 // agosto flojea.
 const MONTH_FACTOR = [0, 1.15, 0.85, 0.9, 0.95, 1.0, 1.05, 0.95, 0.72, 1.45, 1.1, 1.0, 1.3];
-// Horario 10–14 y 17–20:30, con más gente a media mañana y a última hora.
-const HOUR_WEIGHTS = [[10, 0.7], [11, 1.2], [12, 1.35], [13, 1.0], [17, 0.85], [18, 1.25], [19, 1.4], [20, 0.6]];
+// Horario 10:00–13:30 y 16:30–20:00 (sábado solo mañana), con más gente a
+// media mañana y a última hora.
+const HOUR_WEIGHTS = [[10, 0.8], [11, 1.2], [12, 1.35], [13, 0.5], [16, 0.45], [17, 1.0], [18, 1.3], [19, 1.35]];
+const MORNING_WEIGHTS = HOUR_WEIGHTS.filter(([hour]) => hour < 15);
+// 13 h solo hasta las 13:30 y 16 h desde las 16:30.
+const minuteOf = (hour, random) => Math.floor(random() * 30) + (hour === 16 ? 30 : hour === 13 ? 0 : Math.floor(random() * 2) * 30);
 const METHOD_WEIGHTS = [['tarjeta', 0.63], ['efectivo', 0.17], ['bonos', 0.1], ['bizum', 0.06], ['vales', 0.04]];
 const HOLIDAYS = new Set(['01-01', '01-06', '02-02', '05-01', '05-30', '08-15', '10-12', '11-01', '12-06', '12-08', '12-25']);
 const MONTHLY_EXPENSES_CENTS = 920000;
@@ -51,8 +55,8 @@ function simulateDay(day) {
   const sales = [];
   let total = 0;
   while (total < target) {
-    const hour = pickWeighted(random, HOUR_WEIGHTS);
-    const minute = Math.floor(random() * 60);
+    const hour = pickWeighted(random, dow === 6 ? MORNING_WEIGHTS : HOUR_WEIGHTS);
+    const minute = minuteOf(hour, random);
     // Tickets entre ~15 € y ~140 €, la mayoría alrededor de 45 €.
     const cents = Math.round((AVG_TICKET_CENTS * (0.35 + random() * random() * 2.6)) / 10) * 10;
     sales.push({

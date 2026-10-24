@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { validateNewPassword, verifyPassword } from '../auth/password.js';
 import { createSession, deleteSession } from '../auth/session.js';
 import { requireAuth, toPublicUser } from '../auth/middleware.js';
+import { auditFrom } from '../services/audit.js';
 import {
   authenticate,
   changeOwnPassword,
@@ -44,6 +45,8 @@ function readToken(body) {
 
 export function authRouter({ pool, config: cfg, mailer, log = console }) {
   const router = Router();
+  const audit = auditFrom(pool, log);
+  const MAX_LOGGED_IDENTIFIER = 100;
 
   // Solo cuentan los fallos: en la tienda varias personas comparten IP.
   const loginLimiter = limiter(
@@ -64,10 +67,12 @@ export function authRouter({ pool, config: cfg, mailer, log = console }) {
       }
       const user = await authenticate(pool, identifier, password);
       if (!user) {
+        await audit(req, { actor: null, area: 'sesion', action: 'entrar_fallido', target: identifier.slice(0, MAX_LOGGED_IDENTIFIER) });
         return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos.' });
       }
       const { token, expiresAt } = await createSession(pool, user.id, cfg.sessionTtlMs);
       await recordLogin(pool, user.id);
+      await audit(req, { actor: user, area: 'sesion', action: 'entrar', target: user.name });
       res.cookie(cfg.cookieName, token, cookieOptions(cfg, expiresAt));
       return res.json({ ok: true, data: toPublicUser(user) });
     } catch (error) {
@@ -78,6 +83,7 @@ export function authRouter({ pool, config: cfg, mailer, log = console }) {
   router.post('/logout', async (req, res, next) => {
     try {
       await deleteSession(pool, req.sessionToken);
+      if (req.user) await audit(req, { area: 'sesion', action: 'salir', target: req.user.name });
       res.clearCookie(cfg.cookieName, { path: '/' });
       return res.json({ ok: true });
     } catch (error) {
@@ -106,6 +112,7 @@ export function authRouter({ pool, config: cfg, mailer, log = console }) {
         return res.status(400).json({ ok: false, error: 'La nueva contraseña debe ser distinta de la actual.' });
       }
       await changeOwnPassword(pool, req.user.id, newPassword, req.sessionToken);
+      await audit(req, { area: 'sesion', action: 'cambiar_contrasena', target: req.user.name });
       return res.json({ ok: true, data: { ...req.user, mustChangePassword: false } });
     } catch (error) {
       return next(error);
@@ -124,6 +131,7 @@ export function authRouter({ pool, config: cfg, mailer, log = console }) {
 
       const user = await findActiveUserByEmail(pool, email);
       if (!user) return undefined;
+      await audit(req, { actor: user, area: 'sesion', action: 'pedir_enlace', target: user.name });
       const token = await createPasswordReset(pool, user.id, cfg.resetTokenTtlMs);
       const link = `${cfg.appUrl}/restablecer?token=${encodeURIComponent(token)}`;
       await mailer.sendPasswordReset({ to: user.email, name: user.name, link });
@@ -158,6 +166,7 @@ export function authRouter({ pool, config: cfg, mailer, log = console }) {
         return res.status(400).json({ ok: false, error: validationError });
       }
       const changed = await resetPasswordWithToken(pool, token, newPassword);
+      if (changed) await audit(req, { actor: changed, area: 'sesion', action: 'restablecer', target: changed.name });
       if (!changed) {
         return res.status(400).json({
           ok: false,

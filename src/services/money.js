@@ -52,3 +52,10 @@ export function previousMonth(firstDay) {
   const date = new Date(Date.UTC(year, month - 2, 1));
   return date.toISOString().slice(0, 10);
 }
+
+const EUROS = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', useGrouping: 'always' });
+
+/** 125050 → «1.250,50 €» (para el log y las exportaciones). */
+export function formatEuros(cents) {
+  return cents === null || cents === undefined ? null : EUROS.format(cents / 100);
+}

@@ -1,4 +1,6 @@
+import { bonusSection, describeSlots, manageSchedule } from './admin-shifts.js';
 import { api } from './api.js';
+import { isReadOnly } from './modules.js';
 import { openDialog, field } from './dialogs.js';
 import { h, stagger } from './dom.js';
 import { icon } from './icons.js';
@@ -16,6 +18,8 @@ const STATUS = Object.freeze({
   invitado: { label: 'Invitación pendiente', tone: 'wait' },
   baja: { label: 'De baja', tone: 'off' },
 });
+
+const ROLE_ICONS = Object.freeze({ admin: 'crown', asesor: 'search', empleado: 'people' });
 
 const relative = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
 const DAY_MS = 86400000;
@@ -119,11 +123,11 @@ function roleControl(member, isMe) {
     class: 'role-select',
     'data-role': String(member.id),
     'aria-label': `Rol de ${member.name}`,
-    disabled: isMe || member.status === 'baja',
+    disabled: isMe || member.status === 'baja' || isReadOnly(state.me),
     title: isMe ? 'No puedes cambiar tu propio rol' : null,
   }, state.roles.map((role) => h('option', { value: role.id, text: role.label })));
   select.value = member.role;
-  return h('span', { class: `role-wrap role-${member.role}` }, [icon(member.role === 'admin' ? 'crown' : 'people', 'ico ico-xs'), select]);
+  return h('span', { class: `role-wrap role-${member.role}` }, [icon(ROLE_ICONS[member.role] ?? 'people', 'ico ico-xs'), select]);
 }
 
 function statusBlock(member) {
@@ -150,7 +154,7 @@ function actionButton(action, label, iconName, extraClass = '') {
 
 function actions(member, isMe) {
   if (member.status === 'baja') return [actionButton('reactivate', 'Reactivar', 'userTick')];
-  const list = [actionButton('edit', 'Editar', 'magic'), actionButton('vacations', 'Vacaciones', 'sun')];
+  const list = [actionButton('edit', 'Editar', 'magic'), actionButton('schedule', 'Turno', 'clock'), actionButton('vacations', 'Vacaciones', 'sun')];
   if (!isMe) {
     list.push(member.email
       ? actionButton('access', member.status === 'invitado' ? 'Reenviar invitación' : 'Enviar enlace de contraseña', 'sms')
@@ -168,6 +172,10 @@ function memberRow(member, index) {
     h('span', { class: 'member-id' }, [
       h('span', { class: 'member-name' }, [h('span', { text: member.name }), isMe ? h('span', { class: 'me-tag', text: 'Tú' }) : null]),
       h('span', { class: 'member-handle', text: handle }),
+      member.status === 'baja' ? null : h('span', { class: `member-shift${member.slots?.length ? '' : ' is-empty'}` }, [
+        icon('clock', 'ico ico-xs'),
+        h('span', { text: describeSlots(member.slots) }),
+      ]),
     ]),
     roleControl(member, isMe),
     statusBlock(member),
@@ -213,7 +221,7 @@ function roleCards(selected) {
     h('legend', { text: 'Rol' }),
     ...state.roles.map((role) => h('label', { class: `role-card role-${role.id}` }, [
       h('input', { type: 'radio', name: 'role', value: role.id, checked: role.id === selected }),
-      h('span', { class: 'role-card-icon' }, icon(role.id === 'admin' ? 'crown' : 'people', 'ico ico-md')),
+      h('span', { class: 'role-card-icon' }, icon(ROLE_ICONS[role.id] ?? 'people', 'ico ico-md')),
       h('span', { class: 'role-card-name', text: role.label }),
       h('span', { class: 'role-card-desc', text: role.description }),
     ])),
@@ -450,6 +458,7 @@ async function manageVacations(member) {
     list: h('ul', { class: 'vac-list', 'aria-live': 'polite' }, h('li', { class: 'vac-empty', text: 'Cargando…' })),
     contract: contract.input,
   };
+  const bonus = bonusSection(member);
   const root = h('div', { class: 'vac-panel' }, [els.summary, contract.node, h('p', { class: 'vac-heading', text: 'Periodos' }), els.list]);
   bindVacationEvents(member, els, root);
   const today = new Date().toISOString().slice(0, 10);
@@ -464,6 +473,7 @@ async function manageVacations(member) {
         field({ label: 'Hasta', name: 'end', type: 'date', value: today, required: true }),
       ]),
       field({ label: 'Nota (opcional)', name: 'note', autocomplete: 'off', hint: 'Por ejemplo: verano, asuntos propios…' }),
+      bonus.node,
     ],
     submitLabel: 'Añadir periodo',
     cancelLabel: 'Cerrar',
@@ -479,12 +489,18 @@ async function manageVacations(member) {
       return { stay: true };
     },
   });
-  await refreshVacations(member, els);
+  await Promise.all([refreshVacations(member, els), bonus.refresh()]);
   if (await changed) await load();
+}
+
+async function scheduleMember(member) {
+  await manageSchedule(member);
+  await load();
 }
 
 const ACTIONS = Object.freeze({
   vacations: manageVacations,
+  schedule: scheduleMember,
   edit: editMember,
   deactivate: deactivateMember,
   temp: temporaryPassword,

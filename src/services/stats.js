@@ -2,8 +2,10 @@
 // de la tienda («YYYY-MM-DDTHH:MM»), los gastos por mes y los objetivos; no
 // sabe si los datos son reales o simulados.
 
+import { SHIFTS, SHIFT_CUTOFF_HOUR } from './shop-hours.js';
+
+export { SHIFT_CUTOFF_HOUR };
 export const PAYMENT_METHODS = Object.freeze(['efectivo', 'tarjeta', 'bizum', 'bonos', 'vales']);
-export const SHIFT_CUTOFF_HOUR = 15; // antes de las 15:00, mañana; desde las 15:00, tarde
 const DAILY_CHART_DAYS = 30;
 const DAY_MS = 86400000;
 
@@ -84,7 +86,11 @@ function paymentMethods(sales) {
 }
 
 function shifts(sales, byDay) {
-  const result = { manana: { ...emptyBucket(), daysWon: 0 }, tarde: { ...emptyBucket(), daysWon: 0 }, cutoffHour: SHIFT_CUTOFF_HOUR };
+  const result = {
+    manana: { ...emptyBucket(), daysWon: 0, start: SHIFTS.manana.start, end: SHIFTS.manana.end },
+    tarde: { ...emptyBucket(), daysWon: 0, start: SHIFTS.tarde.start, end: SHIFTS.tarde.end },
+    cutoffHour: SHIFT_CUTOFF_HOUR,
+  };
   for (const sale of sales) {
     const target = Number(sale.at.slice(11, 13)) < SHIFT_CUTOFF_HOUR ? result.manana : result.tarde;
     target.cents += sale.cents;

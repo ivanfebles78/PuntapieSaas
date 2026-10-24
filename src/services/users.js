@@ -106,8 +106,8 @@ export async function invalidateUserTokens(db, userId) {
 
 /**
  * Cambia la contraseña consumiendo el token de forma atómica y cierra
- * todas las sesiones abiertas de esa cuenta. Devuelve false si el token
- * ya no es válido.
+ * todas las sesiones abiertas de esa cuenta. Devuelve { id, name } de la
+ * cuenta, o false si el token ya no es válido.
  */
 export async function resetPasswordWithToken(pool, token, newPassword) {
   const passwordHash = await hashPassword(newPassword);
@@ -122,7 +122,7 @@ export async function resetPasswordWithToken(pool, token, newPassword) {
     );
     const updated = consumed.rowCount === 0 ? null : await client.query(
       `UPDATE users SET password_hash = $1, password_changed_at = NOW(), must_change_password = FALSE
-        WHERE id = $2 AND is_active`,
+        WHERE id = $2 AND is_active RETURNING id, name`,
       [passwordHash, consumed.rows[0].user_id],
     );
     if (!updated || updated.rowCount === 0) {
@@ -131,7 +131,7 @@ export async function resetPasswordWithToken(pool, token, newPassword) {
     }
     await deleteUserSessions(client, consumed.rows[0].user_id);
     await client.query('COMMIT');
-    return true;
+    return updated.rows[0];
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

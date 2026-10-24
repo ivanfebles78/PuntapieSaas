@@ -41,7 +41,7 @@ describe('Módulo Admin: gestión del equipo', { skip: !TEST_DATABASE_URL && 'Fa
 
   test('lista los roles disponibles', async () => {
     const res = await admin('GET', '/api/admin/roles');
-    assert.deepEqual(res.data.map((r) => r.id), ['admin', 'empleado']);
+    assert.deepEqual(res.data.map((r) => r.id), ['admin', 'asesor', 'empleado']);
     assert.equal(res.data[0].label, 'Administrador');
   });
 

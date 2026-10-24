@@ -142,12 +142,26 @@ export function summarize(items) {
   };
 }
 
-/** Gastos de un mes o de un rango de meses (máx. 24), con sus totales. */
-export async function listExpenses(pool, fromMonth, toMonth = fromMonth) {
+/** Primer mes con gastos («AAAA-MM-01»), o null si no hay ninguno. */
+export async function firstExpenseMonth(pool) {
+  const result = await pool.query("SELECT to_char(min(start_month), 'YYYY-MM-DD') AS m FROM recurring_expenses");
+  return result.rows[0].m;
+}
+
+/** Un gasto tal como está en `month` (o null si no está activo ese mes). */
+export async function findExpenseItem(pool, expenseId, month) {
+  return (await monthItems(pool, month)).find((item) => item.id === expenseId) ?? null;
+}
+
+/**
+ * Gastos de un mes o de un rango de meses (máx. 24 en pantalla; la
+ * exportación pasa su propio límite), con sus totales.
+ */
+export async function listExpenses(pool, fromMonth, toMonth = fromMonth, { maxMonths = MAX_RANGE_MONTHS } = {}) {
   if (toMonth < fromMonth) throw new HttpError(400, 'El mes final no puede ser anterior al inicial.', 'INVALID_RANGE');
   const months = monthsBetween(fromMonth, toMonth);
-  if (months.length > MAX_RANGE_MONTHS) {
-    throw new HttpError(400, `Como máximo ${MAX_RANGE_MONTHS} meses a la vez.`, 'INVALID_RANGE');
+  if (months.length > maxMonths) {
+    throw new HttpError(400, `Como máximo ${maxMonths} meses a la vez.`, 'INVALID_RANGE');
   }
   const items = [];
   for (const month of months) items.push(...(await monthItems(pool, month)));

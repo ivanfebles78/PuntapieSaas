@@ -63,23 +63,40 @@ export const MODULES = Object.freeze([
     name: 'Admin',
     icon: 'shield',
     tone: 'admin',
-    roles: ['admin'],
-    summary: 'Equipo, accesos y vacaciones.',
-    // `to` enlaza con una pantalla ya construida. Todo el equipo se gestiona
-    // desde Usuarios: altas, bajas, roles, contraseñas y vacaciones.
+    roles: ['admin', 'asesor'],
+    summary: 'Equipo, turnos, accesos, vacaciones y log de acciones.',
+    // `to` enlaza con una pantalla ya construida. Cada persona se gestiona
+    // desde Usuarios: altas, bajas, roles, contraseñas, turno y vacaciones.
     submodules: [
       {
         slug: 'usuarios',
         name: 'Usuarios',
         icon: 'people',
-        summary: 'Altas e invitaciones, bajas, roles, contraseñas y vacaciones de cada persona.',
+        summary: 'Altas, bajas, roles y contraseñas; el turno de cada persona, sus vacaciones y horas bonificadas.',
         to: 'usuarios',
+      },
+      {
+        slug: 'aperturas',
+        name: 'Aperturas extra',
+        icon: 'calendar',
+        summary: 'Sábados por la tarde y domingos que abrimos de forma puntual, y quién los trabaja (+7 h de descanso).',
+        to: 'aperturas',
+      },
+      {
+        slug: 'log',
+        name: 'Log de acciones',
+        icon: 'shield',
+        summary: 'Todo lo que se hace en la aplicación: quién, cuándo, qué campo y su valor antes y después.',
+        to: 'log',
       },
     ],
   },
 ]);
 
-export const ROLE_LABELS = Object.freeze({ admin: 'Administrador', empleado: 'Empleado' });
+export const ROLE_LABELS = Object.freeze({ admin: 'Administrador', asesor: 'Asesor', empleado: 'Empleado' });
+
+/** El Asesor lo ve todo pero no cambia nada. */
+export const isReadOnly = (user) => user?.role === 'asesor';
 
 export function modulesForRole(role) {
   return MODULES.filter((module) => !module.roles || module.roles.includes(role));

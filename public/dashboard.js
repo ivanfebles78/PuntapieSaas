@@ -1,9 +1,12 @@
+import { renderLog } from './admin-log.js';
+import { renderOpenings } from './admin-openings.js';
 import { renderUsers } from './admin-users.js';
 import { renderStats } from './estadisticas.js';
 import { renderExpenses } from './gastos.js';
 import { h, stagger } from './dom.js';
 import { icon } from './icons.js';
 import { ROLE_LABELS, modulesForRole } from './modules.js';
+import { applyReadOnly } from './readonly.js';
 import { showToast } from './toast.js';
 
 export const APP_ROOT = '/app';
@@ -13,7 +16,13 @@ const REVEAL_FALLBACK_MS = 2500;
 
 // Pantallas ya construidas dentro de un módulo: /app/<modulo>/<vista>.
 // Pantallas ya construidas: /app/<modulo>/<vista>, o el propio módulo si tiene `view`.
-const VIEWS = Object.freeze({ usuarios: renderUsers, gastos: renderExpenses, estadisticas: renderStats });
+const VIEWS = Object.freeze({
+  usuarios: renderUsers,
+  aperturas: renderOpenings,
+  log: renderLog,
+  gastos: renderExpenses,
+  estadisticas: renderStats,
+});
 
 const shell = document.getElementById('shell');
 const main = document.getElementById('shell-main');
@@ -128,7 +137,7 @@ function moduleTile(module, index) {
 
   const core = h('span', { class: 'tile-core', 'data-spotlight': '' }, [
     h('span', { class: 'tile-watermark' }, icon(module.icon, 'ico')),
-    module.roles ? h('span', { class: 'pill pill-lock', text: 'Solo Administrador' }) : null,
+    module.roles ? h('span', { class: 'pill pill-lock', text: 'Administración' }) : null,
     h('span', { class: 'tile-icon' }, icon(module.icon, 'ico ico-xl')),
     h('span', { class: 'tile-title', text: module.name }),
     h('span', { class: 'tile-count', text: sectionsLabel(module) }),
@@ -215,6 +224,7 @@ function renderModule(module) {
  */
 export function renderShell(user, path) {
   renderUser(user);
+  applyReadOnly(user);
   const url = new URL(path, location.origin);
   const [slug, viewSlug] = url.pathname.slice(APP_ROOT.length).replace(/^\/+|\/+$/g, '').split('/');
   const module = slug ? modulesForRole(user.role).find((m) => m.slug === slug) : null;
@@ -250,6 +260,7 @@ export function renderShell(user, path) {
 
 export function hideShell() {
   shell.hidden = true;
+  applyReadOnly(null);
   revealObserver?.disconnect();
   clearTimeout(revealFallback);
   main.replaceChildren();

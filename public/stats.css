@@ -23,14 +23,18 @@
 /* ---------- Interruptor «Simular datos» ---------- */
 
 .switch {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 10px;
   cursor: pointer;
 }
 
+/* Casilla real invisible (sin el ancho del input global, que desbordaba la página). */
 .switch input {
   position: absolute;
+  width: 1px;
+  height: 1px;
   opacity: 0;
 }
 

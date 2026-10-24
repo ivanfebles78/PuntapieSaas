@@ -18,7 +18,10 @@ const USER_COLUMNS = `
     WHERE v.user_id = u.id AND CURRENT_DATE BETWEEN v.start_date AND v.end_date
     ORDER BY v.end_date DESC LIMIT 1) AS on_vacation_until,
   (SELECT to_char(min(v.start_date), 'YYYY-MM-DD') FROM vacations v
-    WHERE v.user_id = u.id AND v.start_date > CURRENT_DATE) AS next_vacation`;
+    WHERE v.user_id = u.id AND v.start_date > CURRENT_DATE) AS next_vacation,
+  (SELECT ws.slots FROM work_schedules ws
+    WHERE ws.user_id = u.id AND ws.valid_from <= CURRENT_DATE
+    ORDER BY ws.valid_from DESC LIMIT 1) AS slots`;
 
 export function userStatus(row) {
   if (!row.is_active) return 'baja';
@@ -41,6 +44,8 @@ export function toTeamMember(row) {
     deactivatedAt: row.deactivated_at,
     onVacationUntil: row.on_vacation_until ?? null,
     nextVacation: row.next_vacation ?? null,
+    // Turno fijo vigente (null = aún sin turno asignado).
+    slots: row.slots ?? null,
   };
 }
 

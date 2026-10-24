@@ -17,10 +17,20 @@ export function field({ label, name, type = 'text', value = '', required = false
  * o cualquier otro valor para cerrarlo y resolver con él.
  * Resuelve null si se cancela (o el último valor de `resultOnClose()`).
  */
-export function openDialog({ eyebrow, title, lead, content = [], submitLabel, tone = 'default', onSubmit, cancelLabel = 'Cancelar' }) {
+export function openDialog({ eyebrow, title, lead, content = [], submitLabel, tone = 'default', onSubmit, cancelLabel = 'Cancelar', allowReadOnly = false }) {
+  // Solo consulta (Asesor): todo se ve, nada se puede tocar ni enviar
+  // (salvo diálogos que no cambian nada, como exportar).
+  const readOnly = !allowReadOnly && document.body.classList.contains('is-readonly');
+  if (readOnly) {
+    content = h('fieldset', { class: 'readonly-fieldset', disabled: true }, [
+      h('p', { class: 'readonly-note' }, [icon('shield', 'ico ico-xs'), h('span', { text: 'Solo consulta' })]),
+      ...[].concat(content),
+    ]);
+    cancelLabel = 'Cerrar';
+  }
   return new Promise((resolve) => {
     const alert = h('p', { class: 'alert', role: 'alert', hidden: true });
-    const submit = h('button', { class: `btn btn-dialog${tone === 'danger' ? ' btn-danger' : ''}`, type: 'submit' },
+    const submit = h('button', { class: `btn btn-dialog${tone === 'danger' ? ' btn-danger' : ''}`, type: 'submit', hidden: readOnly },
       h('span', { text: submitLabel }));
     const form = h('form', { class: 'sheet-form', novalidate: true }, [
       h('header', { class: 'sheet-head' }, [
@@ -63,7 +73,7 @@ export function openDialog({ eyebrow, title, lead, content = [], submitLabel, to
     });
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      if (submit.getAttribute('aria-busy') === 'true') return;
+      if (readOnly || submit.getAttribute('aria-busy') === 'true') return;
       alert.hidden = true;
       submit.setAttribute('aria-busy', 'true');
       try {

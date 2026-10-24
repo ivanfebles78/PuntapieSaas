@@ -71,7 +71,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS contract_start DATE;
 DROP TABLE IF EXISTS vacation_carryovers;
 
 -- Solo existen dos roles: 'admin' (todo) y 'empleado' (vista limitada).
-UPDATE users SET role = 'empleado' WHERE role NOT IN ('admin', 'empleado');
+UPDATE users SET role = 'empleado' WHERE role NOT IN ('admin', 'asesor', 'empleado');
 
 -- ===================== Gastos recurrentes =====================
 -- Un gasto que se paga cada mes. 'fijo' arrastra su importe mes a mes;
@@ -153,3 +153,66 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ===================== Turnos y horas bonificadas =====================
+-- Turnos fijos de cada persona. Cada fila vale desde `valid_from` hasta la
+-- siguiente: así un cambio de turno no reescribe las estadísticas pasadas.
+-- `slots`: lista de «díaSemana-turno» (1 = lunes … 6 = sábado), p. ej. {1-manana,6-manana}.
+CREATE TABLE IF NOT EXISTS work_schedules (
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  valid_from DATE NOT NULL,
+  slots      TEXT[] NOT NULL DEFAULT '{}',
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, valid_from)
+);
+
+-- Aperturas puntuales fuera del horario normal (sábado tarde o domingo mañana).
+CREATE TABLE IF NOT EXISTS special_openings (
+  id         SERIAL PRIMARY KEY,
+  day        DATE NOT NULL,
+  shift      TEXT NOT NULL CHECK (shift IN ('manana', 'tarde')),
+  note       TEXT NOT NULL DEFAULT '',
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (day, shift)
+);
+
+-- Quién trabaja cada apertura extra: cada una da 2 h de descanso por hora trabajada.
+CREATE TABLE IF NOT EXISTS special_opening_staff (
+  opening_id INTEGER NOT NULL REFERENCES special_openings(id) ON DELETE CASCADE,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (opening_id, user_id)
+);
+
+-- Turnos libres pagados con horas bonificadas (cada uno descuenta un turno, 3,5 h).
+CREATE TABLE IF NOT EXISTS free_shifts (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day        DATE NOT NULL,
+  shift      TEXT NOT NULL CHECK (shift IN ('manana', 'tarde')),
+  note       TEXT NOT NULL DEFAULT '',
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, day, shift)
+);
+
+-- ===================== Log de acciones =====================
+-- Una fila por campo cambiado. Nombre y valores se copian en texto para que
+-- el historial no cambie aunque luego se borre o renombre lo que se tocó.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id           BIGSERIAL PRIMARY KEY,
+  at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_id      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  user_name    TEXT NOT NULL DEFAULT '',
+  area         TEXT NOT NULL,
+  action       TEXT NOT NULL,
+  target       TEXT NOT NULL DEFAULT '',
+  field        TEXT,
+  old_value    TEXT,
+  new_value    TEXT,
+  ip           TEXT
+);
+
+CREATE INDEX IF NOT EXISTS audit_log_at_idx ON audit_log(at DESC);
+CREATE INDEX IF NOT EXISTS audit_log_user_idx ON audit_log(user_id, at DESC);

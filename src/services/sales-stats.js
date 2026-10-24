@@ -3,6 +3,8 @@ import { listExpenses } from './expenses.js';
 import { readCents } from './money.js';
 import { computeStats } from './stats.js';
 import { simulateExpenses, simulateSales } from './stats-sim.js';
+import { allSchedules } from './schedules.js';
+import { buildStaffing, computeStaffStats, simulatedSchedules } from './staff-stats.js';
 
 const SHOP_TIME_ZONE = 'Atlantic/Canary';
 const TARGETS_KEY = 'sales_targets';
@@ -83,7 +85,7 @@ export async function salesStats(pool, { period = '12m', simulate = false, now =
   const { day: today, time } = nowInShop(now);
   const from = periodStart(period, today);
   const targets = await getTargets(pool);
-  const sales = simulate ? simulateSales(from, today, time) : await realSales(pool, from, today);
+  const sales = await loadSales(pool, { from, today, time, simulate });
   const expensesByMonth = simulate
     ? simulateExpenses(monthsList(from, today))
     : await realExpensesByMonth(pool, from, today);
@@ -98,4 +100,66 @@ function monthsList(from, to) {
     if (month > to.slice(0, 7)) return months;
     months.push(month);
   }
+}
+
+function loadSales(pool, { from, today, time, simulate }) {
+  return simulate ? simulateSales(from, today, time) : realSales(pool, from, today);
+}
+
+/** Datos de turnos para saber quién estaba en cada turno del periodo. */
+async function loadStaffing(pool, from, simulate) {
+  const users = await pool.query(
+    `SELECT id, name, is_active, to_char(contract_start, 'YYYY-MM-DD') AS contract_start,
+            to_char(deactivated_at AT TIME ZONE $1, 'YYYY-MM-DD') AS left_on
+       FROM users WHERE password_hash IS NOT NULL OR is_active ORDER BY lower(name), id`,
+    [SHOP_TIME_ZONE],
+  );
+  const members = users.rows.map((u) => ({ id: u.id, name: u.name, active: u.is_active, contractStart: u.contract_start, leftOn: u.left_on }));
+  let schedules = await allSchedules(pool);
+  const simulatedTeam = simulate && schedules.length === 0;
+  // Sin turnos definidos, la simulación inventa unos para el equipo activo.
+  if (simulatedTeam) schedules = simulatedSchedules(members.filter((m) => m.active), from);
+  const scheduled = new Set(schedules.map((s) => s.userId));
+  const vacations = (await pool.query(
+    "SELECT user_id, to_char(start_date, 'YYYY-MM-DD') AS s, to_char(end_date, 'YYYY-MM-DD') AS e FROM vacations",
+  )).rows.map((v) => ({ userId: v.user_id, start: v.s, end: v.e }));
+  const freeShifts = (await pool.query(
+    "SELECT user_id, to_char(day, 'YYYY-MM-DD') AS day, shift FROM free_shifts",
+  )).rows.map((f) => ({ userId: f.user_id, day: f.day, shift: f.shift }));
+  const openings = (await pool.query(
+    `SELECT to_char(o.day, 'YYYY-MM-DD') AS day, o.shift, array_agg(s.user_id) AS staff
+       FROM special_openings o JOIN special_opening_staff s ON s.opening_id = o.id GROUP BY o.id`,
+  )).rows.map((o) => ({ day: o.day, shift: o.shift, staff: o.staff }));
+  openings.forEach((o) => o.staff.forEach((id) => scheduled.add(id)));
+  // Solo entra en la comparación quien tiene (o tuvo) turnos.
+  const team = members.filter((m) => scheduled.has(m.id));
+  return { team, simulatedTeam, staffing: buildStaffing({ members: team, schedules, vacations, freeShifts, openings }) };
+}
+
+/** Ventas por empleado según los turnos en los que estaba. */
+export async function staffStats(pool, { period = '12m', simulate = false, now = new Date() } = {}) {
+  const { day: today, time } = nowInShop(now);
+  const from = periodStart(period, today);
+  const sales = await loadSales(pool, { from, today, time, simulate });
+  const { team, simulatedTeam, staffing } = await loadStaffing(pool, from, simulate);
+  return {
+    simulated: simulate,
+    simulatedTeam,
+    period,
+    from,
+    to: today,
+    hasRealSales: simulate ? null : sales.length > 0,
+    hasSchedules: team.length > 0,
+    ...computeStaffStats({ sales, members: team.map(({ id, name, active }) => ({ id, name, active })), staffing }),
+  };
+}
+
+/** Todo lo necesario para exportar las ventas del periodo (reales o simuladas). */
+export async function salesExportData(pool, { period = '12m', simulate = false, now = new Date() } = {}) {
+  const { day: today, time } = nowInShop(now);
+  const from = periodStart(period, today);
+  const sales = await loadSales(pool, { from, today, time, simulate });
+  const { team, staffing } = await loadStaffing(pool, from, simulate);
+  const staff = computeStaffStats({ sales, members: team.map(({ id, name, active }) => ({ id, name, active })), staffing });
+  return { sales, team, staffing, staff, targets: await getTargets(pool), simulated: simulate, from, to: today };
 }

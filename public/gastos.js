@@ -2,6 +2,7 @@ import { api } from './api.js';
 import { field, openDialog } from './dialogs.js';
 import { h, stagger } from './dom.js';
 import { centsToInput, currentMonth, formatBytes, formatEuros, isMonth, monthLabel, shiftMonth } from './format.js';
+import { chooseExport, exportButton } from './export.js';
 import { icon } from './icons.js';
 import { showToast } from './toast.js';
 
@@ -105,6 +106,7 @@ function periodBar() {
       h('label', {}, [h('span', { text: 'Hasta' }), h('input', { type: 'month', 'data-range': 'to' })]),
     ]),
     h('button', { class: 'month-today', type: 'button', 'data-today': '', text: 'Mes actual' }),
+    exportButton(),
     h('button', { class: 'cta month-cta', type: 'button', 'data-new': '' }, [
       h('span', { text: 'Nuevo gasto' }),
       h('span', { class: 'bubble bubble-cta' }, icon('wallet', 'ico ico-sm')),
@@ -512,6 +514,17 @@ function onPeriodClick(target) {
   }
   if (target.closest('[data-today]')) {
     setPeriod('mes', currentMonth());
+    return true;
+  }
+  if (target.closest('[data-export]')) {
+    chooseExport({
+      title: 'Exportar gastos',
+      lead: 'Un ZIP con el Excel de todos los movimientos y todas las facturas y justificantes, ordenados por mes y concepto.',
+      options: [
+        { id: 'periodo', label: periodLabel(), detail: 'Lo que estás viendo ahora', url: `/api/gastos/exportar?desde=${state.from}&hasta=${state.to}` },
+        { id: 'todo', label: 'Todo el historial', detail: 'Desde el primer gasto registrado hasta este mes', url: '/api/gastos/exportar?todo=1' },
+      ],
+    });
     return true;
   }
   return false;

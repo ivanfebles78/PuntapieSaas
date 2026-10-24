@@ -18,6 +18,7 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
 | Rol | Qué ve |
 |---|---|
 | **Administrador** (`admin`) | Todo, incluido el módulo Admin (gestión del equipo) |
+| **Asesor** (`asesor`) | Todo (también Admin y las estadísticas por empleado), pero **solo consulta**: el servidor rechaza cualquier cambio (403 `READ_ONLY`); sí puede exportar |
 | **Empleado** (`empleado`) | Vista limitada; se definirá módulo a módulo |
 
 - Se entra con **nombre de usuario o correo**.
@@ -31,9 +32,22 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
   **saldo del año**: 30 días naturales, o la parte proporcional (al alza) si el contrato empezó
   durante el año (p. ej. 07/07 → 15), menos los disfrutados (hasta hoy) y los programados. Los días no usados antes del 31 de
   diciembre **se pierden**: no pasan al año siguiente.
-  Es la única sección de Admin: todo el equipo se gestiona desde ahí.
+- **Turno** de cada persona: mañana (10:00–13:30) y/o tarde (16:30–20:00) de lunes a viernes y
+  sábado por la mañana, con fecha «válido desde» (historial: cambiar el turno no altera los días
+  anteriores).
+- **Admin › Aperturas extra**: sábados por la tarde (16:30–20:00) y domingos por la mañana
+  (10:00–13:30) que se abren de forma puntual, un día o todos los de un mes, con quién trabaja.
+  Cada turno extra (3,5 h) da **7 h de descanso** (2 h por hora) cuando el día ha pasado.
+- **Horas bonificadas** (dentro de Vacaciones, aparte de los días naturales): ganadas, por ganar,
+  usadas y disponibles. Se gastan pidiendo **turnos libres** de 3,5 h en turnos que la persona
+  trabaja (un día entero entre semana = 2 turnos). No se puede quitar una apertura cuyas horas ya
+  se gastaron.
+- **Admin › Log de acciones**: cada acción (accesos, fallidos incluidos, usuarios, vacaciones,
+  turnos, aperturas, horas, gastos, documentos, objetivos y exportaciones) con fecha y hora,
+  usuario, sección, acción, sobre qué, campo, valor anterior y nuevo. Filtros por usuario,
+  sección, acción, fechas y texto; nunca guarda contraseñas.
 - Protecciones: nadie cambia su propio rol ni se da de baja, y siempre queda un Administrador activo.
-  La API exige el rol en el servidor (`/api/admin/*` → 403 para Empleado).
+  La API exige el rol en el servidor (`/api/admin/*` → 403 para Empleado; escrituras → 403 para Asesor).
 
 ## Gastos (una sola tabla)
 
@@ -48,6 +62,9 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
 - Facturas y justificantes (PDF o imagen, hasta 10 MB, varios). Subir un justificante deja el gasto
   **pagado**; borrar el último lo devuelve a **pendiente**. El estado también se cambia a mano.
 - Los documentos se guardan en PostgreSQL (el disco de Railway se borra en cada despliegue).
+- **Exportar**: ZIP con un Excel (todos los movimientos y resumen por mes, con enlaces a cada
+  documento) y las carpetas `facturas/` y `justificantes/` por mes y concepto; del periodo en
+  pantalla o de todo el historial.
 
 ## Estadísticas (un solo panel)
 
@@ -64,6 +81,13 @@ contraseña y recuperación de contraseña por correo). Roles y módulos llegar�
   genera en el servidor ventas y gastos de ejemplo (reproducibles, sin guardar nada).
 - Gráficos SVG propios (sin librerías: la CSP no lo permite), con tooltip por ratón y teclado y
   paleta categórica validada para daltonismo.
+- Pestaña **Empleados** (Administrador y Asesor): no se sabe quién cobra cada ticket, pero sí el
+  turno y quién estaba (turno fijo − vacaciones − turnos libres + aperturas extra). Cada persona
+  suma el total de sus turnos; se compara la **venta media por turno** y un índice frente a la
+  media de la tienda en los mismos turnos (la tarde vende más). Vende más / vende menos solo entre
+  quienes tienen 5 turnos o más.
+- **Exportar** (Administrador y Asesor): ZIP con el Excel de cada ticket (turno y quién estaba),
+  resumen por día frente al objetivo y comparativa por empleado.
 
 ## Seguridad del acceso
 
