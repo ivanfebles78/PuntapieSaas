@@ -313,3 +313,28 @@ BEGIN
     UPDATE users SET is_seller = FALSE WHERE lower(username) = 'ifebles' OR lower(email) = 'ivan.febles@gmail.com';
   END IF;
 END $$;
+
+-- ===================== Caja diaria =====================
+-- Hasta que el TPV registre cada ticket, las ventas se apuntan por día, turno
+-- y método (importe y clientes), a mano o importadas de la app antigua.
+CREATE TABLE IF NOT EXISTS sales_days (
+  day             DATE PRIMARY KEY,
+  status          TEXT NOT NULL DEFAULT 'abierto' CHECK (status IN ('abierto', 'festivo', 'cerrado')),
+  extended_hours  BOOLEAN NOT NULL DEFAULT FALSE,
+  legacy_id       INTEGER UNIQUE,
+  updated_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS daily_sales (
+  day           DATE NOT NULL REFERENCES sales_days(day) ON DELETE CASCADE,
+  shift         TEXT NOT NULL CHECK (shift IN ('manana', 'tarde')),
+  method        TEXT NOT NULL CHECK (method IN ('efectivo', 'tarjeta', 'bizum', 'bonos', 'vales')),
+  amount_cents  INTEGER NOT NULL CHECK (amount_cents >= 0),
+  customers     INTEGER NOT NULL DEFAULT 0 CHECK (customers >= 0),
+  PRIMARY KEY (day, shift, method)
+);
+
+-- Gastos traídos de otra app: recuerdan su id de origen para no duplicarse.
+ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS legacy_ref TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS recurring_expenses_legacy_ref_key ON recurring_expenses(legacy_ref) WHERE legacy_ref IS NOT NULL;

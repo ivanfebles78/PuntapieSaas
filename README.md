@@ -98,6 +98,20 @@ con lo mismo que tenía la app original.
 - Los tests de los lectores (`lectores.test.js`) y las facturas reales que usan viven en `test/fixtures-proveedores/`, que **no se sube**
   (el repositorio es público): sin esa carpeta, esos tests se saltan.
 
+## Ventas › Caja diaria
+
+Hasta que esté el TPV, las ventas se apuntan por **día, turno y método** (efectivo, tarjeta, Bizum,
+bonos consumo y vales) con sus clientes: la **mañana** a mano y, al cerrar, el **total del día del
+TPV** por método; la **tarde se calcula** (total − mañana). Festivo o cerrado = sin ventas. Lo
+apuntan Administrador y Empleado; el Asesor solo lo ve; todo queda en el log.
+
+- **Importar de la app antigua** (solo Administrador): el ZIP de `gestiondegastos`
+  (`ventas_puntapie.json`). No pisa días ya apuntados ni duplica; corrige las erratas de clientes
+  que señala `incidencias.csv` («probable error de tecleo, ¿N?»); trae los gastos diarios como
+  **esporádicos** salvo los pagos a proveedores («Pago…», «Pedido a…»), que ya están en su gestor.
+- Estadísticas usa estos datos: cada turno y método cuenta como ventas con sus clientes (tickets).
+  Las **franjas horarias** esperan al TPV (no hay hora).
+
 ## Estadísticas (un solo panel)
 
 - `/app/estadisticas?periodo=3m|6m|12m|anio` (y `&simular=1`).

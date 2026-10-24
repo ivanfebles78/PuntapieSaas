@@ -62,7 +62,7 @@ export function computeStaffStats({ sales, members, staffing }) {
     const shift = shiftOfTime(sale.at.slice(11, 16));
     const bucket = instances.get(key(day, shift)) ?? { day, shift, cents: 0, tickets: 0 };
     bucket.cents += sale.cents;
-    bucket.tickets += 1;
+    bucket.tickets += sale.count ?? 1;
     instances.set(key(day, shift), bucket);
   }
 

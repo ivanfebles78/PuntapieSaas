@@ -34,6 +34,10 @@ function emptyBucket() {
   return { cents: 0, tickets: 0 };
 }
 
+// Una venta puede ser un ticket (TPV) o el total de un turno y método de la caja
+// diaria: entonces `count` son sus clientes y `byShift` indica que no tiene hora real.
+const countOf = (sale) => sale.count ?? 1;
+
 function groupByDay(sales) {
   const byDay = new Map();
   for (const sale of sales) {
@@ -41,7 +45,7 @@ function groupByDay(sales) {
     const hour = Number(sale.at.slice(11, 13));
     const bucket = byDay.get(day) ?? { ...emptyBucket(), morning: 0, afternoon: 0 };
     bucket.cents += sale.cents;
-    bucket.tickets += 1;
+    bucket.tickets += countOf(sale);
     if (hour < SHIFT_CUTOFF_HOUR) bucket.morning += sale.cents;
     else bucket.afternoon += sale.cents;
     byDay.set(day, bucket);
@@ -87,7 +91,7 @@ function paymentMethods(sales) {
     const list = sales.filter((s) => s.method === id);
     const cents = list.reduce((t, s) => t + s.cents, 0);
     const revenue = !NON_REVENUE_METHODS.includes(id);
-    return { id, cents, count: list.length, revenue, share: revenue && total ? cents / total : 0 };
+    return { id, cents, count: list.reduce((t, s) => t + countOf(s), 0), revenue, share: revenue && total ? cents / total : 0 };
   });
 }
 
@@ -100,7 +104,7 @@ function shifts(sales, byDay) {
   for (const sale of sales) {
     const target = Number(sale.at.slice(11, 13)) < SHIFT_CUTOFF_HOUR ? result.manana : result.tarde;
     target.cents += sale.cents;
-    target.tickets += 1;
+    target.tickets += countOf(sale);
   }
   for (const day of byDay.values()) {
     if (day.morning > day.afternoon) result.manana.daysWon += 1;
@@ -109,7 +113,9 @@ function shifts(sales, byDay) {
   return result;
 }
 
-function hours(sales, openDays) {
+/** Franjas horarias: solo con tickets que tienen hora (TPV), no con totales de la caja diaria. */
+function hours(allSales, openDays) {
+  const sales = allSales.filter((s) => !s.byShift);
   const byHour = new Map();
   for (const sale of sales) {
     const hour = Number(sale.at.slice(11, 13));
@@ -118,7 +124,8 @@ function hours(sales, openDays) {
     bucket.tickets += 1;
     byHour.set(hour, bucket);
   }
-  if (byHour.size === 0) return { rows: [], best: null, worst: null };
+  const fromDailyTotals = allSales.length > sales.length;
+  if (byHour.size === 0) return { rows: [], best: null, worst: null, fromDailyTotals };
   const first = Math.min(...byHour.keys());
   const last = Math.max(...byHour.keys());
   const rows = [];
@@ -129,7 +136,7 @@ function hours(sales, openDays) {
   const withSales = rows.filter((r) => r.cents > 0);
   const best = withSales.reduce((a, b) => (b.cents > a.cents ? b : a), withSales[0]);
   const worst = withSales.reduce((a, b) => (b.cents < a.cents ? b : a), withSales[0]);
-  return { rows, best: best?.hour ?? null, worst: worst?.hour ?? null };
+  return { rows, best: best?.hour ?? null, worst: worst?.hour ?? null, fromDailyTotals };
 }
 
 /* ---------- Objetivos ---------- */
@@ -171,7 +178,7 @@ export function computeStats({ sales: allSales, expensesByMonth = {}, targets, f
   const thisWeek = days.filter((d) => weekStart(d) === weekStart(today));
   const thisMonth = days.filter((d) => monthOf(d) === monthOf(today));
   const totalCents = sum(days);
-  const tickets = sales.length;
+  const tickets = sales.reduce((t, s) => t + countOf(s), 0);
 
   const weekly = [...sumBy(days, byDay, weekStart).entries()].map(([start, b]) => ({ weekStart: start, ...b }));
   const monthly = [...sumBy(days, byDay, monthOf).entries()].map(([month, b]) => {
@@ -195,7 +202,7 @@ export function computeStats({ sales: allSales, expensesByMonth = {}, targets, f
       week: { cents: sum(thisWeek), targetCents: targets.weeklyCents },
       month: { cents: sum(thisMonth), targetCents: targets.monthlyCents },
       total: { cents: totalCents, tickets, openDays, avgTicketCents: tickets ? Math.round(totalCents / tickets) : 0 },
-      vouchers: { cents: vouchers.reduce((t, s) => t + s.cents, 0), count: vouchers.length },
+      vouchers: { cents: vouchers.reduce((t, s) => t + s.cents, 0), count: vouchers.reduce((t, s) => t + countOf(s), 0) },
     },
     goals: goals({ days, byDay, today, targets }),
     daily: days.slice(-DAILY_CHART_DAYS).map((day) => ({ day, cents: byDay.get(day)?.cents ?? 0, tickets: byDay.get(day)?.tickets ?? 0 })),

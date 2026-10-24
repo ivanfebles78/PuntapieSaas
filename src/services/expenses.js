@@ -36,7 +36,9 @@ export function readStatus(value) {
   return value;
 }
 
+/** Transacción; si `pool` ya es un cliente en transacción (p. ej. una importación), trabaja dentro de ella. */
 async function withTransaction(pool, work) {
+  if (typeof pool.release === 'function') return work(pool);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

@@ -266,7 +266,12 @@ function drawCharts() {
     height: 220,
     bars: d.weekly.map((w) => ({ label: dayLabel(w.weekStart), value: w.tickets, tone: 'clients', tooltip: [`Semana del ${dayLabel(w.weekStart)}`, `${w.tickets} clientes (ventas)`] })),
   });
-  barChart(c.hours, {
+  // Las ventas de la caja diaria van por turno, sin hora: las franjas llegan con el TPV.
+  if (!d.hours.rows.length) {
+    c.hours.replaceChildren(h('p', { class: 'notice', text: d.hours.fromDailyTotals
+      ? 'Las ventas de la caja diaria se apuntan por turno, sin hora: las franjas horarias aparecerán cuando el TPV registre cada ticket. Mañana vs tarde sí se ve arriba.'
+      : 'Todavía no hay ventas con hora.' }));
+  } else barChart(c.hours, {
     title: 'Ventas por franja horaria',
     format: axisEuros,
     height: 220,
@@ -298,8 +303,11 @@ function notice() {
   if (state.data.simulated) {
     return h('p', { class: 'notice notice-sim' }, [icon('magic', 'ico ico-sm'), h('span', { text: 'Datos simulados: así se verá cuando el TPV registre las ventas. Los gastos también son de ejemplo.' })]);
   }
+  if (state.data.hours?.fromDailyTotals) {
+    return h('p', { class: 'notice' }, [icon('coin', 'ico ico-sm'), h('span', { text: 'Ventas reales de la caja diaria (Ventas › Caja diaria): por día, turno y método; los clientes son los apuntados en cada turno.' })]);
+  }
   if (!state.data.hasRealSales) {
-    return h('p', { class: 'notice' }, [icon('chart', 'ico ico-sm'), h('span', { text: 'Todavía no hay ventas registradas: llegarán con el TPV. Activa «Simular datos» para ver cómo quedará.' })]);
+    return h('p', { class: 'notice' }, [icon('chart', 'ico ico-sm'), h('span', { text: 'Todavía no hay ventas registradas: apúntalas en Ventas › Caja diaria (o importa las de la app antigua). Activa «Simular datos» para ver cómo quedará.' })]);
   }
   return null;
 }

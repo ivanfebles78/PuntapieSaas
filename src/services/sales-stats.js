@@ -67,7 +67,22 @@ async function realSales(pool, from, to) {
       ORDER BY sold_at`,
     [from, to, SHOP_TIME_ZONE],
   );
-  return result.rows.map((r) => ({ at: r.at, cents: r.total_cents, method: r.payment_method }));
+  const tickets = result.rows.map((r) => ({ at: r.at, cents: r.total_cents, method: r.payment_method }));
+  // Caja diaria: cada turno y método es una «venta» con sus clientes, a una
+  // hora representativa del turno (no hay hora real hasta que esté el TPV).
+  const daily = await pool.query(
+    `SELECT to_char(day, 'YYYY-MM-DD') AS day, shift, method, amount_cents, customers
+       FROM daily_sales WHERE day BETWEEN $1 AND $2 ORDER BY day, shift, method`,
+    [from, to],
+  );
+  const totals = daily.rows.map((r) => ({
+    at: `${r.day}T${r.shift === 'manana' ? '11:00' : '18:00'}`,
+    cents: r.amount_cents,
+    method: r.method,
+    count: r.customers,
+    byShift: true,
+  }));
+  return [...tickets, ...totals].sort((a, b) => a.at.localeCompare(b.at));
 }
 
 async function realExpensesByMonth(pool, from, to) {

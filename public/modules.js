@@ -9,6 +9,8 @@ export const MODULES = Object.freeze([
     tone: 'ventas',
     summary: 'Lo que vendemos en la tienda y en la web.',
     submodules: [
+      // Hasta que esté el TPV, las ventas se apuntan por día y turno.
+      { slug: 'caja', name: 'Caja diaria', icon: 'coin', summary: 'Ventas del día por turno y método de pago: a mano o importadas de la app antigua.', to: 'caja' },
       { slug: 'tpv', name: 'TPV', icon: 'cardPos', summary: 'Caja de la tienda: cobros, tickets y cierres de caja.' },
       { slug: 'web', name: 'Web', icon: 'global', summary: 'Pedidos y ventas de la tienda online.' },
     ],

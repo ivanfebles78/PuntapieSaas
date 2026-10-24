@@ -187,6 +187,7 @@ export function buildSalesWorkbook({ sales, staffing, team, targets, staff, simu
     { header: 'Turno', key: 'shift', width: 22 },
     { header: 'Importe', key: 'amount', width: 13, euros: true },
     { header: 'Método de pago', key: 'method', width: 16 },
+    { header: 'Clientes', key: 'customers', width: 9 },
     { header: '¿Suma a ventas?', key: 'counts', width: 15 },
     { header: 'En el turno', key: 'staff', width: 30 },
   ]);
@@ -197,11 +198,13 @@ export function buildSalesWorkbook({ sales, staffing, team, targets, staff, simu
     const shift = shiftOfTime(time);
     list.addRow({
       date: toDate(day),
-      time,
+      // Los totales de la caja diaria son por turno: no tienen hora.
+      time: sale.byShift ? '—' : time,
       weekday: WEEKDAY_NAMES[weekday(day)],
       shift: shiftLabel(shift),
       amount: sale.cents / 100,
       method: METHOD_LABELS[sale.method] ?? sale.method,
+      customers: sale.count ?? 1,
       // Los vales salen de una devolución ya contada: se registran, no suman.
       counts: isRevenue(sale) ? 'Sí' : 'No (vale)',
       staff: staffing(day, shift).map((id) => names.get(id)).filter(Boolean).join(', '),
@@ -209,7 +212,7 @@ export function buildSalesWorkbook({ sales, staffing, team, targets, staff, simu
     const bucket = byDay.get(day) ?? { cents: 0, tickets: 0, vales: 0 };
     if (isRevenue(sale)) {
       bucket.cents += sale.cents;
-      bucket.tickets += 1;
+      bucket.tickets += sale.count ?? 1;
     } else {
       bucket.vales += sale.cents;
     }

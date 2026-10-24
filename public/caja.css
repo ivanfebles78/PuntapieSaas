@@ -1,0 +1,216 @@
+/* Ventas › Caja diaria */
+
+.caja-day-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin: 6px 0 12px;
+}
+
+.caja-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-variation-settings: 'SOFT' 100;
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.caja-status { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.caja-bar {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.caja-date {
+  width: auto;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.caja-festivo { margin-left: auto; }
+
+.caja-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+
+.caja-form:disabled .caja-card { opacity: 0.55; }
+
+.caja-card {
+  padding: 18px 20px 16px;
+  border-radius: 26px;
+  background: var(--paper-hi);
+  box-shadow: 0 0 0 1px var(--hairline), 0 18px 40px -30px rgb(30 26 22 / 0.4);
+}
+
+.caja-card.is-closing { background: #f3f6fb; }
+
+.caja-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.caja-card-head h2 { margin: 0; font-size: 1.05rem; }
+.caja-card-head p { margin: 4px 0 0; color: var(--taupe); font-size: 12.5px; }
+
+.caja-card-total {
+  color: var(--espresso-soft);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.caja-card-total strong {
+  color: var(--espresso);
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.caja-grid {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.8fr) minmax(0, 1.6fr) minmax(70px, 0.6fr);
+  gap: 8px 10px;
+  align-items: start;
+}
+
+.caja-col {
+  color: var(--taupe);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.caja-method {
+  display: flex;
+  flex-direction: column;
+  padding-top: 11px;
+  font-size: 14px;
+}
+
+.caja-method small { color: var(--taupe); font-size: 11.5px; }
+
+.caja-input {
+  height: 44px;
+  padding: 0 12px;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.caja-count { text-align: center; }
+.caja-cell { display: grid; gap: 4px; }
+.caja-afternoon { color: var(--taupe); font-size: 11.5px; }
+.caja-afternoon.is-bad { color: #9c3f2b; font-weight: 700; }
+
+.caja-afternoon-total {
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgb(42 120 214 / 0.08);
+  font-size: 14px;
+}
+
+.caja-foot {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 28px;
+  padding: 12px 12px 12px 22px;
+  border-radius: 999px;
+  background: rgb(255 252 246 / 0.92);
+  box-shadow: 0 0 0 1px var(--hairline), 0 18px 40px -26px rgb(30 26 22 / 0.45);
+  backdrop-filter: blur(14px);
+}
+
+.caja-foot-parts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 22px;
+  font-size: 14px;
+  color: var(--espresso-soft);
+}
+
+.caja-foot-parts strong { color: var(--espresso); font-variant-numeric: tabular-nums; }
+.caja-vales { color: var(--taupe); }
+
+.caja-total strong {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+}
+
+.caja-recent-title {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+
+.caja-recent {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 6px;
+  margin: 0 0 28px;
+  padding: 0;
+  list-style: none;
+}
+
+.caja-day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--paper-hi);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  color: var(--espresso);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 250ms var(--spring), box-shadow 250ms var(--spring);
+}
+
+.caja-day:hover { transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgb(30 26 22 / 0.2); }
+.caja-day:focus-visible { outline: 3px solid var(--mint); outline-offset: 2px; }
+.caja-day.is-current { background: var(--espresso); color: var(--paper-hi); }
+.caja-day.is-missing { box-shadow: inset 0 0 0 1.5px rgb(214 162 28 / 0.6); }
+.caja-day.is-closed { opacity: 0.55; }
+.caja-day-date { font-size: 12px; font-weight: 700; text-transform: capitalize; }
+.caja-day-total { font-size: 13px; font-variant-numeric: tabular-nums; }
+
+.caja-import {
+  margin-bottom: 32px;
+  padding: 18px 20px;
+  border-radius: 22px;
+  background: var(--linen);
+}
+
+@media (max-width: 900px) {
+  .caja-form { grid-template-columns: 1fr; }
+  .caja-festivo { margin-left: 0; }
+}
+
+@media (max-width: 767px) {
+  .caja-foot { border-radius: 22px; padding: 12px 14px; }
+  .caja-grid { grid-template-columns: minmax(78px, 0.8fr) minmax(0, 1.4fr) 64px; gap: 8px; }
+}

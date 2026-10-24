@@ -78,7 +78,7 @@ describe('exportar a ZIP', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATABASE_UR
     assert.ok(name, 'el archivo avisa de que son datos simulados');
     const ventas = await readSheet(zip, name, 'Ventas');
     assert.ok(ventas.rowCount > 100);
-    assert.deepEqual(ventas.getRow(1).values.slice(1), ['Fecha', 'Hora', 'Día', 'Turno', 'Importe', 'Método de pago', '¿Suma a ventas?', 'En el turno']);
+    assert.deepEqual(ventas.getRow(1).values.slice(1), ['Fecha', 'Hora', 'Día', 'Turno', 'Importe', 'Método de pago', 'Clientes', '¿Suma a ventas?', 'En el turno']);
     assert.ok(await readSheet(zip, name, 'Por día'));
     assert.ok(await readSheet(zip, name, 'Por empleado'));
   });

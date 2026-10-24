@@ -7,6 +7,7 @@ import { authRouter } from './routes/auth.js';
 import { estadisticasRouter } from './routes/estadisticas.js';
 import { gastosRouter } from './routes/gastos.js';
 import { proveedoresRouter } from './routes/proveedores.js';
+import { ventasRouter } from './routes/ventas.js';
 import { createMailer } from './services/mail.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
@@ -54,6 +55,8 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
   app.use('/api/gastos', ...guard, requireRole('admin', 'asesor', 'empleado'), gastosRouter({ pool, log }));
   app.use('/api/estadisticas', ...guard, requireRole('admin', 'asesor', 'empleado'), estadisticasRouter({ pool, log }));
   // Pagos a proveedores (facturas, pedidos, previsión): mismos permisos que Gastos.
+  // Caja diaria (ventas por día, turno y método) hasta que esté el TPV.
+  app.use('/api/ventas', ...guard, requireRole('admin', 'asesor', 'empleado'), ventasRouter({ pool, log }));
   app.use('/api/proveedores', ...guard, requireRole('admin', 'asesor', 'empleado'), proveedoresRouter({ pool, config, log }));
 
   app.use('/api', (_req, res) => {

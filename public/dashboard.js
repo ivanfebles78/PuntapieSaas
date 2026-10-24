@@ -1,6 +1,7 @@
 import { renderLog } from './admin-log.js';
 import { renderOpenings } from './admin-openings.js';
 import { renderUsers } from './admin-users.js';
+import { renderCaja } from './caja.js';
 import { renderStats } from './estadisticas.js';
 import { renderExpenses } from './gastos.js';
 import { h, stagger } from './dom.js';
@@ -20,6 +21,7 @@ const VIEWS = Object.freeze({
   usuarios: renderUsers,
   aperturas: renderOpenings,
   log: renderLog,
+  caja: renderCaja,
   gastos: renderExpenses,
   estadisticas: renderStats,
 });
