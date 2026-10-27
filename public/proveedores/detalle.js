@@ -4,7 +4,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { showToast } from '../toast.js';
 import {
-  API, badge, centToEur, claseVto, elegirArchivos, esUrgente, esVencido, etiquetaVto, eur, eurToCent, fecha, fileLink, hoy,
+  API, badge, centToEur, claseVto, cobroTag, elegirArchivos, esUrgente, esVencido, etiquetaVto, eur, eurToCent, fecha, fileLink, hoy,
   normalizarRef, soloConsulta, subir, writeBtn,
 } from './util.js';
 
@@ -18,7 +18,7 @@ function head(d, ctx, params) {
       h('span', { class: 'bubble bubble-ghost' }, icon('arrowLeft', 'ico ico-sm')),
       h('span', { text: params.back?.view === 'pedidos' ? 'Pedidos' : params.back?.view === 'prevision' ? 'Previsión' : 'Facturas' }),
     ]),
-    h('div', { class: 'pbadges' }, [badge(d.tipo), badge(d.estado), d.confianza ? badge(`conf-${d.confianza}`) : null]),
+    h('div', { class: 'pbadges' }, [badge(d.tipo), badge(d.estado), d.tipo === 'factura' ? cobroTag(d.proveedor.domiciliado) : null, d.confianza ? badge(`conf-${d.confianza}`) : null]),
     h('h3', { class: 'pdetail-title', text: `${d.proveedor.nombre} · ${d.numero}` }),
     h('p', { class: 'pmuted', text: [d.proveedor.cif ? `CIF ${d.proveedor.cif}` : null, `Emitida el ${fecha(d.fecha)}`, d.parser ? `leída con «${d.parser}»` : null].filter(Boolean).join(' · ') }),
   ]);

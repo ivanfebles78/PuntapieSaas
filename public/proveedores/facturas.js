@@ -1,8 +1,10 @@
 import { api } from '../api.js';
 import { h } from '../dom.js';
-import { API, badge, claseVto, DIAS_URGENTE, esUrgente, esVencido, etiquetaVto, eur, fecha, fileLink, hoy, normalizarRef } from './util.js';
+import { API, badge, claseVto, cobroTag, DIAS_URGENTE, esUrgente, esVencido, etiquetaVto, eur, fecha, fileLink, hoy, normalizarRef } from './util.js';
+import { ordenarFacturas } from './orden.js';
 
 const ESTADOS = Object.freeze([['', 'Todas'], ['pendiente', 'Pendientes'], ['vencida', 'Vencidas'], ['parcial', 'Parciales'], ['pagada', 'Pagadas']]);
+const ORDENES = Object.freeze([['vencimiento', 'Por vencimiento'], ['fecha', 'Por fecha de factura']]);
 
 function stat(label, value, sub, tone) {
   return h('div', { class: `pstat pstat-${tone}` }, [
@@ -56,7 +58,7 @@ function tabla(docs, ctx) {
       'data-doc': String(d.id),
       tabindex: '0',
     }, [
-      h('td', { class: 'strong', text: d.proveedor.nombre }),
+      h('td', {}, [h('div', { class: 'strong', text: d.proveedor.nombre }), cobroTag(d.proveedor.domiciliado)]),
       h('td', { class: 'mono', text: d.numero }),
       h('td', { class: 'mono', text: fecha(d.fecha) }),
       h('td', { class: 'num strong', text: eur(d.total_cent) }),
@@ -84,6 +86,7 @@ function totales(docs) {
 
 export async function renderFacturas(ctx, params = {}) {
   const filtros = { estado: params.estado ?? '', q: params.q ?? '', proveedor_id: params.proveedor_id ?? '' };
+  const orden = ORDENES.some(([v]) => v === params.orden) ? params.orden : 'vencimiento';
   const [resumen, proveedores, prevision] = await Promise.all([
     api('GET', `${API}/resumen`), api('GET', `${API}/lista`), api('GET', `${API}/prevision?meses=1`),
   ]);
@@ -94,6 +97,8 @@ export async function renderFacturas(ctx, params = {}) {
     h('option', { value: '', text: 'Todos los proveedores' }),
     ...proveedores.data.map((p) => h('option', { value: String(p.id), text: p.nombre, selected: String(p.id) === String(filtros.proveedor_id) })),
   ]);
+  const ordenSel = h('select', { class: 'pinput', 'aria-label': 'Orden' },
+    ORDENES.map(([v, t]) => h('option', { value: v, text: t, selected: v === orden })));
   const chips = h('div', { class: 'pchips', role: 'group', 'aria-label': 'Estado' }, ESTADOS.map(([v, t]) => h('button', {
     type: 'button', class: 'pchip', 'aria-pressed': String(filtros.estado === v), 'data-estado': v, text: t,
   })));
@@ -110,14 +115,15 @@ export async function renderFacturas(ctx, params = {}) {
       ]),
     ]),
     stats(resumen.data, prevision.data),
-    h('div', { class: 'ptoolbar' }, [search, select, chips]),
+    h('div', { class: 'ptoolbar' }, [search, select, ordenSel, chips]),
     tablaBox,
     totalesBox,
   );
 
-  const reload = () => ctx.go('facturas', { ...filtros });
+  const reload = () => ctx.go('facturas', { ...filtros, orden });
   search.addEventListener('change', () => { filtros.q = search.value.trim(); reload(); });
   select.addEventListener('change', () => { filtros.proveedor_id = select.value; reload(); });
+  ordenSel.addEventListener('change', () => ctx.go('facturas', { ...filtros, orden: ordenSel.value }));
   ctx.body.querySelector('.phead').addEventListener('click', (e) => {
     const go = e.target.closest('[data-go]');
     if (go) ctx.go(go.dataset.go);
@@ -130,9 +136,9 @@ export async function renderFacturas(ctx, params = {}) {
   const query = new URLSearchParams(Object.entries({ tipo: 'factura', ...filtros }).filter(([, v]) => v));
   const docs = await api('GET', `${API}/documentos?${query}`);
   if (!docs.ok) return void tablaBox.replaceChildren(h('p', { class: 'notice', text: docs.error }));
-  tablaBox.replaceChildren(tabla(docs.data, ctx));
+  tablaBox.replaceChildren(tabla(ordenarFacturas(docs.data, orden), ctx));
   totalesBox.replaceChildren(totales(docs.data) ?? '');
-  const params2 = { ...filtros };
+  const params2 = { ...filtros, orden };
   tablaBox.addEventListener('click', (e) => {
     if (e.target.closest('a')) return;
     const ref = e.target.closest('[data-open]');

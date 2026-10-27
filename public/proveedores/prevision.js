@@ -2,7 +2,7 @@ import { api } from '../api.js';
 import { openDialog } from '../dialogs.js';
 import { h } from '../dom.js';
 import { showToast } from '../toast.js';
-import { API, elegirArchivos, esUrgente, etiquetaVto, eur, fecha, hoy, subir, writeBtn } from './util.js';
+import { API, cobroTag, elegirArchivos, esUrgente, etiquetaVto, eur, fecha, hoy, subir, writeBtn } from './util.js';
 
 // Previsión de pagos: lo vencido y los meses siguientes, con el pago en cada línea.
 
@@ -18,7 +18,7 @@ function item(v, vencido = false) {
   const urgente = !vencido && esUrgente({ ...v, pago: null }, hoyIso);
   return h('li', { class: `prev-item${vencido ? ' is-vencido' : ''}${urgente ? ' is-urgente' : ''}` }, [
     h('div', {}, [
-      h('div', { class: 'prev-prov', text: v.proveedor_nombre }),
+      h('div', { class: 'prev-prov' }, [v.proveedor_nombre, ' ', cobroTag(v.domiciliado)]),
       h('div', { class: 'prev-ref', text: `Factura ${v.numero} · emitida ${fecha(v.documento_fecha)}` }),
     ]),
     h('div', { class: 'prev-importe' }, [

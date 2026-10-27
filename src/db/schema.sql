@@ -241,6 +241,8 @@ CREATE TABLE IF NOT EXISTS suppliers (
   legacy_id   INTEGER UNIQUE,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- TRUE: el proveedor carga las facturas en cuenta (domiciliación); FALSE: hay que hacerle transferencia.
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS direct_debit BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS supplier_docs (
   id              SERIAL PRIMARY KEY,

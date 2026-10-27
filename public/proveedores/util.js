@@ -37,6 +37,13 @@ export const ESTADO_TXT = Object.freeze({
 
 export const badge = (estado) => h('span', { class: `sbadge sb-${estado}`, text: ESTADO_TXT[estado] ?? estado });
 
+/** Cómo se paga al proveedor: lo carga él en cuenta (domiciliado) o hay que hacerle transferencia. */
+export const cobroTag = (domiciliado) => h('span', {
+  class: `cobro-tag ${domiciliado ? 'is-domiciliado' : 'is-transferencia'}`,
+  title: domiciliado ? 'Domiciliada: el proveedor la carga en cuenta, solo hay que esperar el cargo.' : 'Hay que hacer la transferencia.',
+  text: domiciliado ? 'Domiciliada' : 'Transferencia',
+});
+
 /** «1.234,56» o «1234.5» → céntimos (null si no es un número). */
 export function eurToCent(text) {
   const clean = String(text ?? '').trim().replace(/\s|€/g, '');

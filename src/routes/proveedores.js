@@ -258,9 +258,10 @@ export function proveedoresRouter({ pool, config, log = console }) {
 
   router.put('/lista/:id', canWrite, handle(async (req, res) => {
     const { before, after } = await actualizarProveedor(pool, readId(req.params.id, 'Ese proveedor'), req.body ?? {});
-    const changes = [['nombre', 'Nombre'], ['cif', 'CIF'], ['notas', 'Notas']]
+    const cobro = (v) => (v ? 'Domiciliación' : 'Transferencia');
+    const changes = [['nombre', 'Nombre'], ['cif', 'CIF'], ['notas', 'Notas'], ['domiciliado', 'Forma de cobro', cobro]]
       .filter(([k]) => (before[k] ?? null) !== (after[k] ?? null))
-      .map(([k, field]) => ({ field, from: before[k], to: after[k] }));
+      .map(([k, field, show = (v) => v]) => ({ field, from: show(before[k]), to: show(after[k]) }));
     if (changes.length) await audit(req, { area: 'proveedores', action: 'editar', target: `Proveedor ${after.nombre}`, changes });
     res.json({ ok: true, data: after });
   }));

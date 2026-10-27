@@ -123,6 +123,16 @@ describe('API de pagos a proveedores', { skip: !TEST_DATABASE_URL && 'Falta TEST
     assert.equal(lista.data[0].pendiente_cent, 30000);
     const renamed = await admin('PUT', `/api/proveedores/lista/${lista.data[0].id}`, { nombre: 'LEJAN, S.L.' });
     assert.equal(renamed.data.nombre, 'LEJAN, S.L.');
+    assert.equal(lista.data[0].domiciliado, false, 'por defecto, por transferencia');
+    const domiciliado = await admin('PUT', `/api/proveedores/lista/${lista.data[0].id}`, { domiciliado: true });
+    assert.equal(domiciliado.data.domiciliado, true);
+    assert.equal(domiciliado.data.nombre, 'LEJAN, S.L.', 'cambiar el cobro no toca el nombre');
+    assert.equal((await admin('PUT', `/api/proveedores/lista/${lista.data[0].id}`, { domiciliado: 'si' })).status, 400);
+    const factura = (await admin('GET', '/api/proveedores/documentos?tipo=factura')).data[0];
+    assert.equal(factura.proveedor.domiciliado, true, 'la factura sabe que se carga en cuenta');
+    const conCobro = await admin('GET', '/api/proveedores/prevision?meses=3');
+    assert.equal(conCobro.data.posteriores.items[0].domiciliado, true, 'y la previsión también');
+    await admin('PUT', `/api/proveedores/lista/${lista.data[0].id}`, { domiciliado: false });
     const pdf = await admin.raw('GET', '/api/proveedores/calendario.pdf?meses=3');
     assert.equal(pdf.headers.get('content-type'), 'application/pdf');
     assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString(), '%PDF-');

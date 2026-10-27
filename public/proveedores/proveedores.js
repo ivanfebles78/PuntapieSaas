@@ -3,6 +3,16 @@ import { h } from '../dom.js';
 import { showToast } from '../toast.js';
 import { API, elegirArchivos, eur, soloConsulta, subir, writeBtn } from './util.js';
 
+const cobroTxt = (domiciliado) => (domiciliado ? 'Domiciliada' : 'Transferencia');
+
+function cobroSwitch(p, ro) {
+  return h('label', { class: 'pswitch', title: 'Activado: el proveedor carga las facturas en cuenta. Desactivado: hay que hacerle transferencia.' }, [
+    h('input', { type: 'checkbox', checked: p.domiciliado, disabled: ro, 'data-cobro': String(p.id), 'aria-label': `${p.nombre}: facturas domiciliadas en cuenta` }),
+    h('span', { class: 'pswitch-track', 'aria-hidden': 'true' }, h('span', { class: 'pswitch-thumb' })),
+    h('span', { class: 'pswitch-text', text: cobroTxt(p.domiciliado) }),
+  ]);
+}
+
 function importBlock(ctx) {
   const status = h('p', { class: 'pmuted small', 'aria-live': 'polite' });
   const block = h('section', { class: 'psection pimport-legacy', 'data-write': '' }, [
@@ -42,13 +52,14 @@ export async function renderProveedores(ctx) {
   const root = h('div', {}, [
     h('div', { class: 'phead' }, h('div', {}, [
       h('h3', { text: 'Proveedores' }),
-      h('p', { text: 'Se crean solos al importar documentos (por CIF). Puedes cambiar el nombre con el que aparecen.' }),
+      h('p', { text: 'Se crean solos al importar documentos (por CIF). Puedes cambiar el nombre con el que aparecen e indicar si cargan las facturas en cuenta (domiciliadas) o hay que hacerles transferencia.' }),
     ])),
     res.data.length ? h('div', { class: 'ptable-wrap' }, h('table', { class: 'ptable' }, [
-      h('thead', {}, h('tr', {}, ['Nombre', 'CIF', 'Facturas', 'Pedidos', 'Facturado', 'Pendiente', ''].map((t, i) => h('th', { class: i >= 2 && i <= 5 ? 'num' : null, text: t })))),
+      h('thead', {}, h('tr', {}, ['Nombre', 'CIF', 'Pago', 'Facturas', 'Pedidos', 'Facturado', 'Pendiente', ''].map((t, i) => h('th', { class: i >= 3 && i <= 6 ? 'num' : null, text: t })))),
       h('tbody', {}, res.data.map((p) => h('tr', { 'data-id': String(p.id) }, [
         h('td', {}, h('input', { type: 'text', class: 'pinput', name: 'nombre', value: p.nombre, disabled: ro, 'aria-label': 'Nombre' })),
         h('td', {}, h('input', { type: 'text', class: 'pinput mono pinput-cif', name: 'cif', value: p.cif ?? '', disabled: ro, 'aria-label': 'CIF' })),
+        h('td', {}, cobroSwitch(p, ro)),
         h('td', { class: 'num' }, h('button', { type: 'button', class: 'ref-link', 'data-facturas': String(p.id), text: String(p.facturas) })),
         h('td', { class: 'num', text: String(p.pedidos) }),
         h('td', { class: 'num', text: eur(p.facturado_cent) }),
@@ -71,6 +82,22 @@ export async function renderProveedores(ctx) {
     if (!r.ok) return void showToast(r.error, { tone: 'error' });
     ctx.markChanged();
     return void showToast('Proveedor actualizado.');
+  });
+  // El interruptor se guarda al momento; si falla, vuelve a su posición.
+  root.addEventListener('change', async (e) => {
+    const input = e.target.closest('[data-cobro]');
+    if (!input) return;
+    const domiciliado = input.checked;
+    input.disabled = true;
+    const r = await api('PUT', `${API}/lista/${input.dataset.cobro}`, { domiciliado });
+    input.disabled = false;
+    if (!r.ok) {
+      input.checked = !domiciliado;
+      return void showToast(r.error, { tone: 'error' });
+    }
+    input.closest('.pswitch').querySelector('.pswitch-text').textContent = cobroTxt(domiciliado);
+    ctx.markChanged();
+    showToast(domiciliado ? 'Domiciliada: sus facturas se cargan en cuenta.' : 'Por transferencia: habrá que pagarle sus facturas.');
   });
   ctx.body.replaceChildren(root);
 }

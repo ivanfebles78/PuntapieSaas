@@ -145,7 +145,7 @@ export async function obtenerOCrearProveedor(db, { nombre, cif }) {
 
 export async function listarProveedores(db) {
   const result = await db.query(`
-    SELECT s.id, s.name, s.cif, s.notes,
+    SELECT s.id, s.name, s.cif, s.notes, s.direct_debit,
       (SELECT count(*)::int FROM supplier_docs d WHERE d.supplier_id = s.id AND d.kind = 'factura') AS facturas,
       (SELECT count(*)::int FROM supplier_docs d WHERE d.supplier_id = s.id AND d.kind = 'pedido') AS pedidos,
       (SELECT COALESCE(sum(d.total_cents), 0)::int FROM supplier_docs d WHERE d.supplier_id = s.id AND d.kind = 'factura') AS facturado_cent,
@@ -154,27 +154,30 @@ export async function listarProveedores(db) {
         WHERE d.supplier_id = s.id AND d.kind = 'factura' AND p.id IS NULL) AS pendiente_cent
     FROM suppliers s ORDER BY lower(s.name)`);
   return result.rows.map((r) => ({
-    id: r.id, nombre: r.name, cif: r.cif, notas: r.notes,
+    id: r.id, nombre: r.name, cif: r.cif, notas: r.notes, domiciliado: r.direct_debit,
     facturas: r.facturas, pedidos: r.pedidos, facturado_cent: r.facturado_cent, pendiente_cent: r.pendiente_cent,
   }));
 }
 
-export async function actualizarProveedor(db, id, { nombre, cif, notas }) {
+export async function actualizarProveedor(db, id, { nombre, cif, notas, domiciliado }) {
   const row = (await db.query('SELECT * FROM suppliers WHERE id = $1', [id])).rows[0];
   if (!row) throw new HttpError(404, 'Proveedor no encontrado.', 'SUPPLIER_NOT_FOUND');
+  if (domiciliado !== undefined && typeof domiciliado !== 'boolean') throw invalid(['la forma de cobro no es válida']);
   const after = {
     name: nombre != null && String(nombre).trim() ? String(nombre).trim().slice(0, 120) : row.name,
     cif: cif === undefined ? row.cif : normalizarCif(cif),
     notes: notas === undefined ? row.notes : limpiar(notas),
+    direct_debit: domiciliado === undefined ? row.direct_debit : domiciliado === true,
   };
   if (after.cif && after.cif !== row.cif) {
     const taken = await db.query('SELECT 1 FROM suppliers WHERE cif = $1 AND id <> $2', [after.cif, id]);
     if (taken.rowCount) throw new HttpError(409, 'Ya hay otro proveedor con ese CIF.', 'CIF_TAKEN');
   }
-  await db.query('UPDATE suppliers SET name = $2, cif = $3, notes = $4 WHERE id = $1', [id, after.name, after.cif, after.notes]);
+  await db.query('UPDATE suppliers SET name = $2, cif = $3, notes = $4, direct_debit = $5 WHERE id = $1',
+    [id, after.name, after.cif, after.notes, after.direct_debit]);
   return {
-    before: { nombre: row.name, cif: row.cif, notas: row.notes },
-    after: { id, nombre: after.name, cif: after.cif, notas: after.notes },
+    before: { nombre: row.name, cif: row.cif, notas: row.notes, domiciliado: row.direct_debit },
+    after: { id, nombre: after.name, cif: after.cif, notas: after.notes, domiciliado: after.direct_debit },
   };
 }
 
@@ -210,7 +213,8 @@ const DOC_COLUMNS = `
   d.id, d.kind, d.supplier_id, d.number, to_char(d.doc_date, 'YYYY-MM-DD') AS doc_date, d.total_cents,
   d.payment_terms, to_char(d.delivery_date, 'YYYY-MM-DD') AS delivery_date, d.orders, d.delivery_notes,
   d.file_id, f.filename AS file_name, d.file_hash, d.notes, d.parser, d.confidence, d.manual_state,
-  d.created_at, d.updated_at, s.name AS supplier_name, s.cif AS supplier_cif`;
+  d.created_at, d.updated_at, s.name AS supplier_name, s.cif AS supplier_cif,
+  s.direct_debit AS supplier_direct_debit`;
 
 const DOC_FROM = `FROM supplier_docs d JOIN suppliers s ON s.id = d.supplier_id
   LEFT JOIN supplier_files f ON f.id = d.file_id`;
@@ -288,7 +292,7 @@ function hidratar(row, vtos, otros, hoy) {
     estado_manual: row.manual_state,
     creado_en: row.created_at,
     actualizado_en: row.updated_at,
-    proveedor: { id: row.supplier_id, nombre: row.supplier_name, cif: row.supplier_cif },
+    proveedor: { id: row.supplier_id, nombre: row.supplier_name, cif: row.supplier_cif, domiciliado: row.supplier_direct_debit },
     vencimientos,
     estado,
     pendiente_cent: pendiente,
@@ -576,7 +580,7 @@ export async function vencimientosPendientes(db) {
   return (await db.query(`
     SELECT du.id, to_char(du.due_date, 'YYYY-MM-DD') AS fecha, du.amount_cents AS importe_cent, d.id AS documento_id,
            d.number AS numero, to_char(d.doc_date, 'YYYY-MM-DD') AS documento_fecha, d.total_cents AS total_cent,
-           s.id AS proveedor_id, s.name AS proveedor_nombre
+           s.id AS proveedor_id, s.name AS proveedor_nombre, s.direct_debit AS domiciliado
       FROM supplier_dues du
       JOIN supplier_docs d ON d.id = du.doc_id
       JOIN suppliers s ON s.id = d.supplier_id
@@ -589,6 +593,7 @@ export async function vencimientosParaCalendario(db, { desde, hasta }) {
   return (await db.query(`
     SELECT du.id, to_char(du.due_date, 'YYYY-MM-DD') AS fecha, du.amount_cents AS importe_cent, d.id AS documento_id,
            d.number AS numero, to_char(d.doc_date, 'YYYY-MM-DD') AS documento_fecha, s.name AS proveedor_nombre,
+           s.direct_debit AS domiciliado,
            (p.id IS NOT NULL) AS pagado
       FROM supplier_dues du
       JOIN supplier_docs d ON d.id = du.doc_id
