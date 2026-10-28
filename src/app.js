@@ -7,6 +7,7 @@ import { authRouter } from './routes/auth.js';
 import { estadisticasRouter } from './routes/estadisticas.js';
 import { gastosRouter } from './routes/gastos.js';
 import { proveedoresRouter } from './routes/proveedores.js';
+import { stockRouter } from './routes/stock.js';
 import { ventasRouter } from './routes/ventas.js';
 import { createMailer } from './services/mail.js';
 
@@ -58,6 +59,8 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
   // Caja diaria (ventas por día, turno y método) hasta que esté el TPV.
   app.use('/api/ventas', ...guard, requireRole('admin', 'asesor', 'empleado'), ventasRouter({ pool, log }));
   app.use('/api/proveedores', ...guard, requireRole('admin', 'asesor', 'empleado'), proveedoresRouter({ pool, config, log }));
+  // Stock (inventario, recepción y etiquetas): lo ven los tres roles; recibe mercancía también el Empleado.
+  app.use('/api/stock', ...guard, requireRole('admin', 'asesor', 'empleado'), stockRouter({ pool, log }));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ ok: false, error: 'Ruta no encontrada.' });

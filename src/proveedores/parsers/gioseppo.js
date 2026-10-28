@@ -17,12 +17,21 @@
 //   Total Base Imp. IVA RE Total pedido
 //   262,35 € 262,35 € IGIC 7,87 €
 //   270,22 €
-import { matchFirst, matchAll, parseFecha, parseImporteEs, RE_IMPORTE_ES, RE_FECHA_DMY, unique } from './utils.js';
+import { matchFirst, matchAll, parseFecha, parseImporteEs, RE_IMPORTE_ES, RE_FECHA_DMY, titulo, unique } from './utils.js';
 
 const CIF = 'B03503034';
 const NOMBRE = 'GIOSEPPO, S.L.U';
 const RE_IMPORTES_G = new RegExp(RE_IMPORTE_ES.source, 'g');
 const RE_FECHAS_G = new RegExp(RE_FECHA_DMY.source, 'g');
+const MARCA = 'Gioseppo';
+
+// Pedido: «Nota Cajas Pares Ref.-Nombre Color Tallas: composición = N Pares F.Servicio Precio [Dto.] Neto P.V.P.»
+//   13 1 9 78547-MORLEY Marino 21-27: 1, 1, 1, 2, 2, 1, 1 = 9 Pares 15/03/2027 16,65 € 149,85 € 39,95 €
+// La composición es de UNA caja: las unidades por talla = composición × (Pares ÷ suma de la composición).
+const RE_LINEA_PEDIDO = /^\d+\s+(?:-|\d+)\s+(\d+)\s+(\d+)-(\S+)\s+(.+?)\s+(\d{1,2})-(\d{1,2}):\s*([\d,\s]+?)\s*=\s*\d+\s+Pares\s+\d{2}\/\d{2}\/\d{4}\s+(.+)$/;
+// Factura: «Ref. Nombre Color Familia Género Partida Talla Unids. Precio Importe», una línea por talla.
+//   80514-P 80514 Azul CAS&SPORT BABY BOY 6402999100 21 1 16,65 16,65
+const RE_LINEA_FACTURA = /^(\S+)\s+(\S+)\s+(.+?)\s+\d{8,10}\s+(\d{1,2})\s+(\d+)\s+(\d+,\d{2})\s+[\d.]+,\d{2}$/;
 
 export const gioseppo = {
   id: 'gioseppo',
@@ -95,11 +104,76 @@ function parseFactura(texts) {
     albaranes: unique(albaranes),
     fecha_entrega: entregas.filter(Boolean).sort()[0] ?? fecha,
     forma_pago: matchFirst(texts.map((text) => ({ text })), /^Forma de pago:\s*(.+)$/)?.trim() ?? null,
+    lineas: lineasFactura(texts),
     avisos: [],
   };
 }
 
+/** El color son las palabras en minúscula/capitalizadas que van antes de la familia (en mayúsculas). */
+function colorDe(resto) {
+  const palabras = resto.split(/\s+/);
+  const color = [];
+  for (const p of palabras) {
+    if (color.length && p === p.toUpperCase()) break;
+    color.push(p);
+  }
+  return titulo(color.join(' '));
+}
+
+export function lineasFactura(texts) {
+  return texts.flatMap((t) => {
+    const m = t.match(RE_LINEA_FACTURA);
+    if (!m) return [];
+    const [, ref, nombre, resto, talla, unidades, precio] = m;
+    return [{
+      marca: MARCA,
+      referencia: ref.split('-')[0],
+      modelo: titulo(nombre),
+      color: colorDe(resto),
+      talla: Number(talla),
+      cantidad: Number(unidades),
+      coste_cent: parseImporteEs(precio),
+      pvp_cent: null,
+    }];
+  });
+}
+
+export function lineasPedido(texts) {
+  return texts.flatMap((t) => {
+    const m = t.match(RE_LINEA_PEDIDO);
+    if (!m) return [];
+    const [, pares, referencia, nombre, color, desde, hasta, composicion, precios] = m;
+    const unidades = composicion.split(',').map((x) => Number(x.trim()) || 0);
+    const porCaja = unidades.reduce((a, b) => a + b, 0);
+    const cajas = porCaja ? Number(pares) / porCaja : 1;
+    const importes = [...precios.matchAll(RE_IMPORTES_G)].map((x) => parseImporteEs(x[0]));
+    const coste = importes[0] ?? null;
+    const pvp = importes.length >= 3 ? importes[importes.length - 1] : null;
+    return unidades.flatMap((u, i) => {
+      const talla = Number(desde) + i;
+      if (!u || talla > Number(hasta)) return [];
+      return [{
+        marca: MARCA, referencia, modelo: titulo(nombre), color: titulo(color), talla,
+        cantidad: Math.round(u * cajas), coste_cent: coste, pvp_cent: pvp,
+      }];
+    });
+  });
+}
+
+// Expositores y material de punto de venta: van a 0,00 € y no son stock.
+const RE_LINEA_PLV = /^\d+\s+(?:-|\d+)\s+(\d+)\s+.*\s0,00 €\s+0,00 €\s+0,00 €$/;
+
+/** Compara las unidades leídas con «TOTAL (Prs+Uds)» del PDF (sin contar los expositores). */
+function avisoUnidades(texts, lineas) {
+  const total = Number(texts.map((t) => t.match(/TOTAL \(Prs\+Uds\):\s*(\d+)/)?.[1]).find(Boolean));
+  if (!total) return [];
+  const plv = texts.reduce((s, t) => s + Number(t.match(RE_LINEA_PLV)?.[1] ?? 0), 0);
+  const leidas = lineas.reduce((s, l) => s + l.cantidad, 0);
+  return leidas === total - plv ? [] : [`Se han leído ${leidas} unidades y el pedido indica ${total - plv}: revisa los productos.`];
+}
+
 function parsePedido(texts) {
+  const lineas = lineasPedido(texts);
   const cab = texts.map((t) => t.match(/^(\d{2}\/\d{2}\/\d{4})\s+(P-G-\d+)\b/)).find(Boolean);
   const numero = cab?.[2] ?? null;
   const fecha = cab ? parseFecha(cab[1]) : null;
@@ -128,6 +202,7 @@ function parsePedido(texts) {
     albaranes: [],
     fecha_entrega: entregas[0] ?? null,
     forma_pago: matchFirst(texts.map((text) => ({ text })), /Condiciones de pago:\s*(.+?)\s+C\.P\./)?.trim() ?? null,
-    avisos: [],
+    lineas,
+    avisos: avisoUnidades(texts, lineas),
   };
 }

@@ -27,7 +27,12 @@ export const PARSERS = [garvalin, lejan, pablosky, titanitos, gioseppo, condor, 
  * @property {string|null} forma_pago
  * @property {string} parser
  * @property {'alta'|'media'|'baja'} confianza
+ * @property {Linea[]} lineas productos (una por talla) que llegarán con el documento
  * @property {string[]} avisos
+ */
+
+/**
+ * @typedef {{ marca: string, referencia: string, modelo: string, color: string, talla: number, cantidad: number, coste_cent: number|null, pvp_cent: number|null }} Linea
  */
 
 export function detectParser(text) {
@@ -58,6 +63,7 @@ export function vacio(parserId) {
     albaranes: [],
     fecha_entrega: null,
     forma_pago: null,
+    lineas: [],
     parser: parserId,
     confianza: 'alta',
     avisos: [],

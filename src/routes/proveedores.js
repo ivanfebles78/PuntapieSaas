@@ -30,6 +30,7 @@ import {
   withTransaction,
 } from '../proveedores/repo.js';
 import { auditFrom } from '../services/audit.js';
+import { registrarEntrada } from '../stock/repo.js';
 import { cleanFilename, MAX_FILE_BYTES } from '../services/expense-files.js';
 import { formatEuros } from '../services/money.js';
 import { todayInShop } from '../services/vacation-balance.js';
@@ -120,12 +121,14 @@ export function proveedoresRouter({ pool, config, log = console }) {
   }));
 
   router.post('/documentos', canWrite, handle(async (req, res) => {
-    const { tempId, ...datos } = req.body ?? {};
+    const { tempId, lineas, marca, ...datos } = req.body ?? {};
     // En una sola transacción: si el alta falla (fecha mal escrita, número
     // repetido…), el PDF analizado sigue esperando y se puede corregir y reintentar.
-    const { doc, archivo } = await withTransaction(pool, async (client) => {
+    // Las líneas de producto quedan como mercancía pendiente de recibir.
+    const { doc, archivo, entrada } = await withTransaction(pool, async (client) => {
       const file = await consolidarArchivo(client, tempId, req.user.id);
-      return { archivo: file, doc: await crearDocumento(client, datos, file, { userId: req.user.id }) };
+      const creado = await crearDocumento(client, datos, file, { userId: req.user.id });
+      return { archivo: file, doc: creado, entrada: await registrarEntrada(client, creado, lineas, marca ?? creado.proveedor.nombre) };
     });
     await audit(req, {
       area: 'proveedores',
@@ -135,9 +138,10 @@ export function proveedoresRouter({ pool, config, log = console }) {
         { field: 'Total', from: null, to: formatEuros(doc.total_cent) },
         ...(doc.tipo === 'factura' ? [{ field: 'Vencimientos', from: null, to: docSnapshot(doc).vencimientos }] : []),
         ...(archivo ? [{ field: 'PDF', from: null, to: archivo.nombre }] : []),
+        ...(entrada.unidades ? [{ field: 'Mercancía pendiente de recibir', from: null, to: `${entrada.unidades} uds. en ${entrada.lineas} líneas` }] : []),
       ],
     });
-    res.status(201).json({ ok: true, data: doc });
+    res.status(201).json({ ok: true, data: { ...doc, entrada } });
   }));
 
   router.get('/documentos/:id', handle(async (req, res) => {

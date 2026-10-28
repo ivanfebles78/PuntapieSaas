@@ -109,6 +109,22 @@ function asociados(d) {
   ]);
 }
 
+/** Mercancía del documento: totales, etiquetas y enlace a la recepción. */
+function productos(entrada) {
+  if (!entrada?.lineas.length) return null;
+  const t = entrada.totales;
+  const docId = entrada.documento.id;
+  const estado = t.pendientes ? `${t.pendientes} pendientes de recibir` : t.faltan ? `${t.faltan} por reclamar` : 'todo recibido';
+  return h('section', { class: 'psection' }, [
+    h('h4', { class: 'psection-title', text: 'Productos' }),
+    h('p', { class: 'pmuted', text: `${t.lineas} líneas · ${t.unidades} unidades · ${estado}.` }),
+    h('div', { class: 'pbtn-row' }, [
+      h('a', { class: 'pbtn pbtn-sm pbtn-primary', href: `/api/stock/etiquetas.pdf?doc=${docId}&ver=1`, target: '_blank', rel: 'noopener', text: `Imprimir etiquetas (${t.unidades - entrada.lineas.filter((l) => l.estado === 'anulado').reduce((s, l) => s + l.cantidad, 0)})` }),
+      h('a', { class: 'pbtn pbtn-sm', href: `/app/stock/recepcion?doc=${docId}`, text: t.pendientes ? 'Recibir mercancía' : 'Ver recepción' }),
+    ]),
+  ]);
+}
+
 function campo(label, input, wide = false) {
   return h('label', { class: `pfield${wide ? ' pfield-wide' : ''}` }, [h('span', { text: label }), input]);
 }
@@ -316,7 +332,7 @@ function bind(root, d, ctx, params) {
 
 /** Detalle de una factura o pedido: pagos, justificantes, asociaciones y edición. */
 export async function renderDetalle(ctx, params) {
-  const res = await api('GET', `${API}/documentos/${params.id}`);
+  const [res, entrada] = await Promise.all([api('GET', `${API}/documentos/${params.id}`), api('GET', `/api/stock/entradas/${params.id}`)]);
   if (!res.ok) return void ctx.body.replaceChildren(h('p', { class: 'notice', text: res.error }));
   const d = res.data;
   const root = h('div', { class: 'pdetail' }, [
@@ -324,6 +340,7 @@ export async function renderDetalle(ctx, params) {
     stats(d),
     archivos(d),
     d.tipo === 'factura' ? vencimientos(d) : null,
+    productos(entrada.ok ? entrada.data : null),
     asociados(d),
     datos(d),
     h('div', { class: 'pdetail-foot', 'data-write': '' }, [

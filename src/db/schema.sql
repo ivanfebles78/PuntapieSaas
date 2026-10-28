@@ -340,3 +340,45 @@ CREATE TABLE IF NOT EXISTS daily_sales (
 -- Gastos traídos de otra app: recuerdan su id de origen para no duplicarse.
 ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS legacy_ref TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS recurring_expenses_legacy_ref_key ON recurring_expenses(legacy_ref) WHERE legacy_ref IS NOT NULL;
+
+-- ===================== Stock =====================
+-- Un artículo por SKU (marca + modelo + referencia + color + talla) con su
+-- código de barras EAN-13, como el inventario de la web antigua. `stock` es lo
+-- disponible en tienda; lo que viene en camino está en inventory_incoming.
+CREATE TABLE IF NOT EXISTS inventory_items (
+  id                SERIAL PRIMARY KEY,
+  brand             TEXT NOT NULL,
+  model             TEXT NOT NULL,
+  reference         TEXT NOT NULL,
+  color             TEXT NOT NULL,
+  size              SMALLINT NOT NULL DEFAULT 0 CHECK (size BETWEEN 0 AND 60), -- 0 = sin talla
+  barcode           TEXT NOT NULL UNIQUE,
+  stock             INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
+  sale_price_cents  INTEGER CHECK (sale_price_cents >= 0),
+  cost_cents        INTEGER CHECK (cost_cents >= 0),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (brand, model, reference, color, size)
+);
+
+CREATE INDEX IF NOT EXISTS inventory_items_reference_idx ON inventory_items(reference);
+
+-- Mercancía de un pedido o factura: «pendiente» hasta que llega a la tienda.
+-- Al recibirla, lo recibido suma al stock; lo que no llega queda como «falta»
+-- (para reclamar) hasta que llega o se anula.
+CREATE TABLE IF NOT EXISTS inventory_incoming (
+  id            SERIAL PRIMARY KEY,
+  doc_id        INTEGER NOT NULL REFERENCES supplier_docs(id) ON DELETE CASCADE,
+  item_id       INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT,
+  quantity      INTEGER NOT NULL CHECK (quantity > 0),
+  received_qty  INTEGER NOT NULL DEFAULT 0 CHECK (received_qty >= 0),
+  state         TEXT NOT NULL DEFAULT 'pendiente' CHECK (state IN ('pendiente', 'recibido', 'falta', 'anulado')),
+  received_at   TIMESTAMPTZ,
+  received_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (received_qty <= quantity)
+);
+
+CREATE INDEX IF NOT EXISTS inventory_incoming_doc_idx ON inventory_incoming(doc_id);
+CREATE INDEX IF NOT EXISTS inventory_incoming_item_idx ON inventory_incoming(item_id);
+CREATE INDEX IF NOT EXISTS inventory_incoming_state_idx ON inventory_incoming(state);

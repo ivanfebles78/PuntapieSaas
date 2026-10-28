@@ -7,6 +7,7 @@ import { cleanFilename, validateUpload } from '../services/expense-files.js';
 import { extraerConIA } from './extract/ai.js';
 import { extractPdfText } from './extract/pdfText.js';
 import { detectParser, parseDocumento, PARSERS, vacio } from './parsers/index.js';
+import { pedidoConProductos } from '../stock/repo.js';
 import { buscarDuplicado, guardarArchivo } from './repo.js';
 
 const TEMP_TTL_HOURS = 24;
@@ -58,6 +59,7 @@ function fusionar(base, ia) {
     albaranes: ia.albaranes.length ? ia.albaranes : base.albaranes,
     fecha_entrega: ia.fecha_entrega ?? base.fecha_entrega,
     forma_pago: ia.forma_pago ?? base.forma_pago,
+    lineas: ia.lineas?.length ? ia.lineas : base.lineas,
     avisos: ia.avisos,
   };
 }
@@ -110,7 +112,11 @@ export async function analizarPdf(pool, { data: raw, filename, mime }, { userId,
     fecha: extraido.fecha,
     total_cent: extraido.total_cent,
   });
-  return { tempId, hash, archivo_nombre: nombre, extraido, duplicado, texto };
+  // Si es la factura de un pedido cuyos productos ya están registrados, no se vuelven a dar de alta.
+  const productosEnPedido = extraido.tipo === 'factura' && extraido.lineas.length
+    ? await pedidoConProductos(pool, { cif: extraido.proveedor.cif, nombre: extraido.proveedor.nombre, pedidos: extraido.pedidos })
+    : null;
+  return { tempId, hash, archivo_nombre: nombre, extraido, duplicado, productos_en_pedido: productosEnPedido, texto };
 }
 
 /** Pasa el PDF temporal a archivo definitivo. Devuelve { fileId, hash, nombre } o null. */

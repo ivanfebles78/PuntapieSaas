@@ -38,9 +38,16 @@ export const MODULES = Object.freeze([
     tone: 'stock',
     summary: 'Inventario y entrada de mercancía leyendo pedidos y facturas en PDF.',
     submodules: [
-      { slug: 'inventario', name: 'Inventario', icon: 'archive', summary: 'Existencias por marca, modelo, talla y color.' },
-      { slug: 'importar-pedido', name: 'Importar pedido', icon: 'docDown', summary: 'Sube el PDF del pedido y el sistema lo integra en el stock previsto.' },
-      { slug: 'importar-factura', name: 'Importar factura', icon: 'receipt', summary: 'Sube la factura en PDF: entrada de stock y pago al proveedor.' },
+      { slug: 'inventario', name: 'Inventario', icon: 'archive', summary: 'Existencias por marca, modelo, talla y color, con su código de barras.', to: 'inventario' },
+      { slug: 'recepcion', name: 'Recepción', icon: 'truck', summary: 'Mercancía en camino: imprime las etiquetas, marca lo que falte y pásalo a stock.', to: 'recepcion' },
+      {
+        slug: 'importar',
+        name: 'Importar pedido o factura',
+        icon: 'docDown',
+        summary: 'Sube el PDF: se registra el documento con sus vencimientos y sus productos quedan pendientes de recibir.',
+        to: 'recepcion',
+        query: 'accion=importar',
+      },
     ],
   },
   {

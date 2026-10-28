@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { showToast } from '../toast.js';
+import { bloqueLineas, enlazarLineas, leerLineas } from './lineas.js';
 import { API, badge, centToEur, eur, eurToCent, fecha, hoy, subir } from './util.js';
 
 // «Importar PDF»: suelta facturas y pedidos, se leen con el lector de cada
@@ -15,7 +16,7 @@ const MOTIVOS = Object.freeze({
   importe: 'Ya hay un documento del mismo proveedor con la misma fecha e importe',
 });
 
-let cola = []; // { tempId, archivo_nombre, extraido, duplicado, texto, error, guardado, docId, forzado }
+let cola = []; // { tempId, archivo_nombre, extraido, duplicado, productos_en_pedido, texto, error, guardado, docId, entrada, forzado }
 
 function campo(label, name, value, { type = 'text', cls = '', wide = false } = {}) {
   return h('label', { class: `pfield${wide ? ' pfield-wide' : ''}` }, [h('span', { text: label }), h('input', { type, name, value: value ?? '', class: cls })]);
@@ -39,10 +40,19 @@ function tarjeta(r, i) {
   }
   const e = r.extraido;
   if (r.guardado) {
-    return h('article', { class: 'review is-saved', 'data-i': String(i) }, head([
-      h('span', { class: 'review-file' }, [h('span', { text: r.archivo_nombre }), badge(e.tipo), h('span', { class: 'pmuted', text: e.numero ?? '' })]),
-      h('span', { class: 'pbtn-row' }, [h('span', { class: 'sbadge sb-pagada', text: 'Guardado' }), h('button', { class: 'pbtn pbtn-sm', type: 'button', 'data-abrir': String(r.docId), text: 'Abrir' })]),
-    ]));
+    const uds = r.entrada?.unidades ?? 0;
+    return h('article', { class: 'review is-saved', 'data-i': String(i) }, [
+      head([
+        h('span', { class: 'review-file' }, [h('span', { text: r.archivo_nombre }), badge(e.tipo), h('span', { class: 'pmuted', text: e.numero ?? '' })]),
+        h('span', { class: 'pbtn-row' }, [
+          h('span', { class: 'sbadge sb-pagada', text: 'Guardado' }),
+          uds ? h('a', { class: 'pbtn pbtn-sm pbtn-primary', href: `/api/stock/etiquetas.pdf?doc=${r.docId}&ver=1`, target: '_blank', rel: 'noopener', text: `Etiquetas (${uds})` }) : null,
+          h('button', { class: 'pbtn pbtn-sm', type: 'button', 'data-abrir': String(r.docId), text: 'Abrir' }),
+        ]),
+      ]),
+      uds ? h('p', { class: 'pmuted small review-note', text: `${uds} unidades pendientes de recibir en Stock › Recepción.` }) : null,
+      r.entrada?.omitido ? h('p', { class: 'pmuted small review-note', text: `Los productos ya estaban dados de alta con el pedido ${r.entrada.omitido.numero}.` }) : null,
+    ]);
   }
   if (r.duplicado) {
     const d = r.duplicado;
@@ -83,6 +93,7 @@ function tarjeta(r, i) {
         h('button', { class: 'pbtn pbtn-sm', type: 'button', 'data-add-vto': '', text: '＋ Añadir vencimiento' }),
       ]),
     ]),
+    bloqueLineas(e, r.productos_en_pedido),
     r.texto ? h('details', { class: 'review-raw' }, [h('summary', { text: 'Ver texto extraído del PDF' }), h('pre', { text: r.texto })]) : null,
   ]);
   return h('article', { class: 'review', 'data-i': String(i) }, [
@@ -135,12 +146,15 @@ async function guardar(review, i, ctx) {
       importe_cent: eurToCent(row.querySelector('[name=vto_importe]').value) ?? 0,
     })),
   };
+  const lineas = leerLineas(card);
+  if (lineas?.length) Object.assign(body, { lineas, marca: lineas[0].marca });
   if (body.total_cent == null) return void showToast('Indica el importe total.', { tone: 'error' });
   const res = await api('POST', `${API}/documentos`, body);
   if (!res.ok) return void showToast(res.error, { tone: 'error' });
-  cola[i] = { ...r, guardado: true, docId: res.data.id };
+  cola[i] = { ...r, guardado: true, docId: res.data.id, entrada: res.data.entrada };
   ctx.markChanged();
-  showToast(`${tipo === 'pedido' ? 'Pedido' : 'Factura'} ${res.data.numero} guardada.`);
+  const uds = res.data.entrada?.unidades;
+  showToast(`${tipo === 'pedido' ? 'Pedido' : 'Factura'} ${res.data.numero} guardada${uds ? ` con ${uds} unidades pendientes de recibir` : ''}.`);
   return void pintar(review);
 }
 
@@ -187,6 +201,7 @@ export async function renderImportar(ctx) {
   drop.addEventListener('dragleave', () => drop.classList.remove('is-over'));
   drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('is-over'); analizar([...e.dataTransfer.files]); });
 
+  enlazarLineas(review);
   review.addEventListener('change', (e) => {
     if (e.target.name !== 'tipo') return;
     e.target.closest('.review').querySelector('.solo-factura').classList.toggle('is-hidden', e.target.value === 'pedido');

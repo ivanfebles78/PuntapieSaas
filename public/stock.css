@@ -1,0 +1,96 @@
+/* Stock › Inventario y Recepción, y la tabla de productos de «Importar PDF». */
+
+.stk-body { display: grid; gap: 14px; }
+
+.stk-toolbar { justify-content: space-between; }
+
+/* ---------- Lista de entradas ---------- */
+
+.stk-entries { display: grid; gap: 8px; }
+
+.stk-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgb(30 26 22 / 0.1);
+  border-left: 4px solid var(--tone-vivid, #d6a21c);
+  border-radius: 14px;
+  background: #fffdf8;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.stk-entry:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgb(30 26 22 / 0.08); }
+.stk-entry:focus-visible { outline: 3px solid var(--pv-violet-ink); outline-offset: 2px; }
+.stk-entry-main { display: grid; gap: 3px; }
+.stk-entry-nums { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* ---------- Recepción de una entrada ---------- */
+
+.stk-detail { display: grid; gap: 12px; justify-items: stretch; }
+.stk-detail > [data-volver] { justify-self: start; }
+
+.stk-confirm {
+  position: sticky;
+  top: 8px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--pv-green-wash);
+  color: var(--pv-green);
+  box-shadow: 0 4px 14px rgb(30 26 22 / 0.08);
+}
+
+.stk-confirm p { margin: 0; }
+
+.stk-table tr.is-falta td { background: var(--pv-red-wash); }
+.stk-table tr.is-reclamar td { background: var(--pv-amber-wash); }
+.stk-table tr.is-zero td { color: var(--taupe); }
+.stk-table a { color: var(--pv-violet-ink); text-underline-offset: 2px; }
+
+.stk-falta { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.stk-falta .pinput { width: 64px; }
+.stk-pvp { width: 84px; }
+
+/* ---------- Productos en «Importar PDF» ---------- */
+
+.plines { margin-top: 14px; display: grid; gap: 8px; }
+
+.plines-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.plines-marca { max-width: 220px; }
+
+.pcheck { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.pcheck input { flex: none; width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--pv-green); }
+
+.plines-detail summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
+.plines-table .pinput { min-width: 0; width: 100%; padding: 6px 8px; }
+.plines-table td { padding: 4px 6px; }
+.plines-table td:nth-child(4) .pinput,
+.plines-table td:nth-child(5) .pinput { width: 64px; }
+.plines-table td:nth-child(6) .pinput,
+.plines-table td:nth-child(7) .pinput { width: 80px; }
+
+.review-note { margin: 8px 0 0; }
+
+@media (max-width: 640px) {
+  .stk-confirm { position: static; }
+  .stk-toolbar { flex-direction: column; align-items: stretch; }
+}

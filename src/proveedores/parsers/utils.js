@@ -94,3 +94,8 @@ export function matchAll(lines, re, group = 1) {
 export function unique(arr) {
   return [...new Set(arr.filter(Boolean))];
 }
+
+/** «SOLELVAL» o «oro rosado» -> «Solelval», «Oro Rosado» (para etiquetas legibles). */
+export function titulo(str) {
+  return String(str ?? '').trim().toLowerCase().replace(/(^|[\s\-/])(\p{L})/gu, (_, sep, c) => sep + c.toUpperCase());
+}
