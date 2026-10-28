@@ -1,4 +1,5 @@
 import { h } from '../dom.js';
+import { showToast } from '../toast.js';
 import { centToEur, eurToCent } from './util.js';
 
 // Productos que llegarán con un pedido o factura: tabla editable dentro de la
@@ -10,6 +11,33 @@ import { centToEur, eurToCent } from './util.js';
 // También se pueden añadir productos a mano.
 
 const unidades = (lineas) => lineas.reduce((s, l) => s + l.cantidad, 0);
+const FACTOR_MAX = 20;
+
+/** Botones para calcular el PVP de todas las filas multiplicando el coste. */
+function pvpDesdeCoste() {
+  return h('div', { class: 'plines-pvp', role: 'group', 'aria-label': 'Calcular el PVP desde el coste' }, [
+    h('span', { class: 'plines-pvp-label', text: 'PVP = coste ×' }),
+    h('button', { class: 'pbtn pbtn-sm', type: 'button', 'data-pvp-factor': '2', title: 'PVP = 2 × coste en todas las filas', text: '2x' }),
+    h('button', { class: 'pbtn pbtn-sm', type: 'button', 'data-pvp-factor': '2.5', title: 'PVP = 2,5 × coste en todas las filas', text: '2.5x' }),
+    h('input', { type: 'text', class: 'pinput num plines-pvp-libre', name: 'pvp_factor', inputmode: 'decimal', placeholder: 'libre', 'aria-label': 'Multiplicador libre (por ejemplo 1,8)' }),
+    h('button', { class: 'pbtn pbtn-sm pbtn-primary', type: 'button', 'data-pvp-libre': '', text: 'Calcular' }),
+  ]);
+}
+
+/** PVP de cada fila con coste = coste × factor (redondeado al céntimo). Devuelve cuántas se rellenaron. */
+function aplicarFactor(card, factor) {
+  let n = 0;
+  card.querySelectorAll('tr[data-linea]').forEach((tr) => {
+    const coste = eurToCent(tr.querySelector('[data-k=coste]').value);
+    if (coste == null) return;
+    const pvp = tr.querySelector('[data-k=pvp]');
+    pvp.value = centToEur(Math.round(coste * factor));
+    pvp.dataset.prev = pvp.value;
+    n += 1;
+  });
+  return n;
+}
+
 const docLabel = (d) => `${d.tipo === 'factura' ? 'la factura' : 'el pedido'} ${d.numero}`;
 
 function fila(l) {
@@ -62,6 +90,7 @@ export function bloqueLineas(e, yaRegistrados) {
   return h('div', { class: 'plines' }, [
     h('div', { class: 'plines-head' }, [
       h('label', { class: 'pcheck' }, [h('input', { type: 'checkbox', name: 'con_lineas', checked: lineas.length > 0 }), h('span', { text: 'Dar de alta los productos como pendientes de recibir' })]),
+      pvpDesdeCoste(),
       h('label', { class: 'pfield plines-marca' }, [h('span', { text: 'Marca' }), h('input', { type: 'text', name: 'marca', value: lineas[0]?.marca ?? '' })]),
     ]),
     h('details', { class: 'plines-detail', open: lineas.length > 0 && (lineas.length <= 40 || conTramos) }, [
@@ -86,6 +115,8 @@ function resumenTexto(lineas) {
 /** Eventos de la tabla (dentro de la lista de tarjetas o de la sección del detalle). */
 export function enlazarLineas(lista) {
   lista.addEventListener('click', (ev) => {
+    const factorBtn = ev.target.closest('[data-pvp-factor], [data-pvp-libre]');
+    if (factorBtn) return void calcularPvp(factorBtn);
     const quitar = ev.target.closest('[data-quitar-linea]');
     const anadir = ev.target.closest('[data-anadir-linea]');
     if (!quitar && !anadir) return;
@@ -110,6 +141,19 @@ export function enlazarLineas(lista) {
     if (input.dataset.k === 'pvp') propagarPvp(input);
     actualizarResumen(card);
   });
+}
+
+function calcularPvp(boton) {
+  const card = boton.closest('.review');
+  let factor = Number(boton.dataset.pvpFactor);
+  if (boton.matches('[data-pvp-libre]')) {
+    factor = Number(String(card.querySelector('[name=pvp_factor]').value).trim().replace(',', '.'));
+    if (!Number.isFinite(factor) || factor <= 0 || factor > FACTOR_MAX) {
+      return void showToast(`Escribe un multiplicador entre 0 y ${FACTOR_MAX}, por ejemplo 1,8.`, { tone: 'error' });
+    }
+  }
+  const n = aplicarFactor(card, factor);
+  return void showToast(n ? `PVP calculado (coste × ${String(factor).replace('.', ',')}) en ${n} línea${n === 1 ? '' : 's'}.` : 'No hay líneas con coste para calcular el PVP.', n ? undefined : { tone: 'error' });
 }
 
 function propagarPvp(input) {

@@ -100,3 +100,8 @@
 .plines-table tr.plines-tramo.is-ok td { background: var(--pv-green-wash); color: var(--pv-green); }
 .plines-quedan { font-weight: 700; }
 .plines-detail [data-anadir-linea] { margin-top: 8px; }
+
+/* PVP calculado desde el coste: 2x, 2.5x o un multiplicador libre */
+.plines-pvp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.plines-pvp-label { font-size: 13px; font-weight: 700; color: var(--espresso-soft, #5b4d42); }
+.plines-pvp .plines-pvp-libre { width: 76px; padding: 6px 8px; }
