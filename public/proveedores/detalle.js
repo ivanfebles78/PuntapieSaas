@@ -3,6 +3,7 @@ import { field, openDialog } from '../dialogs.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { showToast } from '../toast.js';
+import { bloqueLineas, enlazarLineas, leerLineas } from './lineas.js';
 import {
   API, badge, centToEur, claseVto, cobroTag, elegirArchivos, esUrgente, esVencido, etiquetaVto, eur, eurToCent, fecha, fileLink, hoy,
   normalizarRef, soloConsulta, subir, writeBtn,
@@ -107,6 +108,45 @@ function asociados(d) {
     ]),
     sueltas.length ? h('p', { class: 'pmuted small', text: `El documento cita el pedido ${sueltas.join(', ')}, pero no está registrado.` }) : null,
   ]);
+}
+
+/**
+ * Documento guardado sin productos (importado antes de que su proveedor tuviera
+ * lector, o sin marcar): se leen de su PDF, se revisan y se dan de alta.
+ */
+function productosSinAlta(d, onDone) {
+  if (!d.archivo || soloConsulta()) return null;
+  const caja = h('div');
+  const section = h('section', { class: 'psection', 'data-write': '' }, [
+    h('h4', { class: 'psection-title', text: 'Productos' }),
+    h('p', { class: 'pmuted', text: 'Este documento no tiene productos dados de alta en Stock.' }),
+    h('div', { class: 'pbtn-row' }, h('button', { class: 'pbtn pbtn-sm pbtn-primary', type: 'button', 'data-leer-productos': '', text: 'Leer productos del PDF' })),
+    caja,
+  ]);
+  enlazarLineas(caja);
+  section.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-leer-productos]')) {
+      const res = await api('GET', `/api/stock/entradas/${d.id}/leer`);
+      if (!res.ok) return void showToast(res.error, { tone: 'error' });
+      const r = res.data;
+      const bloque = bloqueLineas(r, r.productos_en_pedido);
+      if (!bloque || (!r.lineas.length && !r.productos_en_pedido)) {
+        return void caja.replaceChildren(bloque ?? h('p', { class: 'pmuted small', text: 'No se han encontrado productos en el PDF: este proveedor aún no tiene lector de productos.' }));
+      }
+      return void caja.replaceChildren(h('div', { class: 'review' }, [
+        r.avisos.length ? h('ul', { class: 'review-avisos' }, r.avisos.map((a) => h('li', { text: a }))) : null,
+        bloque,
+        r.lineas.length && !r.productos_en_pedido ? h('div', { class: 'pbtn-row' }, h('button', { class: 'pbtn pbtn-primary', type: 'button', 'data-alta-productos': '', text: 'Dar de alta como pendientes de recibir' })) : null,
+      ]));
+    }
+    if (!e.target.closest('[data-alta-productos]')) return undefined;
+    const lineas = leerLineas(caja.querySelector('.review')) ?? [];
+    if (!lineas.length) return void showToast('Marca la casilla y deja al menos un producto.', { tone: 'error' });
+    const res = await api('POST', `/api/stock/entradas/${d.id}`, { lineas, marca: lineas[0].marca });
+    if (!res.ok) return void showToast(res.error, { tone: 'error' });
+    return void onDone(`${res.data.totales.unidades} unidades pendientes de recibir en Stock.`);
+  });
+  return section;
 }
 
 /** Mercancía del documento: totales, etiquetas y enlace a la recepción. */
@@ -340,7 +380,8 @@ export async function renderDetalle(ctx, params) {
     stats(d),
     archivos(d),
     d.tipo === 'factura' ? vencimientos(d) : null,
-    productos(entrada.ok ? entrada.data : null),
+    entrada.ok && entrada.data.lineas.length ? productos(entrada.data)
+      : productosSinAlta(d, (msg) => { ctx.markChanged(); showToast(msg); ctx.go('detalle', params); }),
     asociados(d),
     datos(d),
     h('div', { class: 'pdetail-foot', 'data-write': '' }, [

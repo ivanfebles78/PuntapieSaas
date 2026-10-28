@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { requireRole } from '../auth/middleware.js';
 import { HttpError, httpErrorHandler } from '../http-error.js';
+import { extraer } from '../proveedores/analisis.js';
+import { leerArchivo, obtenerDocumento, withTransaction } from '../proveedores/repo.js';
 import { auditFrom } from '../services/audit.js';
 import { formatEuros } from '../services/money.js';
 import { todayInShop } from '../services/vacation-balance.js';
@@ -11,7 +13,9 @@ import {
   listarEntradas,
   listarInventario,
   obtenerEntrada,
+  pedidoConProductos,
   recibirEntrada,
+  registrarEntrada,
   resolverFalta,
   resumenInventario,
 } from '../stock/repo.js';
@@ -28,7 +32,7 @@ function readId(value, label = 'Ese documento') {
   return id;
 }
 
-export function stockRouter({ pool, log = console }) {
+export function stockRouter({ pool, config, log = console }) {
   const router = Router();
   const audit = auditFrom(pool, log);
   const canWrite = requireRole('admin', 'empleado');
@@ -55,6 +59,31 @@ export function stockRouter({ pool, log = console }) {
 
   router.get('/entradas/:docId', handle(async (req, res) => {
     res.json({ ok: true, data: await obtenerEntrada(pool, readId(req.params.docId)) });
+  }));
+
+  // Documentos ya guardados sin productos: se vuelven a leer de su PDF…
+  router.get('/entradas/:docId/leer', canWrite, handle(async (req, res) => {
+    const doc = await obtenerDocumento(pool, readId(req.params.docId));
+    if (!doc.archivo) throw new HttpError(409, 'Este documento no tiene PDF del que leer los productos.', 'NO_PDF');
+    const { data } = await leerArchivo(pool, doc.archivo);
+    const { extraido } = await extraer(data, config?.proveedores);
+    const productosEnPedido = doc.tipo === 'factura' ? await pedidoConProductos(pool, { proveedorId: doc.proveedor_id, pedidos: doc.pedidos }) : null;
+    res.json({ ok: true, data: { lineas: extraido.lineas, parser: extraido.parser, tipo: doc.tipo, avisos: extraido.avisos, productos_en_pedido: productosEnPedido } });
+  }));
+
+  // …y se dan de alta como pendientes de recibir.
+  router.post('/entradas/:docId', canWrite, handle(async (req, res) => {
+    const docId = readId(req.params.docId);
+    const { lineas, marca } = req.body ?? {};
+    if (!Array.isArray(lineas) || !lineas.length) throw new HttpError(400, 'No hay productos que dar de alta.', 'NO_LINES');
+    const r = await withTransaction(pool, async (client) => {
+      const doc = await obtenerDocumento(client, docId);
+      return registrarEntrada(client, doc, lineas, marca ?? doc.proveedor.nombre);
+    });
+    if (r.omitido) throw new HttpError(409, `Los productos ya están dados de alta con el pedido ${r.omitido.numero}.`, 'LINES_IN_ORDER');
+    const entrada = await obtenerEntrada(pool, docId);
+    await audit(req, { area: 'stock', action: 'crear', target: entradaLabel(entrada), changes: [{ field: 'Mercancía pendiente de recibir', from: null, to: `${r.unidades} uds. en ${r.lineas} líneas` }] });
+    res.status(201).json({ ok: true, data: entrada });
   }));
 
   // Recepción: todo lo pendiente llega salvo lo marcado en `faltan`.

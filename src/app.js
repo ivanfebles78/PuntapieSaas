@@ -60,7 +60,7 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
   app.use('/api/ventas', ...guard, requireRole('admin', 'asesor', 'empleado'), ventasRouter({ pool, log }));
   app.use('/api/proveedores', ...guard, requireRole('admin', 'asesor', 'empleado'), proveedoresRouter({ pool, config, log }));
   // Stock (inventario, recepción y etiquetas): lo ven los tres roles; recibe mercancía también el Empleado.
-  app.use('/api/stock', ...guard, requireRole('admin', 'asesor', 'empleado'), stockRouter({ pool, log }));
+  app.use('/api/stock', ...guard, requireRole('admin', 'asesor', 'empleado'), stockRouter({ pool, config, log }));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ ok: false, error: 'Ruta no encontrada.' });

@@ -1,11 +1,15 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { extractPdfText } from '../src/proveedores/extract/pdfText.js';
 import { lineasFactura, lineasPedido } from '../src/proveedores/parsers/gioseppo.js';
+import { parseDocumento } from '../src/proveedores/parsers/index.js';
+import { lineasLejan } from '../src/proveedores/parsers/lejan.js';
 import { colorSimple, esPropuesta, lineasPropuesta } from '../src/proveedores/parsers/pablosky.js';
 import { digitoControl, esEan13, nuevoCodigo } from '../src/stock/barcode.js';
 import { ETIQUETA, generarEtiquetasPdf, modulosEan13 } from '../src/stock/pdf/etiquetas.js';
 import { validarLineas } from '../src/stock/repo.js';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, TEST_DATABASE_URL, startTestServer } from './helpers.js';
+import { fixtureBytes, HAY_FIXTURES, SIN_FIXTURES } from './proveedores-fixtures.js';
 
 /* ---------- Código de barras y etiquetas ---------- */
 
@@ -85,6 +89,35 @@ test('Pablosky, propuesta de pedido: empareja PARES con TALLAS por posición', (
     ['064224', 'Nobuck', 'Azul Marino', 25, 3, 2972, 6295],
   ]);
   assert.equal(colorSimple('LEADER-TECH ROSA'), 'Rosa');
+});
+
+test('Lejan: tallas arriba y pares debajo, por columnas; el nombre puede ocupar dos líneas', () => {
+  const fila = (celdas) => ({ items: celdas.map(([x, s]) => ({ x, s })), text: celdas.map(([, s]) => s).join(' ') });
+  const lines = [
+    fila([[96, 'MODELO'], [193, 'TALLAS'], [370, 'Pares'], [404, 'Precio par']]),
+    fila([[46, 'Pedido 101066 · Albarán 113522 — September 9, 2026']]),
+    fila([[193, '37'], [207, '38'], [222, '39']]),
+    fila([[96, 'Lejan Melrose® - Dark']]),
+    fila([[96, 'Brown'], [193, '1'], [222, '2']]),
+    fila([[370, '3'], [404, '52.00'], [492, '156.00']]),
+    fila([[96, 'LEJA-RETROB-RO']]),
+    fila([[96, 'Ref. 1950']]),
+    fila([[46, 'Vencimiento November 22, 2026 Total pares 3']]),
+  ];
+  assert.deepEqual(lineasLejan(lines), [
+    { marca: 'Lejan', referencia: '1950', modelo: 'Melrose', color: 'Dark Brown', talla: 37, cantidad: 1, coste_cent: 5200, pvp_cent: null },
+    { marca: 'Lejan', referencia: '1950', modelo: 'Melrose', color: 'Dark Brown', talla: 39, cantidad: 2, coste_cent: 5200, pvp_cent: null },
+  ]);
+});
+
+test('Lejan, facturas reales: los pares leídos cuadran con «Total pares»', SIN_FIXTURES, async () => {
+  const d = parseDocumento(await extractPdfText(fixtureBytes('lejan/Lejan-F2617638.pdf')));
+  assert.deepEqual(d.lineas.map((l) => [l.referencia, l.modelo, l.color, l.talla, l.cantidad]), [['1986', 'Sakura', 'Skyblue', 38, 1], ['1989', 'Sakura', 'Dusty Pink', 38, 1]]);
+  for (const f of ['lejan/c0a75fc6fb8e4318b0131e6426aac2be.pdf', 'lejan/pagadas/d7dab03af1c54571bf848093830865ea.pdf']) {
+    const x = parseDocumento(await extractPdfText(fixtureBytes(f)));
+    assert.ok(x.lineas.length > 0, f);
+    assert.deepEqual(x.avisos, [], f);
+  }
 });
 
 test('validarLineas junta el mismo SKU y rechaza datos imposibles', () => {
@@ -208,6 +241,21 @@ describe('API de stock: pedido → etiquetas → recepción', { skip: !TEST_DATA
     assert.equal(sku.codigo, antes.find((a) => a.talla === 40).codigo);
     assert.equal(sku.pendiente, 4);
     assert.equal(sku.stock, 2);
+  });
+
+  test('un documento ya guardado sin productos los lee de su PDF y los da de alta', { skip: !HAY_FIXTURES && 'sin PDFs reales' }, async () => {
+    const bytes = fixtureBytes('lejan/Lejan-F2617638.pdf');
+    const an = await (await admin.raw('POST', '/api/proveedores/analizar', { body: bytes, headers: { 'Content-Type': 'application/pdf', 'X-File-Name': 'Lejan-F2617638.pdf' } })).json();
+    const e = an.data.extraido;
+    // Se guarda como antes del lector de Lejan: sin productos.
+    const doc = (await admin('POST', '/api/proveedores/documentos', { tempId: an.data.tempId, tipo: e.tipo, proveedor: e.proveedor, numero: e.numero, fecha: e.fecha, total_cent: e.total_cent, vencimientos: e.vencimientos })).data;
+    assert.equal(doc.entrada.unidades, 0);
+    const leido = await admin('GET', `/api/stock/entradas/${doc.id}/leer`);
+    assert.equal(leido.data.lineas.length, 2);
+    const alta = await admin('POST', `/api/stock/entradas/${doc.id}`, { lineas: leido.data.lineas, marca: 'Lejan' });
+    assert.equal(alta.status, 201);
+    assert.equal(alta.data.totales.pendientes, 2);
+    assert.equal((await admin('POST', `/api/stock/entradas/${doc.id}`, { lineas: leido.data.lineas })).code, 'LINES_EXIST');
   });
 
   test('PVP editable y el Asesor no puede recibir mercancía', async () => {
