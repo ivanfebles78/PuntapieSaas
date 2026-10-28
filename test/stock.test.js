@@ -171,6 +171,23 @@ test('Vulladi, factura real: cabecera, vencimientos y los 104 pares', { skip: !f
   assert.ok(d.lineas.some((l) => l.referencia === '1198-411' && l.color === 'Leopardo Irisado-Beig'));
 });
 
+test('Victoria, factura real: serie = tallas, color partido en dos líneas y los 152 pares', { skip: !fs.existsSync(path.join(FIXTURES, 'victoria/factura-26FV23615.pdf')) && 'sin la factura de Victoria' }, async () => {
+  const d = parseDocumento(await extractPdfText(fixtureBytes('victoria/factura-26FV23615.pdf')));
+  assert.deepEqual([d.tipo, d.numero, d.fecha, d.total_cent, d.confianza], ['factura', '26FV23615', '2026-10-20', 385280, 'alta']);
+  assert.deepEqual(d.pedidos, ['5501945']);
+  assert.deepEqual(d.vencimientos, [{ fecha: '2026-10-20', importe_cent: 385280 }]);
+  const directos = d.lineas.filter((l) => !l.tramo).reduce((s, l) => s + l.cantidad, 0);
+  const tramos = [...new Map(d.lineas.filter((l) => l.tramo).map((l) => [l.tramo.id, l.tramo.total])).values()];
+  assert.equal(directos + tramos.reduce((a, b) => a + b, 0), 152);
+  // 22/28 con 7 pares cuadra (1 de cada talla); 28/35 con 6 pares se reparte a mano.
+  const kai = d.lineas.filter((l) => l.referencia === '1172102' && l.color === 'Botella' && l.talla <= 28);
+  assert.deepEqual(kai.map((l) => [l.talla, l.cantidad]), [22, 23, 24, 25, 26, 27, 28].map((t) => [t, 1]));
+  const tiempo = d.lineas.filter((l) => l.referencia === '1124131');
+  assert.ok(tiempo.length === 8 && tiempo.every((l) => l.tramo?.total === 6 && l.color === 'Beige'));
+  assert.ok(d.lineas.some((l) => l.referencia === '1080117' && l.color === 'Leopardo'), 'LEOPARD + O = Leopardo');
+  assert.ok(d.lineas.some((l) => l.referencia === '9126256' && l.talla === 0 && l.cantidad === 1), 'UNICA = sin talla');
+});
+
 test('validarLineas junta el mismo SKU y rechaza datos imposibles', () => {
   const l = { marca: 'Gioseppo', referencia: '1', color: 'Rosa', talla: 30, cantidad: 2 };
   const v = validarLineas([l, { ...l, cantidad: 3, pvp_cent: 3995 }]);

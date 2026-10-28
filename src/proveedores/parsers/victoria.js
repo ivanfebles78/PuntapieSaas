@@ -6,7 +6,8 @@
 //   Factura proforma: FECHA PEDIDO Nº Nº CLIENTE ... → 04/02/26 5501945 6103 ; ... IMPORTE TOTAL → 3.877,75 3.877,75
 // Los tres son el mismo pedido (no una factura): la proforma es la petición de pago anticipado.
 // La fecha de servicio viene como quincena ("1ªQ OCT"); se aproxima al día 1 o 16 del mes.
-import { parseFecha, parseImporteEs, RE_IMPORTE_ES, RE_FECHA_DMY, matchFirst } from './utils.js';
+import { filasDeTramo } from './lineas.js';
+import { parseFecha, parseImporteEs, RE_IMPORTE_ES, RE_FECHA_DMY, matchFirst, titulo, unique } from './utils.js';
 
 const CIF = 'B26287037';
 const RE_IMPORTES_G = new RegExp(RE_IMPORTE_ES.source, 'g');
@@ -27,6 +28,7 @@ export const victoria = {
   nombre: 'Victoria',
   detect: (text) => text.includes(CIF) || /NUEVO MILENIO/i.test(text) || /calzadosvictoria\.com/i.test(text),
   parse({ lines }) {
+    if (lines.some((l) => /^FACTURA NO\.?:/i.test(l.text))) return parseFactura(lines);
     const texts = lines.map((l) => l.text);
     const L = texts.map((text) => ({ text }));
     const avisos = [];
@@ -72,3 +74,74 @@ export const victoria = {
     };
   },
 };
+
+/* ---------- Factura de venta ----------
+ *   FECHA : 20/10/26 · FACTURA NO.: 26FV23615 · PEDIDO NO.: 5501945
+ *   Nº ALBARÁN FECHA MODELO COLOR DESCRIPCION PAÍS ARANCEL PESO SERIE CANTIDAD PRECIO IMPORTE
+ *   26AL31292/550 19/10/26 1124131 BEIGE TIEMPO TIRAS CN 6403999300 0,00 28/35 6 Pares 23,30 139,80
+ *   1945                           SERRAJE FANTASIA       (sigue el albarán /5501945 y la descripción)
+ *   1080117 LEOPARD GONG-FU …      y debajo «O BAILARINA» (el color sigue: LEOPARDO)
+ *   VENCIMIENTO E IMPORTES: 20/10/26 - 3.852,80 EUR
+ * La serie 22/28 son las tallas 22 a 28: si los pares coinciden con las tallas
+ * va 1 de cada una; si no, se reparte a mano. «UNICA» = sin talla.
+ */
+const RE_FILA = /^(?:(\S+)\/\d+\s+\d{2}\/\d{2}\/\d{2}\s+)?(\d{6,8})\s+(\S+)\s+(.+?)\s+[A-Z]{2}\s+\d{8,10}\s+[\d.,]+\s+(\d{2}\/\d{2}|UNICA)\s+(\d+)\s+(?:Pares|Unidades)\s+(\d+,\d{2})\s+[\d.]+,\d{2}$/i;
+const X_COLOR = [140, 185];
+const X_DESCRIPCION = [185, 275];
+const en = (i, [a, b]) => i.x >= a && i.x < b;
+
+export function lineasFacturaVictoria(lines) {
+  const filas = [];
+  for (const l of lines) {
+    const m = l.text.match(RE_FILA);
+    if (m) {
+      filas.push({ albaran: m[1] ?? null, referencia: m[2], color: m[3], descripcion: [m[4]], serie: m[5], pares: Number(m[6]), precio: parseImporteEs(m[7]) });
+      continue;
+    }
+    const f = filas.at(-1);
+    if (!f || /^(CONDICIONES|FORMA DE PAGO|De conformidad|FACTURA DE VENTA)/.test(l.text)) { if (f) f.cerrada = true; continue; }
+    if (f.cerrada) continue;
+    // Continuación: el color y la descripción que no cabían en su columna.
+    for (const i of l.items) {
+      if (en(i, X_COLOR)) f.color += i.s.trim();
+      else if (en(i, X_DESCRIPCION)) f.descripcion.push(i.s.trim());
+    }
+  }
+  return filas.flatMap((f, n) => {
+    const base = {
+      marca: 'Victoria', referencia: f.referencia, modelo: titulo(f.descripcion.join(' ').replace(/\s*&$/, '')),
+      color: titulo(f.color), coste_cent: f.precio, pvp_cent: null,
+    };
+    if (/^UNICA$/i.test(f.serie)) return [{ ...base, talla: 0, cantidad: f.pares }];
+    const [desde, hasta] = f.serie.split('/').map(Number);
+    if (f.pares === hasta - desde + 1) return Array.from({ length: f.pares }, (_, k) => ({ ...base, talla: desde + k, cantidad: 1 }));
+    return filasDeTramo(base, { desde, hasta, total: f.pares, id: `vf${n}` });
+  });
+}
+
+function parseFactura(lines) {
+  const texts = lines.map((l) => l.text);
+  const L = texts.map((text) => ({ text }));
+  const lineas = lineasFacturaVictoria(lines);
+  const vtos = [...(matchFirst(L, /VENCIMIENTO E IMPORTES:\s*(.+?)(?:\s+BASE IMPONIBLE.*)?$/i) ?? '')
+    .matchAll(/(\d{2}\/\d{2}\/\d{2,4})\s*-\s*(\d{1,3}(?:\.\d{3})*,\d{2})/g)]
+    .map((m) => ({ fecha: parseFecha(m[1]), importe_cent: parseImporteEs(m[2]) })).filter((v) => v.fecha);
+  const totalUds = Number(matchFirst(L, /TOTAL CANTIDAD:\s*(\d+)/i) ?? NaN);
+  const leidas = lineas.reduce((s, l) => s + (l.tramo ? 0 : l.cantidad), 0)
+    + [...new Map(lineas.filter((l) => l.tramo).map((l) => [l.tramo.id, l.tramo.total])).values()].reduce((a, b) => a + b, 0);
+  const pedido = matchFirst(L, /^PEDIDO NO\.?:\s*(\d+)/i);
+  return {
+    tipo: 'factura',
+    proveedor: { nombre: 'CALZADOS NUEVO MILENIO, S.L.U. (Victoria)', cif: CIF },
+    numero: matchFirst(L, /^FACTURA NO\.?:\s*(\S+)/i),
+    fecha: parseFecha(matchFirst(L, /^FECHA\s*:\s*(\S+)/i) ?? ''),
+    total_cent: parseImporteEs(matchFirst(L, new RegExp(`^TOTAL\\s+(${RE_IMPORTE_ES.source})\\s*EUR`, 'i')) ?? ''),
+    vencimientos: vtos,
+    pedidos: pedido ? [pedido] : [],
+    albaranes: unique(texts.flatMap((t) => t.match(/^(\d{2}AL\d+)\//)?.[1] ?? [])),
+    fecha_entrega: null,
+    forma_pago: matchFirst(L, /FORMA DE PAGO:\s*(.+?)\s+TOTAL CANTIDAD/i)?.trim() ?? null,
+    lineas,
+    avisos: Number.isFinite(totalUds) && totalUds !== leidas ? [`Se han leído ${leidas} unidades y la factura indica ${totalUds}: revisa los productos.`] : [],
+  };
+}
