@@ -10,7 +10,9 @@ import { digitoControl, esEan13, nuevoCodigo } from '../src/stock/barcode.js';
 import { ETIQUETA, generarEtiquetasPdf, modulosEan13 } from '../src/stock/pdf/etiquetas.js';
 import { validarLineas } from '../src/stock/repo.js';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, TEST_DATABASE_URL, startTestServer } from './helpers.js';
-import { fixtureBytes, HAY_FIXTURES, SIN_FIXTURES } from './proveedores-fixtures.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { FIXTURES, fixtureBytes, HAY_FIXTURES, SIN_FIXTURES } from './proveedores-fixtures.js';
 
 /* ---------- Código de barras y etiquetas ---------- */
 
@@ -146,6 +148,27 @@ test('el resto de proveedores, con sus PDF reales: las unidades cuadran con el t
   const victoria = await leer('victoria/pedido-5501945-confirmacion.pdf');
   assert.equal(suma(victoria), 153);
   assert.ok(victoria.lineas.some((l) => l.referencia === '9126256' && l.talla === 0), 'talla única = sin talla');
+});
+
+test('Vulladi: serie = tallas; si los pares cuadran va 1 de cada, si no se reparte a mano', async () => {
+  const { lineasVulladi } = await import('../src/proveedores/parsers/vulladi.js');
+  const ls = lineasVulladi(['1198-406 28/30 SUEDE MARINO 3 19,57 58,71', '1190-406 35/41 SUEDE NEGRO 8 18,85 150,80']);
+  assert.deepEqual(ls.slice(0, 3).map((l) => [l.talla, l.cantidad, l.color, l.coste_cent]), [[28, 1, 'Suede Marino', 1957], [29, 1, 'Suede Marino', 1957], [30, 1, 'Suede Marino', 1957]]);
+  const negro = ls.filter((l) => l.color === 'Suede Negro');
+  assert.equal(negro.length, 7);
+  assert.ok(negro.every((l) => l.cantidad === 0 && l.tramo.total === 8));
+});
+
+test('Vulladi, factura real: cabecera, vencimientos y los 104 pares', { skip: !fs.existsSync(path.join(FIXTURES, 'vulladi')) && 'sin el PDF de Vulladi' }, async () => {
+  const d = parseDocumento(await extractPdfText(fixtureBytes('vulladi/factura-17788.pdf')));
+  assert.equal(d.parser, 'vulladi');
+  assert.deepEqual([d.numero, d.fecha, d.total_cent, d.confianza], ['17788', '2026-10-15', 178596, 'alta']);
+  assert.deepEqual(d.vencimientos.map((v) => [v.fecha, v.importe_cent]), [['2026-11-14', 59532], ['2026-12-14', 59532], ['2027-01-13', 59532]]);
+  const directos = d.lineas.filter((l) => !l.tramo).reduce((s, l) => s + l.cantidad, 0);
+  const tramos = [...new Map(d.lineas.filter((l) => l.tramo).map((l) => [l.tramo.id, l.tramo.total])).values()];
+  assert.equal(directos + tramos.reduce((a, b) => a + b, 0), 104);
+  assert.equal(tramos.length, 11);
+  assert.ok(d.lineas.some((l) => l.referencia === '1198-411' && l.color === 'Leopardo Irisado-Beig'));
 });
 
 test('validarLineas junta el mismo SKU y rechaza datos imposibles', () => {

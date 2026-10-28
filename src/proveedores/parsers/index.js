@@ -9,10 +9,11 @@ import { gioseppo } from './gioseppo.js';
 import { condor } from './condor.js';
 import { etika } from './etika.js';
 import { victoria } from './victoria.js';
+import { vulladi } from './vulladi.js';
 import { generico } from './generico.js';
 import { lineasDe } from './lineas.js';
 
-export const PARSERS = [garvalin, lejan, pablosky, titanitos, gioseppo, condor, etika, victoria];
+export const PARSERS = [garvalin, lejan, pablosky, titanitos, gioseppo, condor, etika, victoria, vulladi];
 
 /**
  * @typedef {Object} Extraido
