@@ -7,7 +7,7 @@ import { cleanFilename, validateUpload } from '../services/expense-files.js';
 import { extraerConIA } from './extract/ai.js';
 import { extractPdfText } from './extract/pdfText.js';
 import { detectParser, parseDocumento, PARSERS, vacio } from './parsers/index.js';
-import { pedidoConProductos } from '../stock/repo.js';
+import { documentoConProductos } from '../stock/repo.js';
 import { buscarDuplicado, guardarArchivo } from './repo.js';
 
 const TEMP_TTL_HOURS = 24;
@@ -112,10 +112,10 @@ export async function analizarPdf(pool, { data: raw, filename, mime }, { userId,
     fecha: extraido.fecha,
     total_cent: extraido.total_cent,
   });
-  // Si es la factura de un pedido cuyos productos ya están registrados, no se vuelven a dar de alta.
-  const productosEnPedido = extraido.tipo === 'factura' && extraido.lineas.length
-    ? await pedidoConProductos(pool, { cif: extraido.proveedor.cif, nombre: extraido.proveedor.nombre, pedidos: extraido.pedidos })
-    : null;
+  // Si su pedido (o su factura) ya tiene los productos dados de alta, no se vuelven a crear.
+  const productosEnPedido = await documentoConProductos(pool, {
+    tipo: extraido.tipo, cif: extraido.proveedor.cif, nombre: extraido.proveedor.nombre, numero: extraido.numero, pedidos: extraido.pedidos,
+  });
   return { tempId, hash, archivo_nombre: nombre, extraido, duplicado, productos_en_pedido: productosEnPedido, texto };
 }
 

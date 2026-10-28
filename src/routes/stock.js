@@ -13,7 +13,7 @@ import {
   listarEntradas,
   listarInventario,
   obtenerEntrada,
-  pedidoConProductos,
+  documentoConProductos,
   recibirEntrada,
   registrarEntrada,
   resolverFalta,
@@ -67,7 +67,9 @@ export function stockRouter({ pool, config, log = console }) {
     if (!doc.archivo) throw new HttpError(409, 'Este documento no tiene PDF del que leer los productos.', 'NO_PDF');
     const { data } = await leerArchivo(pool, doc.archivo);
     const { extraido } = await extraer(data, config?.proveedores);
-    const productosEnPedido = doc.tipo === 'factura' ? await pedidoConProductos(pool, { proveedorId: doc.proveedor_id, pedidos: doc.pedidos }) : null;
+    const ya = await pool.query('SELECT 1 FROM inventory_incoming WHERE doc_id = $1 LIMIT 1', [doc.id]);
+    if (ya.rowCount) throw new HttpError(409, 'Este documento ya tiene sus productos dados de alta en Stock.', 'LINES_EXIST');
+    const productosEnPedido = await documentoConProductos(pool, { tipo: doc.tipo, proveedorId: doc.proveedor_id, numero: doc.numero, pedidos: doc.pedidos, excluir: doc.id });
     res.json({ ok: true, data: { lineas: extraido.lineas, parser: extraido.parser, tipo: doc.tipo, avisos: extraido.avisos, productos_en_pedido: productosEnPedido } });
   }));
 
@@ -80,7 +82,7 @@ export function stockRouter({ pool, config, log = console }) {
       const doc = await obtenerDocumento(client, docId);
       return registrarEntrada(client, doc, lineas, marca ?? doc.proveedor.nombre);
     });
-    if (r.omitido) throw new HttpError(409, `Los productos ya están dados de alta con el pedido ${r.omitido.numero}.`, 'LINES_IN_ORDER');
+    if (r.omitido) throw new HttpError(409, `Los productos ya están dados de alta con ${r.omitido.tipo === 'factura' ? 'la factura' : 'el pedido'} ${r.omitido.numero}.`, 'LINES_IN_LINKED_DOC');
     const entrada = await obtenerEntrada(pool, docId);
     await audit(req, { area: 'stock', action: 'crear', target: entradaLabel(entrada), changes: [{ field: 'Mercancía pendiente de recibir', from: null, to: `${r.unidades} uds. en ${r.lineas} líneas` }] });
     res.status(201).json({ ok: true, data: entrada });

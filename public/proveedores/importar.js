@@ -2,7 +2,7 @@ import { api } from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { showToast } from '../toast.js';
-import { bloqueLineas, enlazarLineas, leerLineas } from './lineas.js';
+import { bloqueLineas, enlazarLineas, errorReparto, leerLineas } from './lineas.js';
 import { API, badge, centToEur, eur, eurToCent, fecha, hoy, subir } from './util.js';
 
 // «Importar PDF»: suelta facturas y pedidos, se leen con el lector de cada
@@ -51,7 +51,7 @@ function tarjeta(r, i) {
         ]),
       ]),
       uds ? h('p', { class: 'pmuted small review-note', text: `${uds} unidades pendientes de recibir en Stock › Recepción.` }) : null,
-      r.entrada?.omitido ? h('p', { class: 'pmuted small review-note', text: `Los productos ya estaban dados de alta con el pedido ${r.entrada.omitido.numero}.` }) : null,
+      r.entrada?.omitido ? h('p', { class: 'pmuted small review-note', text: `Los productos ya estaban dados de alta con ${r.entrada.omitido.tipo === 'factura' ? 'la factura' : 'el pedido'} ${r.entrada.omitido.numero}.` }) : null,
     ]);
   }
   if (r.duplicado) {
@@ -146,6 +146,8 @@ async function guardar(review, i, ctx) {
       importe_cent: eurToCent(row.querySelector('[name=vto_importe]').value) ?? 0,
     })),
   };
+  const reparto = errorReparto(card);
+  if (reparto) return void showToast(reparto, { tone: 'error' });
   const lineas = leerLineas(card);
   if (lineas?.length) Object.assign(body, { lineas, marca: lineas[0].marca });
   if (body.total_cent == null) return void showToast('Indica el importe total.', { tone: 'error' });

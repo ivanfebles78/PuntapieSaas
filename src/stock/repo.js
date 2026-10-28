@@ -28,7 +28,8 @@ function invalid(errores) {
 
 /**
  * Normaliza las líneas de producto que llegan del formulario de importación.
- * Junta las repetidas (mismo SKU) sumando cantidades.
+ * Junta las repetidas (mismo SKU) sumando cantidades. Las de 0 unidades (una
+ * talla de un tramo en la que no viene nada) se ignoran.
  * @returns {{ marca, modelo, referencia, color, talla, cantidad, coste_cent, pvp_cent }[]}
  */
 export function validarLineas(lineas, marcaPorDefecto = '') {
@@ -39,6 +40,7 @@ export function validarLineas(lineas, marcaPorDefecto = '') {
   const porSku = new Map();
   lineas.forEach((l, i) => {
     const n = i + 1;
+    if (Number(l?.cantidad) === 0) return;
     const marca = texto(l?.marca ?? marcaPorDefecto, 50);
     const referencia = texto(l?.referencia, 50);
     const modelo = texto(l?.modelo, 100) || referencia;
@@ -96,30 +98,37 @@ export async function obtenerOCrearArticulo(db, l) {
 
 /* ---------- Entradas (mercancía de un documento) ---------- */
 
-/** Pedido del mismo proveedor, citado por la factura, que ya tiene sus productos registrados. */
-export async function pedidoConProductos(db, { proveedorId = null, cif = null, nombre = null, pedidos = [] }) {
-  const refs = new Set((pedidos ?? []).map(normalizarRef).filter(Boolean));
-  if (!refs.size) return null;
+/**
+ * Documento enlazado del mismo proveedor que ya tiene los productos dados de
+ * alta: para una factura, el pedido que cita; para un pedido, la factura que lo
+ * cita. Así la misma mercancía no entra dos veces (sea cual sea el orden).
+ */
+export async function documentoConProductos(db, { tipo, proveedorId = null, cif = null, nombre = null, numero = null, pedidos = [], excluir = null }) {
   const rows = (await db.query(`
-    SELECT DISTINCT d.id, d.number FROM supplier_docs d JOIN suppliers s ON s.id = d.supplier_id
-     WHERE d.kind = 'pedido' AND EXISTS (SELECT 1 FROM inventory_incoming i WHERE i.doc_id = d.id)
+    SELECT d.id, d.kind, d.number, d.orders FROM supplier_docs d JOIN suppliers s ON s.id = d.supplier_id
+     WHERE d.kind = $4 AND d.id <> $5 AND EXISTS (SELECT 1 FROM inventory_incoming i WHERE i.doc_id = d.id)
        AND (s.id = $1 OR (s.cif IS NOT NULL AND s.cif = $2) OR lower(s.name) = lower($3))`,
-  [proveedorId, cif ?? '', nombre ?? ''])).rows;
-  const r = rows.find((x) => refs.has(normalizarRef(x.number)));
-  return r ? { id: r.id, numero: r.number } : null;
+  [proveedorId, cif ?? '', nombre ?? '', tipo === 'factura' ? 'pedido' : 'factura', excluir ?? 0])).rows;
+  let r;
+  if (tipo === 'factura') {
+    const refs = new Set((pedidos ?? []).map(normalizarRef).filter(Boolean));
+    r = rows.find((x) => refs.has(normalizarRef(x.number)));
+  } else {
+    const ref = normalizarRef(numero);
+    r = ref ? rows.find((x) => (x.orders ?? []).some((p) => normalizarRef(p) === ref)) : null;
+  }
+  return r ? { id: r.id, tipo: r.kind, numero: r.number } : null;
 }
 
 /**
- * Registra la mercancía de un documento como pendiente de recibir. Si es una
- * factura de un pedido que ya tiene sus productos, no los duplica.
+ * Registra la mercancía de un documento como pendiente de recibir. Si su
+ * pedido (o su factura) ya tiene los productos, no los duplica.
  */
 export async function registrarEntrada(db, doc, lineasEntrada, marcaPorDefecto) {
   const lineas = validarLineas(lineasEntrada, marcaPorDefecto);
   if (!lineas.length) return { lineas: 0, unidades: 0, articulos_nuevos: 0, omitido: null };
-  if (doc.tipo === 'factura') {
-    const pedido = await pedidoConProductos(db, { proveedorId: doc.proveedor_id, pedidos: doc.pedidos });
-    if (pedido) return { lineas: 0, unidades: 0, articulos_nuevos: 0, omitido: pedido };
-  }
+  const enlazado = await documentoConProductos(db, { tipo: doc.tipo, proveedorId: doc.proveedor_id, numero: doc.numero, pedidos: doc.pedidos, excluir: doc.id });
+  if (enlazado) return { lineas: 0, unidades: 0, articulos_nuevos: 0, omitido: enlazado };
   const ya = await db.query('SELECT 1 FROM inventory_incoming WHERE doc_id = $1 LIMIT 1', [doc.id]);
   if (ya.rowCount) throw new HttpError(409, 'Este documento ya tiene sus productos registrados.', 'LINES_EXIST');
   let nuevos = 0;

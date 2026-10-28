@@ -94,3 +94,9 @@
   .stk-confirm { position: static; }
   .stk-toolbar { flex-direction: column; align-items: stretch; }
 }
+
+/* Tramos de tallas a repartir (facturas sin desglose por talla) */
+.plines-table tr.plines-tramo td { padding: 8px 10px; background: var(--pv-amber-wash); color: var(--pv-amber-ink); font-size: 13px; }
+.plines-table tr.plines-tramo.is-ok td { background: var(--pv-green-wash); color: var(--pv-green); }
+.plines-quedan { font-weight: 700; }
+.plines-detail [data-anadir-linea] { margin-top: 8px; }

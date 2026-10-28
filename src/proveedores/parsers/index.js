@@ -10,6 +10,7 @@ import { condor } from './condor.js';
 import { etika } from './etika.js';
 import { victoria } from './victoria.js';
 import { generico } from './generico.js';
+import { lineasDe } from './lineas.js';
 
 export const PARSERS = [garvalin, lejan, pablosky, titanitos, gioseppo, condor, etika, victoria];
 
@@ -47,8 +48,10 @@ export function detectParser(text) {
 export function parseDocumento(pdfText, ctx = {}) {
   const parser = detectParser(pdfText.text);
   const base = vacio(parser.id);
-  const result = { ...base, ...parser.parse(pdfText, ctx) };
-  return validar(result);
+  const leido = parser.parse(pdfText, ctx);
+  // Si el lector del proveedor no saca los productos, se buscan con el lector de líneas.
+  const lineas = leido.lineas?.length ? leido.lineas : lineasDe(parser.id, pdfText);
+  return validar({ ...base, ...leido, lineas });
 }
 
 export function vacio(parserId) {

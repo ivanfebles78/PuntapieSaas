@@ -4,6 +4,7 @@ import { extractPdfText } from '../src/proveedores/extract/pdfText.js';
 import { lineasFactura, lineasPedido } from '../src/proveedores/parsers/gioseppo.js';
 import { parseDocumento } from '../src/proveedores/parsers/index.js';
 import { lineasLejan } from '../src/proveedores/parsers/lejan.js';
+import { filasDeTramo } from '../src/proveedores/parsers/lineas.js';
 import { colorSimple, esPropuesta, lineasPropuesta } from '../src/proveedores/parsers/pablosky.js';
 import { digitoControl, esEan13, nuevoCodigo } from '../src/stock/barcode.js';
 import { ETIQUETA, generarEtiquetasPdf, modulosEan13 } from '../src/stock/pdf/etiquetas.js';
@@ -120,6 +121,33 @@ test('Lejan, facturas reales: los pares leídos cuadran con «Total pares»', SI
   }
 });
 
+test('un tramo sin desglose da una fila por talla a repartir (o la cantidad si es de una sola talla)', () => {
+  const base = { marca: 'Garvalín', referencia: '261105', modelo: 'Botin', color: 'Latte', coste_cent: 2450, pvp_cent: null };
+  const filas = filasDeTramo(base, { desde: 18, hasta: 20, total: 5, id: 'g1' });
+  assert.deepEqual(filas.map((f) => [f.talla, f.cantidad, f.tramo.total]), [[18, 0, 5], [19, 0, 5], [20, 0, 5]]);
+  assert.deepEqual(filasDeTramo(base, { desde: 36, hasta: 36, total: 2, id: 'g2' }).map((f) => [f.talla, f.cantidad, f.tramo]), [[36, 2, undefined]]);
+});
+
+test('el resto de proveedores, con sus PDF reales: las unidades cuadran con el total del documento', SIN_FIXTURES, async () => {
+  const leer = async (f) => parseDocumento(await extractPdfText(fixtureBytes(f)));
+  const suma = (d) => d.lineas.reduce((s, l) => s + l.cantidad, 0);
+  const enTramos = (d) => [...new Map(d.lineas.filter((l) => l.tramo).map((l) => [l.tramo.id, l.tramo.total])).values()].reduce((a, b) => a + b, 0);
+  // Por tramos (a repartir): Garvalín 188 pares menos 9 expositores a 0 €, Titanitos 45, Pablosky 64.
+  assert.equal(enTramos(await leer('Garvalin/2613709 (2).pdf')), 179);
+  const titanitos = await leer('titanitos/Factura de clientes_2502572_20251016_213053 (1).pdf');
+  assert.equal(enTramos(titanitos) + suma(titanitos), 45);
+  assert.ok(titanitos.lineas.some((l) => l.modelo === 'Susana' && l.color === 'Combinado 1'));
+  assert.equal(enTramos(await leer('pablosky/Factura 2520059.pdf')), 64);
+  // Talla a talla.
+  const condor = await leer('condor/factura-500047.pdf');
+  assert.equal(suma(condor), 243);
+  assert.ok(condor.lineas.every((l) => !l.tramo) && condor.lineas.some((l) => l.modelo === 'Calcetines altos básicos canalé' && l.talla === 4));
+  assert.equal(suma(await leer('etika/pedido-2600412.pdf')), 160);
+  const victoria = await leer('victoria/pedido-5501945-confirmacion.pdf');
+  assert.equal(suma(victoria), 153);
+  assert.ok(victoria.lineas.some((l) => l.referencia === '9126256' && l.talla === 0), 'talla única = sin talla');
+});
+
 test('validarLineas junta el mismo SKU y rechaza datos imposibles', () => {
   const l = { marca: 'Gioseppo', referencia: '1', color: 'Rosa', talla: 30, cantidad: 2 };
   const v = validarLineas([l, { ...l, cantidad: 3, pvp_cent: 3995 }]);
@@ -127,7 +155,8 @@ test('validarLineas junta el mismo SKU y rechaza datos imposibles', () => {
   assert.equal(v[0].cantidad, 5);
   assert.equal(v[0].modelo, '1', 'sin modelo, se usa la referencia');
   assert.equal(v[0].pvp_cent, 3995);
-  assert.throws(() => validarLineas([{ ...l, cantidad: 0 }]), /cantidad/);
+  assert.deepEqual(validarLineas([{ ...l, cantidad: 0 }]), [], 'una talla sin unidades no se da de alta');
+  assert.throws(() => validarLineas([{ ...l, cantidad: -1 }]), /cantidad/);
   assert.throws(() => validarLineas([{ ...l, talla: 99 }]), /talla/);
   assert.throws(() => validarLineas('x'), /lista/);
 });
@@ -256,6 +285,24 @@ describe('API de stock: pedido → etiquetas → recepción', { skip: !TEST_DATA
     assert.equal(alta.status, 201);
     assert.equal(alta.data.totales.pendientes, 2);
     assert.equal((await admin('POST', `/api/stock/entradas/${doc.id}`, { lineas: leido.data.lineas })).code, 'LINES_EXIST');
+    assert.equal((await admin('GET', `/api/stock/entradas/${doc.id}/leer`)).code, 'LINES_EXIST', 'si ya los tiene, avisa en vez de ofrecer leerlos'); 
+  });
+
+  test('al revés también: el pedido de una factura que ya tiene productos no los duplica', async () => {
+    const factura = await admin('POST', '/api/proveedores/documentos', {
+      tipo: 'factura', proveedor: { nombre: 'Lejan', cif: 'B44612695' }, numero: 'F-L-1', fecha: '2026-10-20', total_cent: 5200,
+      pedidos: ['126318'], vencimientos: [{ fecha: '2026-11-20', importe_cent: 5200 }],
+      lineas: [{ marca: 'Lejan', referencia: '1986', modelo: 'Sakura', color: 'Skyblue', talla: 38, cantidad: 1 }],
+    });
+    assert.equal(factura.data.entrada.unidades, 1);
+    const pedido = await admin('POST', '/api/proveedores/documentos', {
+      tipo: 'pedido', proveedor: { nombre: 'Lejan', cif: 'B44612695' }, numero: '126318', total_cent: 5200,
+      lineas: [{ marca: 'Lejan', referencia: '1986', modelo: 'Sakura', color: 'Skyblue', talla: 38, cantidad: 1 }],
+    });
+    assert.equal(pedido.data.entrada.unidades, 0);
+    assert.deepEqual(pedido.data.entrada.omitido, { id: factura.data.id, tipo: 'factura', numero: 'F-L-1' });
+    const alta = await admin('POST', `/api/stock/entradas/${pedido.data.id}`, { lineas: [{ marca: 'Lejan', referencia: '1', color: 'Rosa', talla: 30, cantidad: 1 }] });
+    assert.equal(alta.code, 'LINES_IN_LINKED_DOC');
   });
 
   test('PVP editable y el Asesor no puede recibir mercancía', async () => {
