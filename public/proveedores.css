@@ -586,6 +586,7 @@ select.pinput { width: auto; }
 .prev-prov { font-weight: 700; }
 .prev-ref,
 .prev-fecha { color: var(--taupe); font-size: 12.5px; }
+.prev-fecha .vto-dias { display: block; margin-top: 1px; }
 .prev-importe { text-align: right; }
 .prev-acciones { grid-column: 1 / -1; }
 .prev-empty { color: var(--taupe); font-size: 13.5px; }

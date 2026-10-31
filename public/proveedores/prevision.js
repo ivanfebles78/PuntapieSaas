@@ -25,7 +25,8 @@ function item(v, vencido = false) {
       h('div', { class: 'num strong', text: eur(v.importe_cent) }),
       h('div', { class: 'prev-fecha' }, [
         h('span', { text: `vence ${fecha(v.fecha)}` }),
-        urgente || vencido ? h('em', { class: 'vto-dias', text: etiquetaVto({ ...v, pago: null }, hoyIso) }) : null,
+        // En su propia línea, debajo de la fecha: «(mañana)», «(en 3 días)», «(hace 11 días)».
+        urgente || vencido ? h('em', { class: 'vto-dias', text: `(${etiquetaVto({ ...v, pago: null }, hoyIso)})` }) : null,
       ]),
     ]),
     h('div', { class: 'prev-acciones pbtn-row' }, [
