@@ -5,6 +5,7 @@ import { renderCaja } from './caja.js';
 import { renderStats } from './estadisticas.js';
 import { renderExpenses } from './gastos.js';
 import { renderInventario } from './stock/inventario.js';
+import { renderTpv } from './tpv/tpv.js';
 import { renderRecepcion } from './stock/recepcion.js';
 import { h, stagger } from './dom.js';
 import { icon } from './icons.js';
@@ -28,6 +29,7 @@ const VIEWS = Object.freeze({
   estadisticas: renderStats,
   inventario: renderInventario,
   recepcion: renderRecepcion,
+  tpv: renderTpv,
 });
 
 const shell = document.getElementById('shell');

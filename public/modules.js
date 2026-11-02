@@ -11,7 +11,8 @@ export const MODULES = Object.freeze([
     submodules: [
       // Hasta que esté el TPV, las ventas se apuntan por día y turno.
       { slug: 'caja', name: 'Caja diaria', icon: 'coin', summary: 'Ventas del día por turno y método de pago: a mano o importadas de la app antigua.', to: 'caja' },
-      { slug: 'tpv', name: 'TPV', icon: 'cardPos', summary: 'Caja de la tienda: cobros, tickets y cierres de caja.' },
+      // Pantalla completa para la caja: solo quien vende (el Asesor no la ve).
+      { slug: 'tpv', name: 'TPV', icon: 'cardPos', summary: 'Caja de la tienda: cobros, cambios, clientes y cierres de caja.', to: 'tpv', roles: ['admin', 'empleado'] },
       { slug: 'web', name: 'Web', icon: 'global', summary: 'Pedidos y ventas de la tienda online.' },
     ],
   },
@@ -107,6 +108,10 @@ export const ROLE_LABELS = Object.freeze({ admin: 'Administrador', asesor: 'Ases
 /** El Asesor lo ve todo pero no cambia nada. */
 export const isReadOnly = (user) => user?.role === 'asesor';
 
+const allowed = (item, role) => !item.roles || item.roles.includes(role);
+
+/** Módulos que ve un rol, con solo los submódulos que puede abrir. */
 export function modulesForRole(role) {
-  return MODULES.filter((module) => !module.roles || module.roles.includes(role));
+  return MODULES.filter((module) => allowed(module, role))
+    .map((module) => ({ ...module, submodules: module.submodules.filter((sub) => allowed(sub, role)) }));
 }
