@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireRole } from '../auth/middleware.js';
 import { HttpError, httpErrorHandler } from '../http-error.js';
+import { listarHistorial } from '../correo/historial.js';
 import { abrirBuzonCon, correoConfigurado, revisarConCandado } from '../correo/programador.js';
 import { analizarPdf } from '../proveedores/analisis.js';
 
@@ -63,6 +64,11 @@ export function correoRouter({ pool, config, log = console }) {
     }
     if (!r) throw new HttpError(409, 'Ya se está revisando el correo; espera un momento.', 'MAIL_BUSY');
     res.json({ ok: true, data: r });
+  }));
+
+  // Admin › Asistente de correo. ?resultado&leido&desde&hasta&q&pagina
+  router.get('/historial', requireRole('admin', 'asesor'), handle(async (req, res) => {
+    res.json({ ok: true, data: await listarHistorial(pool, req.query) });
   }));
 
   router.get('/pendientes', handle(async (_req, res) => {

@@ -163,6 +163,38 @@ describe('revisión del correo', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
     assert.deepEqual(buzon.leidos, [5], 'el correo del PDF registrado a mano ya se marca leído; el descartado no');
   });
 
+  test('historial del asistente: cada correo, cuándo se marcó leído y qué hizo con cada PDF', async () => {
+    const h = (await admin('GET', '/api/correo/historial')).data;
+    const de = (n) => h.items.find((i) => i.asunto === `Correo ${n}`);
+    assert.equal(h.total, HAY_FIXTURES ? 8 : 7);
+    assert.ok(h.revisiones.length >= 3, 'las últimas revisiones, con su resumen');
+
+    const movistar = de(2);
+    assert.equal(movistar.leido, true);
+    assert.ok(movistar.leido_el, 'guarda cuándo se marcó como leído');
+    assert.equal(movistar.documentos[0].resultado, 'gasto');
+    assert.deepEqual(movistar.documentos[0].gasto, { id: ids.movistar, nombre: 'Movistar (Teléfono e internet)', mes: '2026-10' });
+    assert.match(movistar.documentos[0].motivo, /pagado \(domiciliado\)/);
+
+    assert.deepEqual(de(1).documentos.map((d) => d.resultado), ['gasto', 'ya_estaba'], 'el agua se adjunta; la original no');
+    const catalogo = de(5);
+    assert.deepEqual([catalogo.leido, catalogo.documentos[0].resultado], [true, 'a_mano']);
+    assert.deepEqual([catalogo.documentos[0].factura.numero, catalogo.documentos[0].factura.proveedor], ['C-1', 'Proveedor nuevo']);
+    assert.deepEqual([de(3).leido, de(3).leido_el, de(3).documentos[0].resultado], [false, null, 'descartado']);
+    if (HAY_FIXTURES) {
+      const garvalin = de(7).documentos[0];
+      assert.deepEqual([garvalin.resultado, garvalin.factura.numero], ['factura', '2613709']);
+    }
+
+    const conRegistro = (await admin('GET', '/api/correo/historial?resultado=registro')).data.items.map((i) => i.asunto).sort();
+    assert.deepEqual(conRegistro, ['Correo 1', 'Correo 2', 'Correo 6', ...(HAY_FIXTURES ? ['Correo 7'] : [])]);
+    const sinLeer = (await admin('GET', '/api/correo/historial?leido=no')).data.items;
+    assert.ok(sinLeer.length > 0 && sinLeer.every((i) => !i.leido));
+    assert.deepEqual((await admin('GET', '/api/correo/historial?q=movistar')).data.items.map((i) => i.asunto), ['Correo 2']);
+    assert.equal((await admin('GET', '/api/correo/historial?resultado=raro')).status, 400);
+    assert.equal((await admin('GET', '/api/correo/historial?desde=ayer')).status, 400);
+  });
+
   test('estado, permisos y sin correo conectado', async () => {
     const estado = await admin('GET', '/api/correo/estado');
     assert.equal(estado.data.configurado, false);
@@ -174,6 +206,10 @@ describe('revisión del correo', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
     await asesor('POST', '/api/auth/change-password', { newPassword: 'Asesor2026x', confirmPassword: 'Asesor2026x' });
     assert.equal((await asesor('GET', '/api/correo/pendientes')).status, 200);
     assert.equal((await asesor('POST', '/api/correo/revisar')).status, 403);
+    assert.equal((await asesor('GET', '/api/correo/historial')).status, 200, 'el Asesor ve el historial (solo lectura)');
+    const empleado = await ctx.loginAs('epena', 'Test1234');
+    await empleado('POST', '/api/auth/change-password', { newPassword: 'Elena2026x', confirmPassword: 'Elena2026x' });
+    assert.equal((await empleado('GET', '/api/correo/historial')).status, 403, 'el historial es de Admin');
   });
 
   test('la revisión diaria toca a partir de las 8:00 de Canarias, una vez al día', async () => {

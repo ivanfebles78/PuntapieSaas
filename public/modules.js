@@ -74,7 +74,7 @@ export const MODULES = Object.freeze([
     icon: 'shield',
     tone: 'admin',
     roles: ['admin', 'asesor'],
-    summary: 'Equipo, turnos, accesos, vacaciones y log de acciones.',
+    summary: 'Equipo, turnos, accesos, vacaciones, log de acciones y asistente de correo.',
     // `to` enlaza con una pantalla ya construida. Cada persona se gestiona
     // desde Usuarios: altas, bajas, roles, contraseñas, turno y vacaciones.
     submodules: [
@@ -98,6 +98,13 @@ export const MODULES = Object.freeze([
         icon: 'shield',
         summary: 'Todo lo que se hace en la aplicación: quién, cuándo, qué campo y su valor antes y después.',
         to: 'log',
+      },
+      {
+        slug: 'asistente',
+        name: 'Asistente de correo',
+        icon: 'sms',
+        summary: 'Lo que hizo solo con el correo: facturas y gastos que registró, correos que marcó como leídos y qué quedó por revisar.',
+        to: 'asistente',
       },
     ],
   },

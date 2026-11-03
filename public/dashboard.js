@@ -1,3 +1,4 @@
+import { renderAsistente } from './admin-correo.js';
 import { renderLog } from './admin-log.js';
 import { renderOpenings } from './admin-openings.js';
 import { renderUsers } from './admin-users.js';
@@ -24,6 +25,7 @@ const VIEWS = Object.freeze({
   usuarios: renderUsers,
   aperturas: renderOpenings,
   log: renderLog,
+  asistente: renderAsistente,
   caja: renderCaja,
   gastos: renderExpenses,
   estadisticas: renderStats,

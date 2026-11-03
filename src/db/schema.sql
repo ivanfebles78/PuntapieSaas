@@ -476,6 +476,12 @@ CREATE TABLE IF NOT EXISTS mail_attachments (
 CREATE INDEX IF NOT EXISTS mail_attachments_state_idx ON mail_attachments(state);
 CREATE INDEX IF NOT EXISTS mail_attachments_sha_idx ON mail_attachments(sha256);
 
+-- Cuándo se marcó como leído cada correo (historial del asistente en Admin).
+-- Los marcados antes de existir la columna toman la hora en que se procesaron.
+ALTER TABLE mail_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+UPDATE mail_messages SET read_at = created_at WHERE marked_read AND read_at IS NULL;
+CREATE INDEX IF NOT EXISTS mail_messages_sent_idx ON mail_messages(sent_at DESC);
+
 -- ===================== TPV: ventas =====================
 -- Un ticket por venta, con sus líneas (artículo del stock o libre) y sus
 -- pagos (se puede repartir entre varios métodos). Cada pago se apunta también

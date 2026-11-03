@@ -112,7 +112,7 @@ export async function revisarCorreo(pool, { abrirBuzon, origen = 'auto', userId 
       const aLeer = new Map([...mensajes.filter((m) => m.leer), ...(await resueltosPendientes(pool))].map((m) => [m.id, m]));
       for (const m of aLeer.values()) {
         await buzon.marcarLeido(m.uid);
-        await pool.query('UPDATE mail_messages SET marked_read = TRUE WHERE id = $1', [m.id]);
+        await pool.query('UPDATE mail_messages SET marked_read = TRUE, read_at = NOW() WHERE id = $1', [m.id]);
       }
       return resumir(mensajes);
     });
