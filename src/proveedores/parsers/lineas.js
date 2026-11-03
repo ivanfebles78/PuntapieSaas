@@ -105,7 +105,7 @@ function condor(lines) {
     if (m) actual = { referencia: m[1], modelo: m[2] };
     const talla = m ? [m[3], m[4], m[5]] : actual && limpio.match(RE_CONDOR_TALLA)?.slice(1);
     if (!talla) return [];
-    return [{ marca: 'Cóndor', ...actual, color: 'Surtido', talla: Number(talla[0]), cantidad: Number(talla[1]), coste_cent: parseImporteEs(talla[2]), pvp_cent: null }];
+    return [{ tipo: 'ropa', marca: 'Cóndor', ...actual, color: 'Surtido', talla: Number(talla[0]), cantidad: Number(talla[1]), coste_cent: parseImporteEs(talla[2]), pvp_cent: null }];
   });
 }
 

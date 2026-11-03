@@ -4,12 +4,13 @@
 // no ha llegado queda como «falta» para reclamarlo.
 import { HttpError } from '../http-error.js';
 import { normalizarRef, withTransaction } from '../proveedores/repo.js';
-import { nuevoCodigo } from './barcode.js';
+import { esEan13, nuevoCodigo } from './barcode.js';
+import { esTipo, tallaParaTipo, tipoPorDefecto, TIPOS } from './tipos.js';
 
 const MAX_LINEAS = 2000;
 const MAX_CANTIDAD = 1000;
 const MAX_CENTS = 10_000_000; // 100.000,00 €
-const MAX_TALLA = 60;
+const MAX_DETALLE = 200;
 const MAX_ID = 2_147_483_647;
 const MAX_INVENTARIO = 3000;
 const MAX_ETIQUETAS = 5000;
@@ -29,8 +30,10 @@ function invalid(errores) {
 /**
  * Normaliza las líneas de producto que llegan del formulario de importación.
  * Junta las repetidas (mismo SKU) sumando cantidades. Las de 0 unidades (una
- * talla de un tramo en la que no viene nada) se ignoran.
- * @returns {{ marca, modelo, referencia, color, talla, cantidad, coste_cent, pvp_cent }[]}
+ * talla de un tramo en la que no viene nada) se ignoran. Cada línea tiene un
+ * tipo (calzado, ropa…) y su talla debe ser de las que admite ese tipo; sin
+ * tipo, una talla de número es calzado y lo demás accesorio.
+ * @returns {{ tipo, subtipo_id, marca, modelo, referencia, color, talla, orden_talla, detalle, cantidad, coste_cent, pvp_cent }[]}
  */
 export function validarLineas(lineas, marcaPorDefecto = '') {
   if (lineas == null) return [];
@@ -41,26 +44,38 @@ export function validarLineas(lineas, marcaPorDefecto = '') {
   lineas.forEach((l, i) => {
     const n = i + 1;
     if (Number(l?.cantidad) === 0) return;
+    const tipo = l?.tipo == null || l.tipo === '' ? tipoPorDefecto(l?.talla) : String(l.tipo);
+    const subtipoId = l?.subtipo_id == null || l.subtipo_id === '' ? null : Number(l.subtipo_id);
     const marca = texto(l?.marca ?? marcaPorDefecto, 50);
     const referencia = texto(l?.referencia, 50);
     const modelo = texto(l?.modelo, 100) || referencia;
     const color = texto(l?.color, 50);
-    const talla = Number(l?.talla ?? 0);
+    const detalle = texto(l?.detalle, MAX_DETALLE);
     const cantidad = Number(l?.cantidad);
     const coste = centimos(l?.coste_cent);
     const pvp = centimos(l?.pvp_cent);
+    if (!esTipo(tipo)) {
+      errores.push(`línea ${n}: tipo de producto no válido`);
+      return;
+    }
+    const talla = tallaParaTipo(l?.talla, tipo);
+    if (subtipoId !== null && !idValido(subtipoId)) errores.push(`línea ${n}: subtipo no válido`);
     if (!marca) errores.push(`línea ${n}: falta la marca`);
     if (!referencia) errores.push(`línea ${n}: falta la referencia`);
-    if (!color) errores.push(`línea ${n}: falta el color`);
-    if (!Number.isInteger(talla) || talla < 0 || talla > MAX_TALLA) errores.push(`línea ${n}: talla no válida`);
+    if (!color && TIPOS[tipo].color) errores.push(`línea ${n}: falta el color`);
+    if (!talla.ok) errores.push(`línea ${n}: ${talla.error}`);
     if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > MAX_CANTIDAD) errores.push(`línea ${n}: cantidad no válida`);
     if (!centValido(coste)) errores.push(`línea ${n}: coste no válido`);
     if (!centValido(pvp)) errores.push(`línea ${n}: PVP no válido`);
-    const key = [marca, modelo, referencia, color, talla].join('|').toLowerCase();
+    if (!talla.ok) return;
+    const key = [marca, modelo, referencia, color, talla.talla].join('|').toLowerCase();
     const previa = porSku.get(key);
     porSku.set(key, previa
       ? { ...previa, cantidad: previa.cantidad + cantidad, coste_cent: previa.coste_cent ?? coste, pvp_cent: previa.pvp_cent ?? pvp }
-      : { marca, modelo, referencia, color, talla, cantidad, coste_cent: coste, pvp_cent: pvp });
+      : {
+        tipo, subtipo_id: subtipoId, marca, modelo, referencia, color, talla: talla.talla, orden_talla: talla.orden, detalle,
+        cantidad, coste_cent: coste, pvp_cent: pvp,
+      });
   });
   if (errores.length) throw invalid(errores);
   return [...porSku.values()];
@@ -68,18 +83,28 @@ export function validarLineas(lineas, marcaPorDefecto = '') {
 
 /* ---------- Artículos ---------- */
 
-/** Busca el SKU; si no existe lo crea con un EAN-13 nuevo. Actualiza coste y PVP si vienen. */
+/** El subtipo debe existir y ser del mismo tipo que el artículo. */
+async function comprobarSubtipo(db, subtipoId, tipo) {
+  if (subtipoId == null) return;
+  const row = (await db.query('SELECT type FROM product_subtypes WHERE id = $1', [subtipoId])).rows[0];
+  if (!row || row.type !== tipo) throw invalid([`el subtipo no es de ${TIPOS[tipo].nombre.toLowerCase()}`]);
+}
+
+/**
+ * Busca el SKU; si no existe lo crea con un EAN-13 nuevo. Actualiza coste y PVP
+ * si vienen, y completa subtipo y detalle si el artículo aún no los tenía.
+ */
 export async function obtenerOCrearArticulo(db, l) {
   const sku = [l.marca, l.modelo, l.referencia, l.color, l.talla];
+  await comprobarSubtipo(db, l.subtipo_id, l.tipo);
   const existente = (await db.query(
     `SELECT id, barcode FROM inventory_items
       WHERE lower(brand) = lower($1) AND lower(model) = lower($2) AND lower(reference) = lower($3)
-        AND lower(color) = lower($4) AND size = $5 LIMIT 1`, sku)).rows[0];
+        AND lower(color) = lower($4) AND lower(size) = lower($5) LIMIT 1`, sku)).rows[0];
   if (existente) {
-    if (l.coste_cent != null || l.pvp_cent != null) {
-      await db.query(`UPDATE inventory_items SET cost_cents = COALESCE($2, cost_cents), sale_price_cents = COALESCE($3, sale_price_cents),
-        updated_at = NOW() WHERE id = $1`, [existente.id, l.coste_cent, l.pvp_cent]);
-    }
+    await db.query(`UPDATE inventory_items SET cost_cents = COALESCE($2, cost_cents), sale_price_cents = COALESCE($3, sale_price_cents),
+      subtype_id = COALESCE(subtype_id, $4), detail = CASE WHEN detail = '' THEN $5 ELSE detail END, updated_at = NOW() WHERE id = $1`,
+    [existente.id, l.coste_cent, l.pvp_cent, l.subtipo_id ?? null, l.detalle ?? '']);
     return { id: existente.id, codigo: existente.barcode, creado: false };
   }
   for (let intento = 0; intento < INTENTOS_CODIGO; intento += 1) {
@@ -87,9 +112,9 @@ export async function obtenerOCrearArticulo(db, l) {
     const libre = (await db.query('SELECT 1 FROM inventory_items WHERE barcode = $1', [codigo])).rowCount === 0;
     if (!libre) continue;
     const row = (await db.query(
-      `INSERT INTO inventory_items (brand, model, reference, color, size, barcode, cost_cents, sale_price_cents)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-      [...sku, codigo, l.coste_cent, l.pvp_cent],
+      `INSERT INTO inventory_items (brand, model, reference, color, size, barcode, cost_cents, sale_price_cents, type, subtype_id, detail, size_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+      [...sku, codigo, l.coste_cent, l.pvp_cent, l.tipo, l.subtipo_id ?? null, l.detalle ?? '', l.orden_talla],
     )).rows[0];
     return { id: row.id, codigo, creado: true };
   }
@@ -142,7 +167,8 @@ export async function registrarEntrada(db, doc, lineasEntrada, marcaPorDefecto) 
 
 const LINEA_COLUMNS = `
   i.id, i.doc_id, i.quantity, i.received_qty, i.state, i.received_at,
-  a.id AS item_id, a.brand, a.model, a.reference, a.color, a.size, a.barcode, a.stock, a.sale_price_cents, a.cost_cents`;
+  a.id AS item_id, a.brand, a.model, a.reference, a.color, a.size, a.barcode, a.stock, a.sale_price_cents, a.cost_cents,
+  a.type, a.subtype_id, a.detail, a.maker_barcode`;
 
 function lineaPublica(r) {
   return {
@@ -160,12 +186,16 @@ function lineaPublica(r) {
 function articuloPublico(r) {
   return {
     id: r.id,
+    tipo: r.type,
+    subtipo_id: r.subtype_id,
     marca: r.brand,
     modelo: r.model,
     referencia: r.reference,
     color: r.color,
     talla: r.size,
+    detalle: r.detail,
     codigo: r.barcode,
+    codigo_fabricante: r.maker_barcode,
     stock: r.stock,
     pvp_cent: r.sale_price_cents,
     coste_cent: r.cost_cents,
@@ -191,7 +221,7 @@ export async function obtenerEntrada(db, docId) {
       FROM supplier_docs d JOIN suppliers s ON s.id = d.supplier_id WHERE d.id = $1`, [docId])).rows[0];
   if (!doc) throw new HttpError(404, 'Documento no encontrado.', 'DOC_NOT_FOUND');
   const lineas = (await db.query(`SELECT ${LINEA_COLUMNS} FROM inventory_incoming i JOIN inventory_items a ON a.id = i.item_id
-    WHERE i.doc_id = $1 ORDER BY a.reference, a.color, a.size, i.id`, [docId])).rows.map(lineaPublica);
+    WHERE i.doc_id = $1 ORDER BY a.reference, a.color, a.size_order, i.id`, [docId])).rows.map(lineaPublica);
   return {
     documento: { id: doc.id, tipo: doc.kind, numero: doc.number, fecha: doc.fecha, fecha_entrega: doc.entrega, proveedor: { id: doc.proveedor_id, nombre: doc.proveedor } },
     lineas,
@@ -273,13 +303,18 @@ export async function resolverFalta(pool, lineaId, accion, userId = null) {
 
 /* ---------- Inventario ---------- */
 
-/** Filtros: { q, estado: 'disponible' | 'pendiente' | 'faltas' | 'todos' }. */
-export async function listarInventario(db, { q = '', estado = 'todos' } = {}) {
+/** Filtros: { q, tipo, estado: 'disponible' | 'pendiente' | 'faltas' | 'todos' }. */
+export async function listarInventario(db, { q = '', tipo = '', estado = 'todos' } = {}) {
   const params = [];
   const where = [];
   if (q) {
     params.push(`%${String(q).slice(0, 100).replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
-    where.push('(a.brand ILIKE $1 OR a.model ILIKE $1 OR a.reference ILIKE $1 OR a.color ILIKE $1 OR a.barcode ILIKE $1)');
+    where.push(`(a.brand ILIKE $${params.length} OR a.model ILIKE $${params.length} OR a.reference ILIKE $${params.length}
+      OR a.color ILIKE $${params.length} OR a.detail ILIKE $${params.length} OR a.barcode ILIKE $${params.length} OR a.maker_barcode ILIKE $${params.length})`);
+  }
+  if (tipo && esTipo(tipo)) {
+    params.push(tipo);
+    where.push(`a.type = $${params.length}`);
   }
   const having = { disponible: 'a.stock > 0', pendiente: 'pendiente > 0', faltas: 'faltan > 0' }[estado];
   const rows = (await db.query(`
@@ -289,7 +324,7 @@ export async function listarInventario(db, { q = '', estado = 'todos' } = {}) {
         COALESCE((SELECT sum(i.quantity - i.received_qty) FROM inventory_incoming i WHERE i.item_id = a.id AND i.state = 'falta'), 0)::int AS faltan
       FROM inventory_items a ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
     ) a ${having ? `WHERE ${having}` : ''}
-    ORDER BY lower(a.brand), lower(a.model), a.reference, lower(a.color), a.size
+    ORDER BY lower(a.brand), lower(a.model), a.reference, lower(a.color), a.size_order
     LIMIT ${MAX_INVENTARIO}`, params)).rows;
   return rows.map((r) => ({ ...articuloPublico(r), pendiente: r.pendiente, faltan: r.faltan }));
 }
@@ -303,21 +338,54 @@ export async function resumenInventario(db) {
   return r;
 }
 
-/** Cambia el PVP (y, si hace falta, modelo o color) de un artículo. */
-export async function actualizarArticulo(db, id, { pvp_cent: pvpIn, modelo, color }) {
+/** Subtipos de producto, por tipo. */
+export async function listarSubtipos(db) {
+  const rows = (await db.query('SELECT id, type, name FROM product_subtypes ORDER BY type, name')).rows;
+  return rows.map((r) => ({ id: r.id, tipo: r.type, nombre: r.name }));
+}
+
+/**
+ * Cambia datos de un artículo: PVP, modelo, color, tipo, subtipo, detalle o
+ * código de fábrica. Al cambiar de tipo, su talla debe valer para el nuevo.
+ */
+export async function actualizarArticulo(db, id, cambios) {
+  const { pvp_cent: pvpIn, modelo, color, tipo: tipoIn, subtipo_id: subtipoIn, detalle, codigo_fabricante: fabricaIn } = cambios;
   const row = (await db.query('SELECT * FROM inventory_items WHERE id = $1', [id])).rows[0];
   if (!row) throw new HttpError(404, 'Artículo no encontrado.', 'ITEM_NOT_FOUND');
   const pvp = pvpIn === undefined ? row.sale_price_cents : centimos(pvpIn);
   if (!centValido(pvp)) throw invalid(['PVP no válido']);
+  const tipo = tipoIn === undefined ? row.type : String(tipoIn);
+  if (!esTipo(tipo)) throw invalid(['tipo de producto no válido']);
+  if (tipo !== row.type) {
+    const talla = tallaParaTipo(row.size, tipo);
+    if (!talla.ok) throw invalid([talla.error]);
+  }
+  // Al cambiar de tipo, el subtipo anterior deja de valer si no se indica otro.
+  const subtipo = subtipoIn === undefined ? (tipo === row.type ? row.subtype_id : null)
+    : subtipoIn === null || subtipoIn === '' ? null : Number(subtipoIn);
+  if (subtipo !== null && !idValido(subtipo)) throw invalid(['subtipo no válido']);
+  await comprobarSubtipo(db, subtipo, tipo);
+  const fabrica = fabricaIn === undefined ? row.maker_barcode : texto(fabricaIn, 20).replace(/\s/g, '') || null;
+  if (fabrica !== null && !/^\d{8,14}$/.test(fabrica)) throw invalid(['el código de fábrica debe tener entre 8 y 14 cifras']);
+  if (fabrica !== null && fabrica.length === 13 && !esEan13(fabrica)) throw invalid(['el código de fábrica no es un EAN-13 válido']);
   const after = {
     model: modelo === undefined ? row.model : texto(modelo, 100) || row.model,
     color: color === undefined ? row.color : texto(color, 50) || row.color,
     sale_price_cents: pvp,
+    type: tipo,
+    subtype_id: subtipo,
+    detail: detalle === undefined ? row.detail : texto(detalle, MAX_DETALLE),
+    maker_barcode: fabrica,
   };
+  if (!after.color && TIPOS[tipo].color) throw invalid(['falta el color']);
   try {
-    await db.query('UPDATE inventory_items SET model = $2, color = $3, sale_price_cents = $4, updated_at = NOW() WHERE id = $1',
-      [id, after.model, after.color, after.sale_price_cents]);
+    await db.query(`UPDATE inventory_items SET model = $2, color = $3, sale_price_cents = $4, type = $5, subtype_id = $6, detail = $7,
+      maker_barcode = $8, updated_at = NOW() WHERE id = $1`,
+    [id, after.model, after.color, after.sale_price_cents, after.type, after.subtype_id, after.detail, after.maker_barcode]);
   } catch (error) {
+    if (error.code === '23505' && /maker_barcode/.test(error.constraint ?? '')) {
+      throw new HttpError(409, 'Ese código de fábrica ya está en otro artículo.', 'MAKER_BARCODE_TAKEN');
+    }
     if (error.code === '23505') throw new HttpError(409, 'Ya existe otro artículo con esa marca, modelo, referencia, color y talla.', 'SKU_TAKEN');
     throw error;
   }
@@ -344,7 +412,7 @@ export async function etiquetasPara(db, { docId = null, lineas = null, articulo 
     const ids = lineas ? lineas.map(Number).filter(idValido) : null;
     rows = (await db.query(`SELECT a.*, i.quantity AS unidades FROM inventory_incoming i JOIN inventory_items a ON a.id = i.item_id
       WHERE i.doc_id = $1 AND i.state <> 'anulado' ${ids ? 'AND i.id = ANY($2::int[])' : ''}
-      ORDER BY a.reference, a.color, a.size, i.id`, ids ? [docId, ids] : [docId])).rows;
+      ORDER BY a.reference, a.color, a.size_order, i.id`, ids ? [docId, ids] : [docId])).rows;
   }
   const etiquetas = rows.flatMap((r) => Array.from({ length: r.unidades }, () => articuloPublico(r)));
   if (etiquetas.length > MAX_ETIQUETAS) throw invalid([`como mucho ${MAX_ETIQUETAS} etiquetas de una vez`]);

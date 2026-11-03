@@ -4,6 +4,7 @@ import { icon } from '../icons.js';
 import { isReadOnly } from '../modules.js';
 import { centToEur, eur, eurToCent } from '../proveedores/util.js';
 import { showToast } from '../toast.js';
+import { editarArticulo } from './articulo.js';
 
 // Stock › Inventario: existencias por SKU con su código de barras. «Disponible»
 // es lo que hay en tienda; «En camino» lo pendiente de recibir (no se vende).
@@ -11,7 +12,13 @@ import { showToast } from '../toast.js';
 const API = '/api/stock';
 const FILTROS = Object.freeze([['todos', 'Todo'], ['disponible', 'Disponible'], ['pendiente', 'En camino'], ['faltas', 'Por reclamar']]);
 
-const state = { user: null, body: null, filtro: 'todos', q: '' };
+const state = { user: null, body: null, filtro: 'todos', tipo: '', q: '', tipos: [], articulos: [] };
+
+const nombreTipo = (a) => {
+  const t = state.tipos.find((x) => x.id === a.tipo);
+  const sub = t?.subtipos.find((s) => s.id === a.subtipo_id);
+  return sub ? `${t.nombre} · ${sub.nombre}` : t?.nombre ?? a.tipo;
+};
 
 function header(backHref) {
   return h('header', { class: 'module-head tone-stock users-head' }, [
@@ -36,11 +43,12 @@ const stat = (label, value, sub, tone) => h('div', { class: `pstat pstat-${tone}
 
 function fila(a, ro) {
   return h('tr', { 'data-id': String(a.id), class: a.stock > 0 ? null : 'is-zero' }, [
+    h('td', { class: 'small', text: nombreTipo(a) }),
     h('td', { class: 'strong', text: a.marca }),
     h('td', { class: 'mono', text: a.referencia }),
-    h('td', { text: a.modelo }),
-    h('td', { text: a.color }),
-    h('td', { class: 'num strong', text: a.talla ? String(a.talla) : '—' }),
+    h('td', {}, [a.modelo, a.detalle ? h('div', { class: 'pmuted small', text: a.detalle }) : null]),
+    h('td', { text: a.color || '—' }),
+    h('td', { class: 'num strong', text: a.talla }),
     h('td', { class: 'mono small', text: a.codigo }),
     h('td', { class: 'num' }, ro ? eur(a.pvp_cent) : h('input', {
       class: 'pinput num stk-pvp', inputmode: 'decimal', value: centToEur(a.pvp_cent), 'data-pvp': String(a.id), 'aria-label': `PVP de ${a.referencia} talla ${a.talla}`, placeholder: '—',
@@ -48,17 +56,21 @@ function fila(a, ro) {
     h('td', { class: `num ${a.stock > 0 ? 'strong' : 'pmuted'}`, text: String(a.stock) }),
     h('td', { class: 'num' }, a.pendiente ? h('span', { class: 'sbadge sb-pendiente', text: String(a.pendiente) }) : '—'),
     h('td', { class: 'num' }, a.faltan ? h('span', { class: 'sbadge sb-vencida', text: String(a.faltan) }) : '—'),
-    h('td', {}, h('a', { class: 'pbtn pbtn-sm pbtn-ghost', href: `${API}/etiquetas.pdf?articulo=${a.id}&copias=1&ver=1`, target: '_blank', rel: 'noopener', title: 'Imprimir una etiqueta', text: 'Etiqueta' })),
+    h('td', {}, h('div', { class: 'pbtn-row' }, [
+      ro ? null : h('button', { type: 'button', class: 'pbtn pbtn-sm', 'data-editar': String(a.id), title: 'Tipo, subtipo, detalle…', text: 'Editar' }),
+      h('a', { class: 'pbtn pbtn-sm pbtn-ghost', href: `${API}/etiquetas.pdf?articulo=${a.id}&copias=1&ver=1`, target: '_blank', rel: 'noopener', title: 'Imprimir una etiqueta', text: 'Etiqueta' }),
+    ])),
   ]);
 }
 
 async function cargar() {
   const tabla = state.body.querySelector('[data-tabla]');
   const stats = state.body.querySelector('[data-stats]');
-  const query = new URLSearchParams({ estado: state.filtro, ...(state.q ? { q: state.q } : {}) });
+  const query = new URLSearchParams({ estado: state.filtro, ...(state.q ? { q: state.q } : {}), ...(state.tipo ? { tipo: state.tipo } : {}) });
   const res = await api('GET', `${API}/inventario?${query}`);
   if (!res.ok) return void tabla.replaceChildren(h('p', { class: 'notice', text: res.error }));
   const { articulos, resumen: r } = res.data;
+  state.articulos = articulos;
   stats.replaceChildren(
     stat('Disponible', uds(r.disponible), `${r.articulos} tallas con stock`, 'ok'),
     stat('En camino', uds(r.pendiente), 'pendientes de recibir', 'warn'),
@@ -67,8 +79,8 @@ async function cargar() {
   const ro = isReadOnly(state.user);
   tabla.replaceChildren(articulos.length
     ? h('div', { class: 'ptable-wrap' }, h('table', { class: 'ptable stk-table' }, [
-      h('thead', {}, h('tr', {}, ['Marca', 'Ref.', 'Modelo', 'Color', 'Talla', 'Código', 'PVP €', 'Disponible', 'En camino', 'Faltan', '']
-        .map((t, i) => h('th', { scope: 'col', class: [4, 6, 7, 8, 9].includes(i) ? 'num' : null, text: t })))),
+      h('thead', {}, h('tr', {}, ['Tipo', 'Marca', 'Ref.', 'Modelo', 'Color', 'Talla', 'Código', 'PVP €', 'Disponible', 'En camino', 'Faltan', '']
+        .map((t, i) => h('th', { scope: 'col', class: [5, 7, 8, 9, 10].includes(i) ? 'num' : null, text: t })))),
       h('tbody', {}, articulos.map((a) => fila(a, ro))),
     ]))
     : h('div', { class: 'pempty' }, [h('h3', { text: 'No hay artículos que mostrar' }), h('p', { text: 'Se dan de alta al importar el PDF de un pedido o factura con sus productos.' })]));
@@ -76,7 +88,14 @@ async function cargar() {
 }
 
 function bind(root) {
-  root.addEventListener('click', (ev) => {
+  root.addEventListener('click', async (ev) => {
+    const editar = ev.target.closest('[data-editar]');
+    if (editar) {
+      const a = state.articulos.find((x) => x.id === Number(editar.dataset.editar));
+      if (!a || !(await editarArticulo(a, state.tipos))) return;
+      showToast('Artículo guardado.');
+      return void cargar();
+    }
     const f = ev.target.closest('[data-filtro]');
     if (!f) return;
     state.filtro = f.dataset.filtro;
@@ -85,6 +104,7 @@ function bind(root) {
   });
   root.addEventListener('change', async (ev) => {
     if (ev.target.matches('[data-buscar]')) { state.q = ev.target.value.trim(); return void cargar(); }
+    if (ev.target.matches('[data-tipo]')) { state.tipo = ev.target.value; return void cargar(); }
     const pvp = ev.target.closest('[data-pvp]');
     if (!pvp) return undefined;
     const cent = pvp.value.trim() ? eurToCent(pvp.value) : null;
@@ -99,10 +119,12 @@ function bind(root) {
 /** Pinta Stock › Inventario. */
 export function renderInventario({ main, user, backHref }) {
   state.user = user;
+  const tipoSelect = h('select', { class: 'pinput', 'data-tipo': '', 'aria-label': 'Tipo de producto' }, h('option', { value: '', text: 'Todos los tipos' }));
   state.body = h('div', { class: 'stk-body' }, [
     h('div', { class: 'pstats', 'data-stats': '' }),
     h('div', { class: 'ptoolbar stk-toolbar' }, [
-      h('input', { type: 'search', class: 'pinput grow', placeholder: 'Buscar por marca, referencia, modelo, color o código…', value: state.q, 'data-buscar': '' }),
+      h('input', { type: 'search', class: 'pinput grow', placeholder: 'Buscar por marca, referencia, modelo, detalle o código…', value: state.q, 'data-buscar': '' }),
+      tipoSelect,
       h('div', { class: 'pchips', role: 'group', 'aria-label': 'Filtro' }, FILTROS.map(([v, t]) => h('button', {
         type: 'button', class: 'pchip', 'aria-pressed': String(state.filtro === v), 'data-filtro': v, text: t,
       }))),
@@ -113,6 +135,11 @@ export function renderInventario({ main, user, backHref }) {
   bind(root);
   main.replaceChildren(root);
   document.title = 'Inventario · Puntapié';
-  cargar();
+  // Los tipos dan nombre a la columna «Tipo»: se cargan antes que la tabla.
+  api('GET', `${API}/tipos`).then((res) => {
+    state.tipos = res.ok ? res.data : [];
+    tipoSelect.append(...state.tipos.map((t) => h('option', { value: t.id, text: t.nombre, selected: t.id === state.tipo })));
+    cargar();
+  });
   return root.querySelector('h1');
 }

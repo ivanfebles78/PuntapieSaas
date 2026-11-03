@@ -42,11 +42,12 @@ const docLabel = (d) => `${d.tipo === 'factura' ? 'la factura' : 'el pedido'} ${
 
 function fila(l) {
   const input = (k, value, attrs = {}) => h('input', { class: 'pinput', 'data-k': k, value: value ?? '', ...attrs });
-  return h('tr', { 'data-linea': '', 'data-tramo': l.tramo?.id ?? null }, [
+  // El tipo (calzado, ropa…) lo propone el lector; sin él, el servidor lo deduce de la talla.
+  return h('tr', { 'data-linea': '', 'data-tramo': l.tramo?.id ?? null, 'data-tipo': l.tipo ?? null }, [
     h('td', {}, input('referencia', l.referencia, { class: 'pinput mono', 'aria-label': 'Referencia' })),
     h('td', {}, input('modelo', l.modelo, { 'aria-label': 'Modelo' })),
     h('td', {}, input('color', l.color, { 'aria-label': 'Color' })),
-    h('td', {}, input('talla', l.talla === '' ? '' : String(l.talla), { type: 'number', min: '0', max: '60', class: 'pinput num', 'aria-label': 'Talla (0 = sin talla)' })),
+    h('td', {}, input('talla', l.talla === '' || l.talla === 0 ? '' : String(l.talla), { class: 'pinput num', maxlength: '10', placeholder: 'Única', 'aria-label': 'Talla (27, M, 4A, 19-22; vacía = única)' })),
     h('td', {}, input('cantidad', String(l.cantidad), { type: 'number', min: '0', max: '1000', class: 'pinput num', 'aria-label': 'Unidades' })),
     h('td', {}, input('coste', centToEur(l.coste_cent), { inputmode: 'decimal', class: 'pinput num', 'aria-label': 'Coste' })),
     h('td', {}, input('pvp', centToEur(l.pvp_cent), { inputmode: 'decimal', class: 'pinput num', 'aria-label': 'PVP', 'data-prev': centToEur(l.pvp_cent) })),
@@ -127,7 +128,7 @@ export function enlazarLineas(lista) {
       const ultima = [...tbody.querySelectorAll('tr[data-linea]')].at(-1);
       const g = (k) => ultima?.querySelector(`[data-k=${k}]`).value ?? '';
       // La nueva fila copia referencia, modelo, color y precios de la última: así añadir otra talla es rápido.
-      const nueva = fila({ referencia: g('referencia'), modelo: g('modelo'), color: g('color'), talla: '', cantidad: 1, coste_cent: eurToCent(g('coste')), pvp_cent: eurToCent(g('pvp')) });
+      const nueva = fila({ tipo: ultima?.dataset.tipo, referencia: g('referencia'), modelo: g('modelo'), color: g('color'), talla: '', cantidad: 1, coste_cent: eurToCent(g('coste')), pvp_cent: eurToCent(g('pvp')) });
       tbody.append(nueva);
       card.querySelector('[name=con_lineas]').checked = true;
       nueva.querySelector('[data-k=referencia]').focus();
@@ -206,11 +207,12 @@ export function leerLineas(card) {
   return [...card.querySelectorAll('tr[data-linea]')].map((tr) => {
     const g = (k) => tr.querySelector(`[data-k=${k}]`).value.trim();
     return {
+      tipo: tr.dataset.tipo || undefined,
       marca,
       referencia: g('referencia'),
       modelo: g('modelo'),
       color: g('color'),
-      talla: Number(g('talla') || 0),
+      talla: g('talla'),
       cantidad: Number(g('cantidad') || 0),
       coste_cent: eurToCent(g('coste')),
       pvp_cent: eurToCent(g('pvp')),

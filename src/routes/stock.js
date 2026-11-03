@@ -12,6 +12,7 @@ import {
   etiquetasPara,
   listarEntradas,
   listarInventario,
+  listarSubtipos,
   obtenerEntrada,
   documentoConProductos,
   recibirEntrada,
@@ -19,6 +20,7 @@ import {
   resolverFalta,
   resumenInventario,
 } from '../stock/repo.js';
+import { CLASES_TALLA, TIPOS } from '../stock/tipos.js';
 
 // Stock: inventario, recepción de mercancía y etiquetas con código de barras.
 
@@ -38,15 +40,32 @@ export function stockRouter({ pool, config, log = console }) {
   const canWrite = requireRole('admin', 'empleado');
 
   router.get('/inventario', handle(async (req, res) => {
-    const { q, estado } = req.query;
-    const [articulos, resumen] = await Promise.all([listarInventario(pool, { q, estado }), resumenInventario(pool)]);
+    const { q, tipo, estado } = req.query;
+    const [articulos, resumen] = await Promise.all([listarInventario(pool, { q, tipo, estado }), resumenInventario(pool)]);
     res.json({ ok: true, data: { articulos, resumen } });
+  }));
+
+  // Tipos de producto (con las tallas que admite cada uno) y sus subtipos.
+  router.get('/tipos', handle(async (_req, res) => {
+    const subtipos = await listarSubtipos(pool);
+    const tipos = Object.entries(TIPOS).map(([id, t]) => ({
+      id, nombre: t.nombre, color: t.color, tallas: t.tallas.map((c) => CLASES_TALLA[c]), subtipos: subtipos.filter((s) => s.tipo === id),
+    }));
+    res.json({ ok: true, data: tipos });
   }));
 
   router.put('/articulos/:id', canWrite, handle(async (req, res) => {
     const { before, after } = await actualizarArticulo(pool, readId(req.params.id, 'Ese artículo'), req.body ?? {});
-    const show = { modelo: (v) => v, color: (v) => v, pvp_cent: (v) => (v == null ? null : formatEuros(v)) };
-    const changes = [['modelo', 'Modelo'], ['color', 'Color'], ['pvp_cent', 'PVP']]
+    const subtipos = new Map((await listarSubtipos(pool)).map((s) => [s.id, s.nombre]));
+    const plain = (v) => v || null;
+    const show = {
+      modelo: plain, color: plain, detalle: plain, codigo_fabricante: plain,
+      tipo: (v) => TIPOS[v]?.nombre ?? v,
+      subtipo_id: (v) => (v == null ? null : subtipos.get(v) ?? String(v)),
+      pvp_cent: (v) => (v == null ? null : formatEuros(v)),
+    };
+    const changes = [['modelo', 'Modelo'], ['color', 'Color'], ['tipo', 'Tipo'], ['subtipo_id', 'Subtipo'], ['detalle', 'Detalle'],
+      ['codigo_fabricante', 'Código de fábrica'], ['pvp_cent', 'PVP']]
       .filter(([k]) => before[k] !== after[k])
       .map(([k, field]) => ({ field, from: show[k](before[k]), to: show[k](after[k]) }));
     if (changes.length) await audit(req, { area: 'stock', action: 'editar', target: skuLabel(after), changes });

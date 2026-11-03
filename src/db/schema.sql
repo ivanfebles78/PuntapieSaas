@@ -342,16 +342,33 @@ ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS legacy_ref TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS recurring_expenses_legacy_ref_key ON recurring_expenses(legacy_ref) WHERE legacy_ref IS NOT NULL;
 
 -- ===================== Stock =====================
+-- Subtipos de producto dentro de cada tipo (los tipos y sus reglas de talla
+-- están en src/stock/tipos.js). Se pueden añadir más.
+CREATE TABLE IF NOT EXISTS product_subtypes (
+  id    SERIAL PRIMARY KEY,
+  type  TEXT NOT NULL CHECK (type IN ('calzado', 'ropa', 'accesorios', 'juguetes')),
+  name  TEXT NOT NULL,
+  UNIQUE (type, name)
+);
+
+INSERT INTO product_subtypes (type, name) VALUES
+  ('calzado', 'Tenis'), ('calzado', 'Zapatos'), ('calzado', 'Escolares'), ('calzado', 'Sandalias'), ('calzado', 'Botas'),
+  ('ropa', 'Calcetines'), ('ropa', 'Pijamas'), ('ropa', 'Chubasqueros'), ('ropa', 'Bañadores'),
+  ('accesorios', 'Mochilas'), ('accesorios', 'Paraguas'), ('accesorios', 'Botellas'), ('accesorios', 'Estuches'),
+  ('juguetes', 'Juegos de mesa'), ('juguetes', 'Yoyós'), ('juguetes', 'Juegos de cartas')
+ON CONFLICT (type, name) DO NOTHING;
+
 -- Un artículo por SKU (marca + modelo + referencia + color + talla) con su
 -- código de barras EAN-13, como el inventario de la web antigua. `stock` es lo
 -- disponible en tienda; lo que viene en camino está en inventory_incoming.
+-- La talla es texto («27», «M», «4A», «Única») y `size_order` la ordena.
 CREATE TABLE IF NOT EXISTS inventory_items (
   id                SERIAL PRIMARY KEY,
   brand             TEXT NOT NULL,
   model             TEXT NOT NULL,
   reference         TEXT NOT NULL,
   color             TEXT NOT NULL,
-  size              SMALLINT NOT NULL DEFAULT 0 CHECK (size BETWEEN 0 AND 60), -- 0 = sin talla
+  size              TEXT NOT NULL DEFAULT 'Única',
   barcode           TEXT NOT NULL UNIQUE,
   stock             INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
   sale_price_cents  INTEGER CHECK (sale_price_cents >= 0),
@@ -360,6 +377,34 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (brand, model, reference, color, size)
 );
+
+-- La talla era un número (0 = sin talla): pasa a texto conservando el orden.
+DO $$
+BEGIN
+  IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'inventory_items' AND column_name = 'size') = 'smallint' THEN
+    ALTER TABLE inventory_items DROP CONSTRAINT IF EXISTS inventory_items_size_check;
+    ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS size_order NUMERIC(6, 1);
+    UPDATE inventory_items SET size_order = CASE WHEN size = 0 THEN 1000 ELSE size END;
+    ALTER TABLE inventory_items ALTER COLUMN size DROP DEFAULT;
+    ALTER TABLE inventory_items ALTER COLUMN size TYPE TEXT USING CASE WHEN size = 0 THEN 'Única' ELSE size::text END;
+    ALTER TABLE inventory_items ALTER COLUMN size SET DEFAULT 'Única';
+  END IF;
+END $$;
+
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS size_order NUMERIC(6, 1);
+UPDATE inventory_items SET size_order = 1000 WHERE size_order IS NULL;
+ALTER TABLE inventory_items ALTER COLUMN size_order SET DEFAULT 1000;
+ALTER TABLE inventory_items ALTER COLUMN size_order SET NOT NULL;
+-- Lo que ya había es calzado; el tipo y el subtipo se pueden cambiar en Inventario.
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'calzado';
+ALTER TABLE inventory_items DROP CONSTRAINT IF EXISTS inventory_items_type_check;
+ALTER TABLE inventory_items ADD CONSTRAINT inventory_items_type_check CHECK (type IN ('calzado', 'ropa', 'accesorios', 'juguetes'));
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS subtype_id INTEGER REFERENCES product_subtypes(id) ON DELETE SET NULL;
+-- Detalle: lo que explica el producto (suele venir en la descripción de la factura).
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS detail TEXT NOT NULL DEFAULT '';
+-- Código de barras de fábrica, opcional: escanear la caja original también lo encuentra.
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS maker_barcode TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS inventory_items_maker_barcode_key ON inventory_items(maker_barcode) WHERE maker_barcode IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS inventory_items_reference_idx ON inventory_items(reference);
 

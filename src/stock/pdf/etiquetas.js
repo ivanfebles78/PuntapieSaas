@@ -51,7 +51,7 @@ function dibujarCodigo(pdf, code, x, y) {
 const euros = (cent) => `${(cent / 100).toFixed(2).replace('.', ',')} €`;
 
 /**
- * @param {{ marca: string, modelo: string, referencia: string, color: string, talla: number, codigo: string, pvp_cent: number|null }[]} etiquetas
+ * @param {{ marca: string, modelo: string, referencia: string, color: string, talla: string, codigo: string, pvp_cent: number|null }[]} etiquetas
  * @returns {Buffer}
  */
 export function generarEtiquetasPdf(etiquetas) {
@@ -59,7 +59,7 @@ export function generarEtiquetasPdf(etiquetas) {
   const util = ETIQUETA.ancho - 2 * MARGEN;
   etiquetas.forEach((e, n) => {
     if (n > 0) pdf.nuevaPagina();
-    const talla = e.talla ? `T. ${e.talla}` : '';
+    const talla = e.talla && e.talla !== 'Única' ? `T. ${e.talla}` : '';
     const precio = e.pvp_cent != null ? euros(e.pvp_cent) : '';
     pdf.texto(talla, MARGEN, 3.5, { tam: 9.5, negrita: true, alinear: 'derecha', ancho: util });
     pdf.texto(recortar(`${e.marca} · ${e.referencia}`, util - 34, 7.5, true), MARGEN, 4, { tam: 7.5, negrita: true });

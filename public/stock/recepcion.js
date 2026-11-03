@@ -104,7 +104,7 @@ function filaLinea(l, docId) {
     h('td', { class: 'mono', text: a.referencia }),
     h('td', { text: a.modelo }),
     h('td', { text: a.color }),
-    h('td', { class: 'num strong', text: a.talla ? String(a.talla) : '—' }),
+    h('td', { class: 'num strong', text: a.talla }),
     h('td', { class: 'num', text: l.estado === 'falta' ? `${l.recibidas} de ${l.cantidad}` : String(l.cantidad) }),
     h('td', { class: 'mono small' }, h('a', { href: etiquetasHref(docId, l.id), target: '_blank', rel: 'noopener', title: 'Reimprimir las etiquetas de esta línea', text: a.codigo })),
     h('td', {}, estadoBadge(l.estado)),

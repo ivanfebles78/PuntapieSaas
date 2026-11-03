@@ -9,6 +9,7 @@ import { colorSimple, esPropuesta, lineasPropuesta } from '../src/proveedores/pa
 import { digitoControl, esEan13, nuevoCodigo } from '../src/stock/barcode.js';
 import { ETIQUETA, generarEtiquetasPdf, modulosEan13 } from '../src/stock/pdf/etiquetas.js';
 import { validarLineas } from '../src/stock/repo.js';
+import { leerTalla, tallaParaTipo, tipoPorDefecto } from '../src/stock/tipos.js';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, TEST_DATABASE_URL, startTestServer } from './helpers.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -143,7 +144,7 @@ test('el resto de proveedores, con sus PDF reales: las unidades cuadran con el t
   // Talla a talla.
   const condor = await leer('condor/factura-500047.pdf');
   assert.equal(suma(condor), 243);
-  assert.ok(condor.lineas.every((l) => !l.tramo) && condor.lineas.some((l) => l.modelo === 'Calcetines altos básicos canalé' && l.talla === 4));
+  assert.ok(condor.lineas.every((l) => !l.tramo) && condor.lineas.some((l) => l.modelo === 'Calcetines altos básicos canalé' && l.talla === 4 && l.tipo === 'ropa'));
   assert.equal(suma(await leer('etika/pedido-2600412.pdf')), 160);
   const victoria = await leer('victoria/pedido-5501945-confirmacion.pdf');
   assert.equal(suma(victoria), 153);
@@ -199,6 +200,35 @@ test('validarLineas junta el mismo SKU y rechaza datos imposibles', () => {
   assert.throws(() => validarLineas([{ ...l, cantidad: -1 }]), /cantidad/);
   assert.throws(() => validarLineas([{ ...l, talla: 99 }]), /talla/);
   assert.throws(() => validarLineas('x'), /lista/);
+});
+
+test('cada tipo admite sus tallas y las guarda normalizadas', () => {
+  const ok = (v, tipo) => tallaParaTipo(v, tipo);
+  assert.deepEqual([ok('27', 'calzado').talla, ok(38.5, 'calzado').talla, ok('38,5', 'calzado').talla], ['27', '38,5', '38,5']);
+  assert.equal(ok('M', 'calzado').ok, false, 'un zapato no va por letra');
+  assert.match(ok('M', 'calzado').error, /número de pie/);
+  assert.deepEqual(['m', '2XL', '4 años', '18 meses', '19/22', '4', ''].map((v) => ok(v, 'ropa').talla), ['M', 'XXL', '4A', '18M', '19-22', '4', 'Única']);
+  assert.equal(ok('27', 'ropa').ok, false, 'una prenda no va por número de pie');
+  assert.equal(ok('', 'juguetes').talla, 'Única');
+  assert.equal(ok('S', 'juguetes').ok, false);
+  assert.equal(ok('S', 'accesorios').talla, 'S');
+  // El orden pone las tallas en su sitio aunque sean texto.
+  const orden = ['XL', 'S', 'M'].map((v) => leerTalla(v)).sort((a, b) => a.orden - b.orden).map((t) => t.talla);
+  assert.deepEqual(orden, ['S', 'M', 'XL']);
+  assert.equal(tipoPorDefecto(30), 'calzado');
+  assert.equal(tipoPorDefecto(0), 'accesorios', 'sin talla y sin tipo: accesorio');
+});
+
+test('validarLineas comprueba la talla según el tipo y el color si el tipo lo pide', () => {
+  const base = { marca: 'Cayro', referencia: 'C-1', cantidad: 1 };
+  assert.equal(validarLineas([{ ...base, tipo: 'juguetes' }])[0].talla, 'Única', 'un juguete no necesita color ni talla');
+  assert.throws(() => validarLineas([{ ...base, tipo: 'ropa', talla: 'M' }]), /color/);
+  assert.equal(validarLineas([{ ...base, tipo: 'ropa', color: 'Azul', talla: 'm' }])[0].talla, 'M');
+  assert.throws(() => validarLineas([{ ...base, tipo: 'calzado', color: 'Azul', talla: 'M' }]), /talla/);
+  assert.throws(() => validarLineas([{ ...base, tipo: 'coches', color: 'Azul' }]), /tipo/);
+  const [l] = validarLineas([{ ...base, color: 'Azul', talla: 24, detalle: '  velcro   y piel ' }]);
+  assert.equal(l.tipo, 'calzado');
+  assert.equal(l.detalle, 'velcro y piel');
 });
 
 /* ---------- API ---------- */
@@ -306,8 +336,8 @@ describe('API de stock: pedido → etiquetas → recepción', { skip: !TEST_DATA
     assert.equal(res.data.entrada.articulos_nuevos, 0);
     const despues = (await admin('GET', '/api/stock/inventario')).data.articulos;
     assert.equal(despues.length, antes.length);
-    const sku = despues.find((a) => a.talla === 40);
-    assert.equal(sku.codigo, antes.find((a) => a.talla === 40).codigo);
+    const sku = despues.find((a) => a.talla === '40');
+    assert.equal(sku.codigo, antes.find((a) => a.talla === '40').codigo);
     assert.equal(sku.pendiente, 4);
     assert.equal(sku.stock, 2);
   });
@@ -358,5 +388,51 @@ describe('API de stock: pedido → etiquetas → recepción', { skip: !TEST_DATA
     assert.equal((await asesor('GET', '/api/stock/inventario')).status, 200);
     const pendiente = (await admin('GET', '/api/stock/entradas')).data[0];
     assert.equal((await asesor('POST', `/api/stock/entradas/${pendiente.id}/recibir`, {})).status, 403);
+    assert.equal((await asesor('PUT', `/api/stock/articulos/${art.id}`, { detalle: 'x' })).status, 403);
+  });
+
+  test('tipos y subtipos; un juguete y una prenda entran con su talla y se editan en la ficha', async () => {
+    const tipos = (await admin('GET', '/api/stock/tipos')).data;
+    assert.deepEqual(tipos.map((t) => t.id), ['calzado', 'ropa', 'accesorios', 'juguetes']);
+    const ropa = tipos.find((t) => t.id === 'ropa');
+    const pijamas = ropa.subtipos.find((s) => s.nombre === 'Pijamas');
+    const mesa = tipos.find((t) => t.id === 'juguetes').subtipos.find((s) => s.nombre === 'Juegos de mesa');
+    assert.ok(pijamas && mesa);
+
+    const res = await admin('POST', '/api/proveedores/documentos', {
+      tipo: 'pedido', proveedor: { nombre: 'Sportandem' }, numero: 'P-S-1', total_cent: 100,
+      lineas: [
+        { tipo: 'juguetes', subtipo_id: mesa.id, marca: 'Cayro', referencia: '843', modelo: 'Parchís-Oca Piratas', detalle: 'madera FSC', cantidad: 2 },
+        { tipo: 'ropa', subtipo_id: pijamas.id, marca: 'Cóndor', referencia: 'PJ-1', modelo: 'Pijama rayas', color: 'Azul', talla: '4 años', cantidad: 1 },
+      ],
+    });
+    assert.equal(res.status, 201);
+    assert.equal(res.data.entrada.articulos_nuevos, 2);
+    const mal = await admin('POST', '/api/proveedores/documentos', {
+      tipo: 'pedido', proveedor: { nombre: 'Sportandem' }, numero: 'P-S-2', total_cent: 100,
+      lineas: [{ tipo: 'ropa', subtipo_id: mesa.id, marca: 'Cóndor', referencia: 'PJ-2', color: 'Azul', talla: 'M', cantidad: 1 }],
+    });
+    assert.equal(mal.status, 400, 'el subtipo tiene que ser del mismo tipo');
+
+    const juguetes = (await admin('GET', '/api/stock/inventario?tipo=juguetes')).data.articulos;
+    assert.equal(juguetes.length, 1);
+    assert.deepEqual([juguetes[0].talla, juguetes[0].color, juguetes[0].detalle, juguetes[0].subtipo_id], ['Única', '', 'madera FSC', mesa.id]);
+    assert.equal((await admin('GET', '/api/stock/inventario?q=FSC')).data.articulos.length, 1, 'se busca también por detalle');
+    const pijama = (await admin('GET', '/api/stock/inventario?tipo=ropa')).data.articulos[0];
+    assert.equal(pijama.talla, '4A');
+
+    // Un pijama 4A no puede pasar a calzado; un juguete sin color tampoco a accesorio (que lo pide), pero con color sí.
+    assert.equal((await admin('PUT', `/api/stock/articulos/${pijama.id}`, { tipo: 'calzado' })).status, 400);
+    assert.equal((await admin('PUT', `/api/stock/articulos/${juguetes[0].id}`, { tipo: 'accesorios' })).status, 400);
+    const acc = await admin('PUT', `/api/stock/articulos/${juguetes[0].id}`, { tipo: 'accesorios', color: 'Multicolor' });
+    assert.equal(acc.status, 200);
+    assert.equal(acc.data.subtipo_id, null, 'el subtipo de juguete no vale para accesorio');
+    await admin('PUT', `/api/stock/articulos/${juguetes[0].id}`, { tipo: 'juguetes', subtipo_id: mesa.id });
+    const ficha = await admin('PUT', `/api/stock/articulos/${juguetes[0].id}`, { detalle: 'Madera FSC, 2-4 jugadores', codigo_fabricante: '4006381333931' });
+    assert.equal(ficha.status, 200);
+    assert.equal(ficha.data.codigo_fabricante, '4006381333931');
+    assert.equal((await admin('GET', '/api/stock/inventario?q=4006381333931')).data.articulos[0].id, juguetes[0].id, 'escanear el código de fábrica lo encuentra');
+    assert.equal((await admin('PUT', `/api/stock/articulos/${pijama.id}`, { codigo_fabricante: '4006381333931' })).status, 409);
+    assert.equal((await admin('PUT', `/api/stock/articulos/${pijama.id}`, { codigo_fabricante: '4006381333932' })).status, 400, 'EAN con control mal');
   });
 });
