@@ -17,11 +17,17 @@ const resumenLineas = (calculo) => calculo.lineas.map((l) => ({
  * (en subtotal va lo esperado y en total lo contado). Devuelve { id, token }:
  * el token solo existe aquí, en la base va su hash.
  */
-export async function crearSolicitud(db, { calculo = null, cierre = null, solicitante, canal, estado = 'pendiente', decididoPor = null }) {
+export async function crearSolicitud(db, { calculo = null, cierre = null, cambio = null, solicitante, canal, estado = 'pendiente', decididoPor = null }) {
   const token = generateToken();
-  const valores = cierre
-    ? { kind: 'cierre', pct: 0, sub: cierre.esperado, total: cierre.contado, resumen: [], sesion: cierre.sesionId }
-    : { kind: 'descuento', pct: Math.min(100, Math.max(0.1, calculo.pct_descuento)), sub: calculo.subtotal_cent, total: calculo.total_cent, resumen: resumenLineas(calculo), sesion: null };
+  let valores;
+  if (cierre) valores = { kind: 'cierre', pct: 0, sub: cierre.esperado, total: cierre.contado, resumen: [], sesion: cierre.sesionId };
+  else if (cambio) {
+    // Cambio sin ticket del TPV o fuera de plazo: se aprueba el crédito de lo devuelto.
+    const resumen = cambio.lineas.map((l) => ({ descripcion: l.descripcion, talla: l.talla, cantidad: l.cantidad, total_cent: l.credito, ticket: l.ticket, motivo: l.papel ? 'ticket de papel' : l.fuera_plazo ? 'fuera de plazo' : null }));
+    valores = { kind: 'cambio', pct: 0, sub: cambio.credito, total: cambio.credito, resumen, sesion: null };
+  } else {
+    valores = { kind: 'descuento', pct: Math.min(100, Math.max(0.1, calculo.pct_descuento)), sub: calculo.subtotal_cent, total: calculo.total_cent, resumen: resumenLineas(calculo), sesion: null };
+  }
   const r = (await db.query(
     `INSERT INTO tpv_discount_requests (token_hash, requested_by, channel, percent, subtotal_cents, total_cents, summary, status, decided_by,
                                         decided_at, expires_at, kind, session_id)
@@ -85,5 +91,14 @@ export async function comprobarAprobacion(db, id, { calculo, vendedor }) {
   const vale = r && r.kind === 'descuento' && r.requested_by === vendedor.id && r.status === 'aprobado' && new Date(r.expires_at) >= new Date()
     && r.subtotal_cents === calculo.subtotal_cent && Number(r.percent) + 0.1 >= calculo.pct_descuento;
   if (!vale) throw new HttpError(403, 'El descuento de más del 15 % necesita la aprobación de un Administrador para esta venta.', 'DISCOUNT_NEEDS_APPROVAL');
+  return r.id;
+}
+
+/** Comprueba la aprobación de un cambio: de quien atiende, aprobada, sin usar, en plazo y por ese mismo crédito. */
+export async function comprobarAprobacionCambio(db, id, { credito, vendedor }) {
+  const r = (await db.query('SELECT * FROM tpv_discount_requests WHERE id = $1 FOR UPDATE', [Number(id) || 0])).rows[0];
+  const vale = r && r.kind === 'cambio' && r.requested_by === vendedor.id && r.status === 'aprobado' && new Date(r.expires_at) >= new Date()
+    && r.total_cents === credito;
+  if (!vale) throw new HttpError(403, 'Este cambio (ticket de papel o fuera de plazo) necesita la aprobación de un Administrador.', 'EXCHANGE_NEEDS_APPROVAL');
   return r.id;
 }

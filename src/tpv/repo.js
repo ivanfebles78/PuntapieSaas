@@ -3,6 +3,7 @@
 import { calcularVenta } from '../../public/tpv/calculo.js';
 import { HttpError } from '../http-error.js';
 import { withTransaction } from '../proveedores/repo.js';
+import { cobrarConVales, formatoCodigo } from './vales.js';
 
 export const METODOS = Object.freeze(['efectivo', 'tarjeta', 'bizum', 'bonos', 'vales']);
 const MAX_GRUPOS = 30;
@@ -91,7 +92,9 @@ export async function prepararVenta(db, venta) {
   }
 }
 
-function leerPagos(pagos, total) {
+/** Pagos de la pantalla. Con vale hay que indicar su código (`vale`). Si no hay nada que pagar, no hace falta ninguno. */
+export function leerPagos(pagos, total) {
+  if (total === 0 && (!Array.isArray(pagos) || !pagos.length)) return [];
   if (!Array.isArray(pagos) || !pagos.length) throw invalida('falta el cobro');
   const lista = pagos.map((p) => {
     const metodo = String(p.metodo);
@@ -100,7 +103,7 @@ function leerPagos(pagos, total) {
     if (!METODOS.includes(metodo)) throw invalida('método de pago no válido');
     if (!Number.isInteger(importe) || importe <= 0) throw invalida('importe de pago no válido');
     if (entregado !== null && (metodo !== 'efectivo' || !Number.isInteger(entregado) || entregado < importe)) throw invalida('el efectivo entregado no cubre su importe');
-    return { metodo, importe, entregado };
+    return { metodo, importe, entregado, vale: metodo === 'vales' ? p.vale ?? null : null };
   });
   const suma = lista.reduce((s, p) => s + p.importe, 0);
   if (suma !== total) throw invalida(`los pagos suman ${(suma / 100).toFixed(2)} € y el total es ${(total / 100).toFixed(2)} €`);
@@ -108,68 +111,80 @@ function leerPagos(pagos, total) {
 }
 
 /**
- * Registra la venta: ticket con número correlativo del año, sus líneas, sus
- * pagos (también en `sales` para las estadísticas) y la salida del stock.
- * `aprobacionId` = descuento aprobado (lo comprueba quien llama).
+ * Alta de un ticket (venta o cambio) dentro de una transacción: número
+ * correlativo del año, sus líneas nuevas (salen del stock), sus pagos (con
+ * vales, descontando su saldo) y cada pago en `sales` para las estadísticas.
+ * Solo con la caja abierta: cada ticket cuenta en el arqueo de su caja.
  */
-export async function registrarVenta(pool, { venta, calculo, vendedor, aprobacionId = null }) {
-  const pagos = leerPagos(venta.pagos, calculo.total_cent);
+export async function crearTicket(client, { calculo, pagos, vendedor, aprobacionId = null, tipo = 'venta', creditoCent = 0 }) {
+  await client.query('SELECT pg_advisory_xact_lock($1)', [CANDADO_NUMERO]);
+  const sesion = (await client.query("SELECT id FROM tpv_cash_sessions WHERE status = 'abierta' FOR SHARE")).rows[0];
+  if (!sesion) throw new HttpError(409, 'La caja está cerrada: ábrela (con el recuento del dinero) para poder vender.', 'CASH_CLOSED');
+  const year = Number(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric' }).format(new Date()));
+  const seq = (await client.query('SELECT COALESCE(max(seq), 0) + 1 AS n FROM tpv_tickets WHERE year = $1', [year])).rows[0].n;
+  const numero = `T${String(year).slice(2)}-${String(seq).padStart(6, '0')}`;
+  const pagado = pagos.reduce((s, p) => s + p.importe, 0);
   const cambio = pagos.reduce((s, p) => s + (p.entregado ? p.entregado - p.importe : 0), 0);
-  return withTransaction(pool, async (client) => {
-    await client.query('SELECT pg_advisory_xact_lock($1)', [CANDADO_NUMERO]);
-    // Solo se vende con la caja abierta: cada ticket cuenta en el arqueo de su caja.
-    const sesion = (await client.query("SELECT id FROM tpv_cash_sessions WHERE status = 'abierta' FOR SHARE")).rows[0];
-    if (!sesion) throw new HttpError(409, 'La caja está cerrada: ábrela (con el recuento del dinero) para poder vender.', 'CASH_CLOSED');
-    const year = Number(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric' }).format(new Date()));
-    const seq = (await client.query('SELECT COALESCE(max(seq), 0) + 1 AS n FROM tpv_tickets WHERE year = $1', [year])).rows[0].n;
-    const numero = `T${String(year).slice(2)}-${String(seq).padStart(6, '0')}`;
-    const ticket = (await client.query(
-      `INSERT INTO tpv_tickets (year, seq, number, subtotal_cents, discount_cents, total_cents, change_cents, approval_id, seller_id, seller_name, session_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-      [year, seq, numero, calculo.subtotal_cent, calculo.descuento_cent, calculo.total_cent, cambio, aprobacionId, vendedor.id, vendedor.name ?? '', sesion.id],
-    )).rows[0];
-    const sinStock = [];
-    for (const [i, l] of calculo.lineas.entries()) {
-      let falta = false;
-      if (l.articulo_id) {
-        // Se vende aunque el sistema diga que no hay (el zapato está en la mano); se avisa.
-        const antes = (await client.query('SELECT stock FROM inventory_items WHERE id = $1 FOR UPDATE', [l.articulo_id])).rows[0].stock;
-        falta = antes < l.cantidad;
-        await client.query('UPDATE inventory_items SET stock = GREATEST(stock - $2, 0), updated_at = NOW() WHERE id = $1', [l.articulo_id, l.cantidad]);
-        if (falta) sinStock.push(`${l.descripcion} T. ${l.talla}`);
-      }
-      await client.query(
-        `INSERT INTO tpv_ticket_lines (ticket_id, position, item_id, description, barcode, size, type, quantity, unit_cents, discount_cents, total_cents, cost_cents, without_stock)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-        [ticket.id, i, l.articulo_id, l.descripcion, l.codigo, l.talla, l.tipo, l.cantidad, l.precio_cent, l.descuento_cent, l.total_cent, l.coste_cent, falta],
-      );
+  const ticket = (await client.query(
+    `INSERT INTO tpv_tickets (year, seq, number, subtotal_cents, discount_cents, total_cents, change_cents, approval_id, seller_id, seller_name, session_id, kind, credit_cents)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+    [year, seq, numero, calculo?.subtotal_cent ?? 0, calculo?.descuento_cent ?? 0, pagado, cambio, aprobacionId, vendedor.id, vendedor.name ?? '',
+      sesion.id, tipo, creditoCent],
+  )).rows[0];
+  const sinStock = [];
+  for (const [i, l] of (calculo?.lineas ?? []).entries()) {
+    let falta = false;
+    if (l.articulo_id) {
+      // Se vende aunque el sistema diga que no hay (el zapato está en la mano); se avisa.
+      const antes = (await client.query('SELECT stock FROM inventory_items WHERE id = $1 FOR UPDATE', [l.articulo_id])).rows[0].stock;
+      falta = antes < l.cantidad;
+      await client.query('UPDATE inventory_items SET stock = GREATEST(stock - $2, 0), updated_at = NOW() WHERE id = $1', [l.articulo_id, l.cantidad]);
+      if (falta) sinStock.push(`${l.descripcion} T. ${l.talla}`);
     }
-    for (const p of pagos) {
-      await client.query('INSERT INTO tpv_ticket_payments (ticket_id, method, amount_cents, tendered_cents) VALUES ($1, $2, $3, $4)', [ticket.id, p.metodo, p.importe, p.entregado]);
-      await client.query('INSERT INTO sales (sold_at, total_cents, payment_method, created_by, ticket_id) VALUES (NOW(), $1, $2, $3, $4)', [p.importe, p.metodo, vendedor.id, ticket.id]);
-    }
-    if (aprobacionId) await client.query("UPDATE tpv_discount_requests SET status = 'usado' WHERE id = $1", [aprobacionId]);
-    return { id: ticket.id, numero, sin_stock: sinStock };
-  });
+    await client.query(
+      `INSERT INTO tpv_ticket_lines (ticket_id, position, item_id, description, barcode, size, type, quantity, unit_cents, discount_cents, total_cents, cost_cents, without_stock)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [ticket.id, i, l.articulo_id, l.descripcion, l.codigo, l.talla, l.tipo, l.cantidad, l.precio_cent, l.descuento_cent, l.total_cent, l.coste_cent, falta],
+    );
+  }
+  for (const p of await cobrarConVales(client, pagos, ticket.id)) {
+    await client.query('INSERT INTO tpv_ticket_payments (ticket_id, method, amount_cents, tendered_cents, voucher_id) VALUES ($1, $2, $3, $4, $5)',
+      [ticket.id, p.metodo, p.importe, p.entregado, p.voucherId ?? null]);
+    await client.query('INSERT INTO sales (sold_at, total_cents, payment_method, created_by, ticket_id) VALUES (NOW(), $1, $2, $3, $4)', [p.importe, p.metodo, vendedor.id, ticket.id]);
+  }
+  if (aprobacionId) await client.query("UPDATE tpv_discount_requests SET status = 'usado' WHERE id = $1", [aprobacionId]);
+  return { id: ticket.id, numero, sin_stock: sinStock };
 }
 
-/** Un ticket completo, para la pantalla y para imprimirlo. */
+/** Registra una venta. `aprobacionId` = descuento aprobado (lo comprueba quien llama). */
+export async function registrarVenta(pool, { venta, calculo, vendedor, aprobacionId = null }) {
+  const pagos = leerPagos(venta.pagos, calculo.total_cent);
+  return withTransaction(pool, (client) => crearTicket(client, { calculo, pagos, vendedor, aprobacionId }));
+}
+
+/** Un ticket completo (venta o cambio), para la pantalla y para imprimirlo. */
 export async function obtenerTicket(db, id, tienda) {
   const t = (await db.query(
     `SELECT t.*, to_char(t.sold_at AT TIME ZONE $2, 'DD/MM/YYYY HH24:MI') AS fecha FROM tpv_tickets t WHERE t.id = $1`, [id, TZ],
   )).rows[0];
   if (!t) throw new HttpError(404, 'Ese ticket no existe.', 'TICKET_NOT_FOUND');
   const lineas = (await db.query('SELECT * FROM tpv_ticket_lines WHERE ticket_id = $1 ORDER BY position', [id])).rows;
-  const pagos = (await db.query('SELECT * FROM tpv_ticket_payments WHERE ticket_id = $1 ORDER BY id', [id])).rows;
+  const pagos = (await db.query(
+    'SELECT p.*, v.code AS vale FROM tpv_ticket_payments p LEFT JOIN tpv_vouchers v ON v.id = p.voucher_id WHERE p.ticket_id = $1 ORDER BY p.id', [id],
+  )).rows;
+  const devueltos = (await db.query('SELECT * FROM tpv_return_lines WHERE ticket_id = $1 ORDER BY id', [id])).rows;
+  const valeEmitido = (await db.query('SELECT code, amount_cents FROM tpv_vouchers WHERE origin_ticket_id = $1 LIMIT 1', [id])).rows[0] ?? null;
   const base = Math.round(t.total_cents / (1 + tienda.igic / 100));
   return {
-    id: t.id, numero: t.number, fecha: t.fecha, vendedor: t.seller_name,
-    subtotal_cent: t.subtotal_cents, descuento_cent: t.discount_cents, total_cent: t.total_cents, cambio_cent: t.change_cents,
+    id: t.id, tipo: t.kind, numero: t.number, fecha: t.fecha, vendedor: t.seller_name,
+    subtotal_cent: t.subtotal_cents, descuento_cent: t.discount_cents, total_cent: t.total_cents, cambio_cent: t.change_cents, credito_cent: t.credit_cents,
     lineas: lineas.map((l) => ({
       descripcion: l.description, talla: l.size, codigo: l.barcode, cantidad: l.quantity, precio_cent: l.unit_cents,
       descuento_cent: l.discount_cents, total_cent: l.total_cents, sin_stock: l.without_stock,
     })),
-    pagos: pagos.map((p) => ({ metodo: p.method, importe_cent: p.amount_cents, entregado_cent: p.tendered_cents })),
+    devueltos: devueltos.map((d) => ({ descripcion: d.description, talla: d.size, cantidad: d.quantity, credito_cent: d.credit_cents })),
+    vale_emitido: valeEmitido ? { codigo: formatoCodigo(valeEmitido.code), importe_cent: valeEmitido.amount_cents } : null,
+    pagos: pagos.map((p) => ({ metodo: p.method, importe_cent: p.amount_cents, entregado_cent: p.tendered_cents, vale: p.vale ? formatoCodigo(p.vale) : null })),
     igic: { pct: tienda.igic, base_cent: base, cuota_cent: t.total_cents - base },
     tienda,
   };

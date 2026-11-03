@@ -9,7 +9,9 @@ import { formatEuros } from '../format.js';
 const METODO = Object.freeze({ efectivo: 'Efectivo', tarjeta: 'Tarjeta', bizum: 'Bizum', bonos: 'Bonos', vales: 'Vale' });
 const fila = (izq, der, cls = '') => h('div', { class: `tk-fila ${cls}` }, [h('span', { text: izq }), h('span', { text: der })]);
 
-/** El ticket como nodo DOM (sirve para verlo en pantalla y para imprimirlo). */
+const esCambio = (t) => t.tipo === 'cambio';
+
+/** El ticket (venta o cambio) como nodo DOM (sirve para verlo en pantalla y para imprimirlo). */
 export function ticketDom(t) {
   const tienda = t.tienda;
   return h('div', { class: 'tk' }, [
@@ -21,9 +23,14 @@ export function ticketDom(t) {
       h('span', { text: `Tel. ${tienda.telefono}` }),
     ]),
     h('div', { class: 'tk-sep' }),
-    fila(`Factura simplificada ${t.numero}`, ''),
+    fila(`${esCambio(t) ? 'Cambio' : 'Factura simplificada'} ${t.numero}`, ''),
     fila(t.fecha, `Le atendió: ${t.vendedor}`),
     h('div', { class: 'tk-sep' }),
+    ...(esCambio(t) ? [
+      h('div', { class: 'tk-desc', text: 'DEVUELVE' }),
+      ...t.devueltos.map((d) => fila(`${d.cantidad} × ${d.descripcion}${d.talla && d.talla !== 'Única' ? ` · T. ${d.talla}` : ''}`, `−${formatEuros(d.credito_cent)}`)),
+      t.lineas.length ? h('div', { class: 'tk-desc', text: 'SE LLEVA' }) : '',
+    ] : []),
     ...t.lineas.flatMap((l) => [
       h('div', { class: 'tk-desc', text: `${l.descripcion}${l.talla && l.talla !== 'Única' ? ` · T. ${l.talla}` : ''}` }),
       fila(`${l.cantidad} × ${formatEuros(l.precio_cent)}`, formatEuros(l.cantidad * l.precio_cent)),
@@ -32,8 +39,11 @@ export function ticketDom(t) {
     h('div', { class: 'tk-sep' }),
     t.descuento_cent ? fila('Subtotal', formatEuros(t.subtotal_cent)) : null,
     t.descuento_cent ? fila('Descuentos', `−${formatEuros(t.descuento_cent)}`) : null,
-    fila('TOTAL', formatEuros(t.total_cent), 'tk-total'),
-    ...t.pagos.map((p) => fila(METODO[p.metodo] ?? p.metodo, formatEuros(p.entregado_cent ?? p.importe_cent))),
+    esCambio(t) ? fila('Lo nuevo', formatEuros(t.subtotal_cent - t.descuento_cent)) : null,
+    esCambio(t) ? fila('Lo devuelto', `−${formatEuros(t.credito_cent)}`) : null,
+    fila(esCambio(t) ? 'A PAGAR' : 'TOTAL', formatEuros(t.total_cent), 'tk-total'),
+    t.vale_emitido ? fila(`Vale ${t.vale_emitido.codigo}`, formatEuros(t.vale_emitido.importe_cent), 'tk-total') : null,
+    ...t.pagos.map((p) => fila(p.vale ? `Vale ${p.vale}` : METODO[p.metodo] ?? p.metodo, formatEuros(p.entregado_cent ?? p.importe_cent))),
     t.cambio_cent ? fila('Cambio', formatEuros(t.cambio_cent)) : null,
     h('div', { class: 'tk-sep' }),
     fila(`Base imponible`, formatEuros(t.igic.base_cent)),

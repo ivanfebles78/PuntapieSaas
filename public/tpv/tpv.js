@@ -4,6 +4,7 @@ import { formatEuros } from '../format.js';
 import { showToast } from '../toast.js';
 import { renderAprobar } from './aprobar.js';
 import { cajaAbierta, renderCaja } from './caja.js';
+import { renderCambio } from './cambio.js';
 import { renderVenta } from './venta.js';
 
 // Ventas › TPV: pantalla de inicio a pantalla completa, pensada para la
@@ -46,7 +47,7 @@ function ico(name, cls = 'tpv-ico') {
 // Las secciones del TPV, en el orden de la pantalla (3 × 3).
 const SECCIONES = Object.freeze([
   { id: 'venta', nombre: 'Venta rápida', detalle: 'Cobrar productos', icono: 'cart', tono: 'coral' },
-  { id: 'cambios', nombre: 'Cambios y devoluciones', icono: 'swap', tono: 'sky' },
+  { id: 'cambios', nombre: 'Cambios y devoluciones', detalle: 'Por otro producto o un vale', icono: 'swap', tono: 'sky' },
   { id: 'promociones', nombre: 'Promociones y descuentos', icono: 'percent', tono: 'sand' },
   { id: 'inventario', nombre: 'Inventario', detalle: 'Stock, tallas y modelos', icono: 'box', tono: 'mint' },
   { id: 'compras', nombre: 'Compras y proveedores', icono: 'truck', tono: 'lilac' },
@@ -173,6 +174,13 @@ export function renderTpv({ main, user, params }) {
     if (await cajaAbierta()) return void vender();
     return void renderCaja(cuerpo, { user, salir, irVenta: vender, alAbrir: vender });
   }
+  async function abrirCambios({ push = false } = {}) {
+    if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=cambios`);
+    cuerpo.classList.add('is-venta');
+    const cambiar = () => renderCambio(cuerpo, { user, salir });
+    if (await cajaAbierta()) return void cambiar();
+    return void renderCaja(cuerpo, { user, salir, irVenta: cambiar, alAbrir: cambiar });
+  }
   function abrirCaja({ push = false, modo = 'resumen' } = {}) {
     if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=caja`);
     cuerpo.classList.add('is-venta');
@@ -182,6 +190,7 @@ export function renderTpv({ main, user, params }) {
   root.addEventListener('click', (e) => {
     const s = e.target.closest('[data-seccion]');
     if (s?.dataset.seccion === 'venta') return void abrirVenta({ push: true });
+    if (s?.dataset.seccion === 'cambios') return void abrirCambios({ push: true });
     if (s) return void proximamente(SECCIONES.find((x) => x.id === s.dataset.seccion).nombre);
     const n = e.target.closest('[data-nav-tpv]');
     if (n?.dataset.navTpv === 'inicio') return void inicio({ push: true });
@@ -200,6 +209,7 @@ export function renderTpv({ main, user, params }) {
     renderAprobar(cuerpo, { token: aprobar, user });
   } else if (params?.get('seccion') === 'venta') abrirVenta();
   else if (params?.get('seccion') === 'caja') abrirCaja();
+  else if (params?.get('seccion') === 'cambios') abrirCambios();
   else inicio();
   if (aprobar || params?.get('seccion')) cargarHoy(root);
   // El reloj se actualiza mientras la pantalla siga abierta.

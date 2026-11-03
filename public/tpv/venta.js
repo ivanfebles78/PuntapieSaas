@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { h } from '../dom.js';
 import { formatEuros } from '../format.js';
 import { showToast } from '../toast.js';
+import { modelosDom, tallaPulsada, valeDom } from './articulos.js';
 import { calcularVenta } from './calculo.js';
 import { cobrar } from './cobro.js';
 import { pedirAprobacion, pedirDescuento, pedirLibre, pedirPrecio } from './dialogos.js';
@@ -149,16 +150,7 @@ export function renderVenta(zona, { user, salir }) {
       resultados.replaceChildren(ayuda(`No hay nada con «${consulta}»`), h('button', { type: 'button', class: 'vt-libre', 'data-libre': '', text: '+ Añadirlo como artículo libre' }));
       return;
     }
-    resultados.replaceChildren(...modelos.map((m, gi) => h('article', { class: 'vt-modelo' }, [
-      h('div', { class: 'vt-m-cab' }, [
-        h('strong', { text: `${m.marca} · ${m.modelo}` }),
-        h('span', { text: [m.referencia, m.color, m.detalle].filter(Boolean).join(' · ') }),
-      ]),
-      h('div', { class: 'vt-tallas' }, m.tallas.map((t, ti) => h('button', {
-        type: 'button', class: `vt-talla${t.stock > 0 ? '' : ' is-agotada'}`, 'data-g': String(gi), 'data-t': String(ti),
-        title: t.stock > 0 ? `${t.stock} en tienda` : 'Sin stock',
-      }, [h('strong', { text: t.talla === 'Única' ? 'Única' : t.talla }), h('span', { text: t.pvp_cent != null ? formatEuros(t.pvp_cent) : 'sin PVP' }), h('small', { text: t.stock > 0 ? `${t.stock} ${t.stock === 1 ? 'ud.' : 'uds.'}` : 'agotada' })]))),
-    ])));
+    resultados.replaceChildren(...modelosDom(modelos));
     resultados.dataset.modelos = JSON.stringify(modelos);
   }
 
@@ -167,6 +159,11 @@ export function renderVenta(zona, { user, salir }) {
     if (!q) return void resultados.replaceChildren(ayuda());
     const res = await api('GET', `/api/tpv/buscar?q=${encodeURIComponent(q)}`);
     if (!res.ok) return void showToast(res.error, { tone: 'error' });
+    // El QR de un vale: se enseña su saldo y sus usos (para pagar con él: Cobrar › Vale).
+    if (res.data.vale) {
+      buscador.value = '';
+      return void resultados.replaceChildren(valeDom(res.data.vale));
+    }
     if (res.data.exacto) {
       buscador.value = '';
       resultados.replaceChildren(ayuda(`Añadido: ${res.data.exacto.marca} ${res.data.exacto.referencia} · T. ${res.data.exacto.talla}`));
@@ -258,8 +255,7 @@ export function renderVenta(zona, { user, salir }) {
     const t = e.target;
     const talla = t.closest('[data-g]');
     if (talla) {
-      const modelos = JSON.parse(resultados.dataset.modelos ?? '[]');
-      const art = modelos[Number(talla.dataset.g)]?.tallas[Number(talla.dataset.t)];
+      const art = tallaPulsada(resultados, talla);
       if (art) await anadir(art);
       return;
     }

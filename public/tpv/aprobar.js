@@ -25,6 +25,16 @@ function tarjeta(s) {
       h('p', { class: 'apr-total' }, [h('strong', { text: `${d > 0 ? 'Sobran' : 'Faltan'} ${formatEuros(Math.abs(d))}` })]),
     ]);
   }
+  if (s.tipo === 'cambio') {
+    return h('div', { class: 'apr-venta' }, [
+      h('p', { class: 'apr-quien', text: `${s.solicitante} pide aceptar un cambio · ${s.creada}` }),
+      h('ul', { class: 'apr-lineas' }, s.lineas.map((l) => h('li', {}, [
+        h('span', { text: `${l.cantidad} × ${l.descripcion}${l.talla && l.talla !== 'Única' ? ` · T. ${l.talla}` : ''}${l.motivo ? ` (${l.motivo}${l.ticket ? ` ${l.ticket}` : ''})` : ''}` }),
+        h('span', { text: formatEuros(l.total_cent) }),
+      ]))),
+      h('p', { class: 'apr-total' }, [h('strong', { text: `Crédito: ${formatEuros(s.total_cent)}` })]),
+    ]);
+  }
   return h('div', { class: 'apr-venta' }, [
     h('p', { class: 'apr-quien', text: `${s.solicitante} pide un ${String(s.pct).replace('.', ',')} % de descuento · ${s.creada}` }),
     h('ul', { class: 'apr-lineas' }, s.lineas.map((l) => h('li', {}, [
@@ -45,7 +55,7 @@ export async function renderAprobar(zona, { token, user }) {
   function pintar(s, mensaje = null) {
     const pendiente = s.estado === 'pendiente';
     caja.replaceChildren(
-      h('h1', { class: 'apr-titulo', tabindex: '-1', text: s.tipo === 'cierre' ? 'Aprobar cierre de caja' : 'Aprobar descuento' }),
+      h('h1', { class: 'apr-titulo', tabindex: '-1', text: { cierre: 'Aprobar cierre de caja', cambio: 'Aprobar cambio' }[s.tipo] ?? 'Aprobar descuento' }),
       tarjeta(s),
       pendiente
         ? h('div', { class: 'apr-botones' }, [

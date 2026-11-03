@@ -5,7 +5,11 @@ import { HttpError, httpErrorHandler } from '../http-error.js';
 import { auditFrom } from '../services/audit.js';
 import { formatEuros } from '../services/money.js';
 import { authenticate } from '../services/users.js';
-import { comprobarAprobacion, crearSolicitud, decidir, estadoSolicitud, marcarAvisada, solicitudPorToken } from '../tpv/aprobaciones.js';
+import {
+  comprobarAprobacion, comprobarAprobacionCambio, crearSolicitud, decidir, estadoSolicitud, marcarAvisada, solicitudPorToken,
+} from '../tpv/aprobaciones.js';
+import { calcularCambio, registrarCambio, valorarDevueltos, ventasDeArticulo } from '../tpv/cambios.js';
+import { leerCodigoVale, obtenerVale } from '../tpv/vales.js';
 import {
   abrirCaja, cajaDiariaHoy, cerrarCaja, DENOMINACIONES, leerRecuento, movimiento, resumenSesion, sesionAbierta, ultimoCierre,
 } from '../tpv/caja.js';
@@ -57,8 +61,10 @@ export function tpvRouter({ pool, config, log = console, enviar = fetch }) {
 
   /* ---------- Venta ---------- */
 
+  // Lo escaneado puede ser un artículo o el QR de un vale (entonces se enseña el vale).
   router.get('/buscar', vende, handle(async (req, res) => {
-    res.json({ ok: true, data: await buscarArticulos(pool, req.query.q) });
+    if (leerCodigoVale(req.query.q)) return void res.json({ ok: true, data: { exacto: null, modelos: [], vale: await obtenerVale(pool, req.query.q) } });
+    return void res.json({ ok: true, data: await buscarArticulos(pool, req.query.q) });
   }));
 
   // Cálculo con los precios del stock (la pantalla lo usa para mostrar totales y la regla del 15 %).
@@ -123,9 +129,67 @@ export function tpvRouter({ pool, config, log = console, enviar = fetch }) {
   router.post('/aprobar/:token', soloAdmin, handle(async (req, res) => {
     const aprobar = req.body?.decision === 'aprobar';
     const s = await decidir(pool, req.params.token, { aprobar, admin: req.user });
-    const que = s.tipo === 'cierre' ? `Cierre de caja con descuadre pedido por ${s.solicitante}` : `Descuento del ${s.pct} % pedido por ${s.solicitante}`;
+    const que = { cierre: `Cierre de caja con descuadre pedido por ${s.solicitante}`, cambio: `Cambio por ${formatEuros(s.total_cent)} pedido por ${s.solicitante}` }[s.tipo] ?? `Descuento del ${s.pct} % pedido por ${s.solicitante}`;
     await audit(req, { area: 'ventas', action: 'editar', target: que, changes: [{ field: 'Decisión', from: 'Pendiente', to: aprobar ? 'Aprobado' : 'Rechazado' }] });
     res.json({ ok: true, data: s });
+  }));
+
+  /* ---------- Cambios y vales ---------- */
+
+  // Producto que se devuelve: sus ventas en el TPV (para elegir de cuál sale) o, si no se encuentra exacto, los modelos.
+  router.get('/cambios/articulo', vende, handle(async (req, res) => {
+    const r = await buscarArticulos(pool, req.query.q);
+    if (!r.exacto) return void res.json({ ok: true, data: { articulo: null, modelos: r.modelos } });
+    return void res.json({ ok: true, data: { articulo: r.exacto, ventas: await ventasDeArticulo(pool, r.exacto.id) } });
+  }));
+
+  router.get('/cambios/ventas/:articuloId', vende, handle(async (req, res) => {
+    res.json({ ok: true, data: await ventasDeArticulo(pool, readId(req.params.articuloId, 'Ese artículo')) });
+  }));
+
+  router.post('/cambios/calcular', vende, handle(async (req, res) => {
+    res.json({ ok: true, data: await calcularCambio(pool, req.body) });
+  }));
+
+  router.post('/cambios', vende, handle(async (req, res) => {
+    const vendedor = req.user;
+    const r = await registrarCambio(pool, {
+      cambio: req.body,
+      vendedor,
+      comprobarAprobacion: (client, credito) => comprobarAprobacionCambio(client, req.body?.aprobacion_id, { credito, vendedor }),
+    });
+    await audit(req, {
+      area: 'ventas', action: 'crear', target: `Cambio ${r.numero}`,
+      changes: [
+        { field: 'Devuelto', from: null, to: formatEuros(r.credito) },
+        ...(r.vale ? [{ field: 'Vale emitido', from: null, to: r.vale.codigo }] : []),
+        ...(r.motivos.length ? [{ field: 'Con aprobación', from: null, to: r.motivos.join(', ') }] : []),
+      ],
+    });
+    const ticket = await obtenerTicket(pool, r.id, config.tienda);
+    const vale = r.vale ? await obtenerVale(pool, r.vale.codigo, { conQr: true }) : null;
+    res.status(201).json({ ok: true, data: { ...ticket, sin_stock: r.sin_stock, vale } });
+  }));
+
+  router.post('/cambios/aprobaciones/presencial', vende, limitePresencial, handle(async (req, res) => {
+    const admin = await adminPresente(req.body);
+    const dev = await valorarDevueltos(pool, req.body?.devueltos);
+    if (!dev.requiere_aprobacion) throw new HttpError(400, 'Este cambio no necesita aprobación.', 'NO_APPROVAL_NEEDED');
+    const s = await crearSolicitud(pool, { cambio: dev, solicitante: req.user, canal: 'presencial', estado: 'aprobado', decididoPor: admin.id });
+    await audit(req, { area: 'ventas', action: 'editar', target: `Cambio por ${formatEuros(dev.credito)} (${dev.motivos.join(', ')})`, changes: [{ field: 'Aprobado en la caja por', from: null, to: admin.name }] });
+    res.status(201).json({ ok: true, data: await estadoSolicitud(pool, s.id, req.user) });
+  }));
+
+  router.post('/cambios/aprobaciones', vende, handle(async (req, res) => {
+    const dev = await valorarDevueltos(pool, req.body?.devueltos);
+    if (!dev.requiere_aprobacion) throw new HttpError(400, 'Este cambio no necesita aprobación.', 'NO_APPROVAL_NEEDED');
+    const s = await crearSolicitud(pool, { cambio: dev, solicitante: req.user, canal: 'whatsapp' });
+    await avisar(req, res, s, { tipo: 'cambio', total: dev.credito, motivos: dev.motivos });
+  }));
+
+  // Un vale (al escanear su QR): importe, saldo, caducidad y usos; con el QR para reimprimirlo.
+  router.get('/vales/:codigo', handle(async (req, res) => {
+    res.json({ ok: true, data: { ...(await obtenerVale(pool, req.params.codigo, { conQr: true })), tienda: config.tienda } });
   }));
 
   /* ---------- Caja: apertura, movimientos y cierre ---------- */

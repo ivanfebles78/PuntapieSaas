@@ -1,10 +1,12 @@
+import { api } from '../api.js';
 import { openDialog } from '../dialogs.js';
 import { h } from '../dom.js';
 import { formatEuros } from '../format.js';
 import { centToEur, eurToCent } from '../proveedores/util.js';
 
 // Cobro de una venta: uno o varios métodos (p. ej. 20 € con vale y el resto
-// con tarjeta). En efectivo se escribe lo entregado y sale el cambio.
+// con tarjeta). En efectivo se escribe lo entregado y sale el cambio; con
+// vale se escanea su QR y se usa su saldo.
 
 const METODOS = Object.freeze([['efectivo', 'Efectivo'], ['tarjeta', 'Tarjeta'], ['bizum', 'Bizum'], ['bonos', 'Bonos'], ['vales', 'Vale']]);
 const BILLETES = Object.freeze([500, 1000, 2000, 5000, 10000]);
@@ -38,6 +40,12 @@ export function cobrar(total) {
         h('button', { type: 'button', 'data-i': String(i), 'data-billete': 'justo', text: 'Justo' }),
         ...BILLETES.filter((b) => b >= (p.importe ?? 0) || b === 10000).map((b) => h('button', { type: 'button', 'data-i': String(i), 'data-billete': String(b), text: formatEuros(b).replace(',00', '') })),
       ]),
+    ]) : p.metodo === 'vales' ? h('div', { class: 'cobro-vale' }, [
+      h('input', {
+        class: 'cobro-codigo', value: p.vale ?? '', autocomplete: 'off', spellcheck: 'false', placeholder: 'Escanea el QR del vale',
+        'data-i': String(i), 'data-campo': 'vale', 'aria-label': 'Código del vale',
+      }),
+      h('span', { class: `cobro-vale-info${p.error ? ' is-error' : ''}`, text: p.error ?? p.info ?? '' }),
     ]) : null;
     return h('div', { class: 'cobro-fila' }, [
       h('strong', { text: nombre }),
@@ -55,6 +63,13 @@ export function cobrar(total) {
   const contenido = h('div', { class: 'cobro' }, [resumen, metodos, filas]);
   contenido.addEventListener('click', (e) => {
     const m = e.target.closest('[data-metodo]');
+    if (m?.dataset.metodo === 'vales') {
+      // Cada vale va en su fila: se escanea y se usa su saldo (hasta lo que falte).
+      pagos = [...pagos, { metodo: 'vales', importe: null, vale: null, info: null, error: null }];
+      pintar();
+      filas.querySelector(`[data-i="${pagos.length - 1}"][data-campo=vale]`)?.focus();
+      return;
+    }
     if (m) {
       const ya = pagos.find((p) => p.metodo === m.dataset.metodo);
       const resto = Math.max(falta(), 0);
@@ -78,9 +93,30 @@ export function cobrar(total) {
       pintar();
     }
   });
+  // La pistola escribe el código del vale y pulsa Intro: se consulta su saldo (sin enviar el cobro).
+  contenido.addEventListener('keydown', async (e) => {
+    const campo = e.target.closest('[data-campo=vale]');
+    if (!campo || e.key !== 'Enter') return;
+    e.preventDefault();
+    const i = Number(campo.dataset.i);
+    const p = pagos[i];
+    const res = await api('GET', `/api/tpv/vales/${encodeURIComponent(campo.value.trim())}`);
+    p.vale = null;
+    p.info = null;
+    p.error = null;
+    if (!res.ok) p.error = res.error;
+    else if (pagos.some((x, j) => j !== i && x.vale === res.data.codigo)) p.error = 'Ese vale ya está en el cobro.';
+    else if (res.data.estado !== 'activo') p.error = `Vale ${res.data.codigo_legible}: ${res.data.estado}.`;
+    else {
+      p.vale = res.data.codigo;
+      p.importe = Math.min(res.data.saldo_cent, Math.max(falta() + (p.importe ?? 0), 0));
+      p.info = `Saldo ${formatEuros(res.data.saldo_cent)} · caduca ${res.data.caduca}`;
+    }
+    pintar();
+  });
   contenido.addEventListener('input', (e) => {
     const campo = e.target.closest('[data-campo]');
-    if (!campo) return;
+    if (!campo || campo.dataset.campo === 'vale') return;
     const p = pagos[Number(campo.dataset.i)];
     p[campo.dataset.campo] = eurToCent(campo.value);
     pintarResumen();
@@ -94,11 +130,12 @@ export function cobrar(total) {
     submitLabel: 'Cobrar',
     onSubmit: async () => {
       if (!pagos.length) return { error: 'Elige cómo paga el cliente.' };
+      if (pagos.some((p) => p.metodo === 'vales' && !p.vale)) return { error: 'Escanea el QR de cada vale (y pulsa Intro si lo escribes a mano).' };
       if (pagos.some((p) => !(p.importe > 0))) return { error: 'Cada método necesita su importe.' };
       if (falta() !== 0) return { error: falta() > 0 ? `Faltan ${formatEuros(falta())}.` : `Sobran ${formatEuros(-falta())}: revisa los importes.` };
       const ef = pagos.find((p) => p.metodo === 'efectivo');
       if (ef?.entregado != null && ef.entregado < ef.importe) return { error: 'El efectivo entregado no llega a su importe.' };
-      return pagos.map((p) => ({ metodo: p.metodo, importe_cent: p.importe, entregado_cent: p.metodo === 'efectivo' ? p.entregado : null }));
+      return pagos.map((p) => ({ metodo: p.metodo, importe_cent: p.importe, entregado_cent: p.metodo === 'efectivo' ? p.entregado : null, vale: p.vale ?? null }));
     },
   });
 }

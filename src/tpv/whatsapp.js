@@ -17,6 +17,7 @@ export function textoSolicitud(s) {
     const d = s.contado - s.esperado;
     return `${s.quien} quiere cerrar la caja de Puntapié con un descuadre: ${d > 0 ? 'sobran' : 'faltan'} ${euros(Math.abs(d))} (esperado ${euros(s.esperado)}, contado ${euros(s.contado)})`;
   }
+  if (s.tipo === 'cambio') return `${s.quien} pide aceptar un cambio por ${euros(s.total)} en Puntapié (${s.motivos.join(' y ')})`;
   return `${s.quien} pide un descuento del ${pct(s.pct)} en una venta de ${euros(s.total)} en Puntapié`;
 }
 

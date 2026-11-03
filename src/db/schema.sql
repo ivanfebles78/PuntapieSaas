@@ -587,3 +587,58 @@ ALTER TABLE tpv_discount_requests ADD CONSTRAINT tpv_discount_requests_kind_chec
 ALTER TABLE tpv_discount_requests ADD COLUMN IF NOT EXISTS session_id INTEGER REFERENCES tpv_cash_sessions(id) ON DELETE CASCADE;
 ALTER TABLE tpv_discount_requests DROP CONSTRAINT IF EXISTS tpv_discount_requests_percent_check;
 ALTER TABLE tpv_discount_requests ADD CONSTRAINT tpv_discount_requests_percent_check CHECK (percent >= 0 AND percent <= 100);
+
+-- ===================== TPV: cambios y vales =====================
+-- Un cambio es un ticket de tipo «cambio»: lo devuelto (que vuelve al stock)
+-- se descuenta de lo nuevo que se lleva. Si lo nuevo vale más, se paga la
+-- diferencia; si vale menos (o no se lleva nada), el resto va a un vale.
+-- No se devuelve dinero.
+ALTER TABLE tpv_tickets ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'venta';
+ALTER TABLE tpv_tickets DROP CONSTRAINT IF EXISTS tpv_tickets_kind_check;
+ALTER TABLE tpv_tickets ADD CONSTRAINT tpv_tickets_kind_check CHECK (kind IN ('venta', 'cambio'));
+ALTER TABLE tpv_tickets ADD COLUMN IF NOT EXISTS credit_cents INTEGER NOT NULL DEFAULT 0;
+
+-- Vale: un código (va en el QR), importe, saldo y caducidad (1 año). Se puede
+-- gastar en varias compras hasta agotar el saldo.
+CREATE TABLE IF NOT EXISTS tpv_vouchers (
+  id               SERIAL PRIMARY KEY,
+  code             TEXT NOT NULL UNIQUE,
+  issued_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_on       DATE NOT NULL,
+  amount_cents     INTEGER NOT NULL CHECK (amount_cents > 0),
+  balance_cents    INTEGER NOT NULL CHECK (balance_cents >= 0),
+  origin_ticket_id INTEGER REFERENCES tpv_tickets(id) ON DELETE SET NULL,
+  issued_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  CHECK (balance_cents <= amount_cents)
+);
+
+CREATE TABLE IF NOT EXISTS tpv_voucher_uses (
+  id           SERIAL PRIMARY KEY,
+  voucher_id   INTEGER NOT NULL REFERENCES tpv_vouchers(id) ON DELETE CASCADE,
+  ticket_id    INTEGER NOT NULL REFERENCES tpv_tickets(id) ON DELETE CASCADE,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS tpv_voucher_uses_voucher_idx ON tpv_voucher_uses(voucher_id);
+ALTER TABLE tpv_ticket_payments ADD COLUMN IF NOT EXISTS voucher_id INTEGER REFERENCES tpv_vouchers(id) ON DELETE SET NULL;
+
+-- Lo devuelto en un cambio: de qué venta del TPV sale (o el importe del ticket
+-- de papel, con aprobación) y cuánto se le reconoce.
+CREATE TABLE IF NOT EXISTS tpv_return_lines (
+  id                SERIAL PRIMARY KEY,
+  ticket_id         INTEGER NOT NULL REFERENCES tpv_tickets(id) ON DELETE CASCADE,
+  item_id           INTEGER REFERENCES inventory_items(id) ON DELETE SET NULL,
+  sold_line_id      INTEGER REFERENCES tpv_ticket_lines(id) ON DELETE SET NULL,
+  description       TEXT NOT NULL,
+  size              TEXT,
+  quantity          INTEGER NOT NULL CHECK (quantity > 0),
+  credit_cents      INTEGER NOT NULL CHECK (credit_cents >= 0),
+  paper_ticket      TEXT,
+  sold_on           DATE
+);
+
+CREATE INDEX IF NOT EXISTS tpv_return_lines_sold_idx ON tpv_return_lines(sold_line_id);
+
+ALTER TABLE tpv_discount_requests DROP CONSTRAINT IF EXISTS tpv_discount_requests_kind_check;
+ALTER TABLE tpv_discount_requests ADD CONSTRAINT tpv_discount_requests_kind_check CHECK (kind IN ('descuento', 'cierre', 'cambio'));

@@ -196,6 +196,48 @@
   .cj-cols, .cj-cols-cierre, .rc { grid-template-columns: 1fr; }
 }
 
+/* ---------- Cambios y vales ---------- */
+
+.cb-barra2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.cb-modos { display: inline-flex; gap: 6px; padding: 4px; border-radius: 16px; background: #e3e7ed; }
+.cb-modos button { height: 48px; padding: 0 18px; border: 0; border-radius: 12px; background: transparent; color: var(--tpv-ink); font: inherit; font-weight: 700; cursor: pointer; }
+.cb-modos button[aria-pressed='true'] { background: var(--tpv-navy); color: #fff; }
+.cb-titulo { margin: 4px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--tpv-muted); }
+.cb-lista { display: grid; gap: 4px; align-content: start; overflow: auto; min-height: 0; }
+.cb-ventas { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
+.cb-ventas li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 12px; border-radius: 14px; background: #f6f7f9; }
+.cb-ventas li > span:first-child { flex: 1; min-width: 200px; }
+.cb-ventas .vt-libre { height: 46px; }
+.cb-plazo { padding: 4px 10px; border-radius: 999px; background: #fde6c4; color: #8a4b05; font-size: 13px; font-weight: 700; }
+.cb-impresos { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+
+.vt-vale { display: grid; gap: 10px; padding: 18px; border-radius: 20px; background: var(--tpv-card); border: 2px solid #1d7a4c; }
+.vt-vale.is-agotado, .vt-vale.is-caducado { border-color: #a93a2f; }
+.vt-vale-cab { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.vt-vale-cab strong { font-family: var(--font-display); font-size: 24px; }
+.vt-vale-estado { padding: 4px 12px; border-radius: 999px; background: #d3f0e2; color: #14553a; font-weight: 700; }
+.vt-vale.is-agotado .vt-vale-estado, .vt-vale.is-caducado .vt-vale-estado { background: #fbd9d3; color: #7a2418; }
+.vt-vale-cifras { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.vt-vale-cifras div { display: grid; padding: 10px 12px; border-radius: 14px; background: #f3f5f8; }
+.vt-vale-cifras span { font-size: 13px; color: var(--tpv-muted); }
+.vt-vale-cifras strong { font-size: 20px; }
+.vt-vale-origen { margin: 0; color: var(--tpv-muted); }
+.vt-vale-usos { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.vt-vale-usos li { display: flex; justify-content: space-between; gap: 10px; }
+
+.cobro-vale { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr; gap: 4px; }
+.cobro-codigo { height: 46px; padding: 0 12px; border: 1.5px dashed #1f2b3d; border-radius: 12px; font: inherit; font-size: 17px; letter-spacing: 0.06em; text-transform: uppercase; }
+.cobro-vale-info { font-size: 14px; font-weight: 600; color: #14553a; }
+.cobro-vale-info.is-error { color: #a93a2f; }
+
+/* Vale impreso (80 mm) */
+.vl-titulo { margin: 4px 0 0; text-align: center; font-weight: 800; letter-spacing: 0.12em; }
+.vl-importe { margin: 2px 0 4px; text-align: center; font-size: 28px; font-weight: 800; }
+.vl-qr { display: block; width: 34mm; height: 34mm; margin: 0 auto; }
+.vl-codigo { margin: 2px 0 0; text-align: center; font-size: 14px; font-weight: 700; letter-spacing: 0.08em; }
+.vl-condiciones { margin: 4px 0 0; padding-left: 14px; font-size: 10px; line-height: 1.3; }
+.vl-condiciones li { margin-bottom: 2px; }
+
 /* ---------- Ticket de 80 mm ---------- */
 
 .tk { width: 72mm; font-family: "Courier New", ui-monospace, monospace; font-size: 11.5px; line-height: 1.35; color: #000; }
