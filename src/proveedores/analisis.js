@@ -7,6 +7,7 @@ import { cleanFilename, validateUpload } from '../services/expense-files.js';
 import { extraerConIA } from './extract/ai.js';
 import { extractPdfText } from './extract/pdfText.js';
 import { detectParser, parseDocumento, PARSERS, vacio } from './parsers/index.js';
+import { catalogoTipos, proponerTipos } from '../stock/propuesta.js';
 import { documentoConProductos } from '../stock/repo.js';
 import { buscarDuplicado, guardarArchivo } from './repo.js';
 
@@ -102,7 +103,10 @@ export async function analizarPdf(pool, { data: raw, filename, mime }, { userId,
     'INSERT INTO supplier_uploads (temp_id, filename, sha256, data, created_by) VALUES ($1, $2, $3, $4, $5)',
     [tempId, nombre, hash, data, userId],
   );
-  const { extraido, texto } = await extraer(data, settings);
+  const leido = await extraer(data, settings);
+  const { texto } = leido;
+  // Cada producto leído llega con el tipo y subtipo propuestos (se cambian en la revisión).
+  const extraido = { ...leido.extraido, lineas: await proponerTipos(pool, leido.extraido.lineas, { parser: leido.extraido.parser }) };
   const duplicado = await buscarDuplicado(pool, {
     hash,
     cif: extraido.proveedor.cif,
@@ -116,7 +120,7 @@ export async function analizarPdf(pool, { data: raw, filename, mime }, { userId,
   const productosEnPedido = await documentoConProductos(pool, {
     tipo: extraido.tipo, cif: extraido.proveedor.cif, nombre: extraido.proveedor.nombre, numero: extraido.numero, pedidos: extraido.pedidos,
   });
-  return { tempId, hash, archivo_nombre: nombre, extraido, duplicado, productos_en_pedido: productosEnPedido, texto };
+  return { tempId, hash, archivo_nombre: nombre, extraido, duplicado, productos_en_pedido: productosEnPedido, texto, tipos: await catalogoTipos(pool) };
 }
 
 /** Pasa el PDF temporal a archivo definitivo. Devuelve { fileId, hash, nombre } o null. */

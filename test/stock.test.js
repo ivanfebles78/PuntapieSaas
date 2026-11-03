@@ -10,6 +10,7 @@ import { digitoControl, esEan13, nuevoCodigo } from '../src/stock/barcode.js';
 import { ETIQUETA, generarEtiquetasPdf, modulosEan13 } from '../src/stock/pdf/etiquetas.js';
 import { validarLineas } from '../src/stock/repo.js';
 import { leerTalla, tallaParaTipo, tipoPorDefecto } from '../src/stock/tipos.js';
+import { tipoPorPalabras } from '../src/stock/propuesta.js';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, TEST_DATABASE_URL, startTestServer } from './helpers.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -219,6 +220,23 @@ test('cada tipo admite sus tallas y las guarda normalizadas', () => {
   assert.equal(tipoPorDefecto(0), 'accesorios', 'sin talla y sin tipo: accesorio');
 });
 
+test('la descripción propone tipo y subtipo (con tildes y abreviaturas de factura)', () => {
+  const casos = {
+    'TDM QUEEN MOCHILA ST/AC': ['accesorios', 'Mochilas'],
+    'TDM BO.500ML FLUOR PINK 240617': ['accesorios', 'Botellas'],
+    'TANDEM BOT.500ML SELVA': ['accesorios', 'Botellas'],
+    'TDM PTDO.TRIPLE CPO.C/SOL.VERD': ['accesorios', 'Estuches'],
+    'CAY PARCHIS-OCA PIRATAS': ['juguetes', 'Juegos de mesa'],
+    'Calcetines altos básicos canalé': ['ropa', 'Calcetines'],
+    'Pijama rayas': ['ropa', 'Pijamas'],
+    'BAÑADOR NIÑO': ['ropa', 'Bañadores'],
+    'YOYÓ LUMINOSO': ['juguetes', 'Yoyós'],
+    'Bota agua': ['calzado', 'Botas'],
+  };
+  for (const [texto, [tipo, subtipo]] of Object.entries(casos)) assert.deepEqual(tipoPorPalabras(texto), { tipo, subtipo }, texto);
+  for (const texto of ['Melrose', 'SUEDE MARINO', 'BOTONES', 'CAY EXP.FUN BLOCKS']) assert.equal(tipoPorPalabras(texto), null, texto);
+});
+
 test('validarLineas comprueba la talla según el tipo y el color si el tipo lo pide', () => {
   const base = { marca: 'Cayro', referencia: 'C-1', cantidad: 1 };
   assert.equal(validarLineas([{ ...base, tipo: 'juguetes' }])[0].talla, 'Única', 'un juguete no necesita color ni talla');
@@ -351,6 +369,8 @@ describe('API de stock: pedido → etiquetas → recepción', { skip: !TEST_DATA
     assert.equal(doc.entrada.unidades, 0);
     const leido = await admin('GET', `/api/stock/entradas/${doc.id}/leer`);
     assert.equal(leido.data.lineas.length, 2);
+    assert.ok(leido.data.lineas.every((l) => l.tipo === 'calzado' && l.propuesta), 'cada línea llega con su tipo propuesto');
+    assert.deepEqual(leido.data.tipos.map((t) => t.id), ['calzado', 'ropa', 'accesorios', 'juguetes'], 'y el catálogo para elegir');
     const alta = await admin('POST', `/api/stock/entradas/${doc.id}`, { lineas: leido.data.lineas, marca: 'Lejan' });
     assert.equal(alta.status, 201);
     assert.equal(alta.data.totales.pendientes, 2);
@@ -434,5 +454,37 @@ describe('API de stock: pedido → etiquetas → recepción', { skip: !TEST_DATA
     assert.equal((await admin('GET', '/api/stock/inventario?q=4006381333931')).data.articulos[0].id, juguetes[0].id, 'escanear el código de fábrica lo encuentra');
     assert.equal((await admin('PUT', `/api/stock/articulos/${pijama.id}`, { codigo_fabricante: '4006381333931' })).status, 409);
     assert.equal((await admin('PUT', `/api/stock/articulos/${pijama.id}`, { codigo_fabricante: '4006381333932' })).status, 400, 'EAN con control mal');
+  });
+
+  test('la propuesta recuerda lo elegido: misma referencia → mismo tipo; marca conocida → su tipo habitual', async () => {
+    const { proponerTipos } = await import('../src/stock/propuesta.js');
+    const pool = (await import('pg')).default.Pool;
+    const db = new pool({ connectionString: TEST_DATABASE_URL });
+    try {
+      const [ref, palabra, lector, marca, talla] = await proponerTipos(db, [
+        { marca: 'Cayro', referencia: '843', modelo: 'Lo que sea', talla: 0 }, // ya está como juguete (test anterior)
+        { marca: 'Nueva', referencia: 'X', modelo: 'Mochila dino', talla: 0 },
+        { tipo: 'ropa', marca: 'Cóndor', referencia: 'C-9', modelo: 'Leggins', talla: 4 },
+        { marca: 'Cayro', referencia: 'NUEVA', modelo: 'Expositor', talla: 0 },
+        { marca: 'Sin historia', referencia: 'Z', modelo: 'Modelo', talla: 31 },
+      ]);
+      assert.deepEqual([ref.tipo, ref.propuesta], ['juguetes', 'stock']);
+      assert.ok(ref.subtipo_id, 'con el subtipo que se eligió');
+      assert.deepEqual([palabra.tipo, palabra.propuesta], ['accesorios', 'palabra']);
+      assert.ok(palabra.subtipo_id);
+      assert.deepEqual([lector.tipo, lector.propuesta], ['ropa', 'lector']);
+      assert.deepEqual([marca.tipo, marca.propuesta], ['juguetes', 'marca']);
+      assert.deepEqual([talla.tipo, talla.propuesta], ['calzado', 'talla']);
+      const [zapato, caja] = await proponerTipos(db, [
+        { marca: 'Victoria', referencia: 'V-1', modelo: 'Bailarina', talla: 24 },
+        { marca: 'Victoria', referencia: 'V-2', modelo: 'Caja surtida', talla: 0 },
+      ], { parser: 'victoria' });
+      assert.deepEqual([zapato.tipo, zapato.propuesta], ['calzado', 'lector'], 'un lector de zapatería propone calzado');
+      assert.deepEqual([caja.tipo, caja.propuesta], ['accesorios', 'talla'], 'salvo lo que no lleva número de pie');
+      const [mal] = await proponerTipos(db, [{ marca: 'Otra', referencia: 'Y', modelo: 'Pijama', talla: 31 }]);
+      assert.match(mal.aviso_tipo, /talla «31» no válida para ropa/, 'avisa si la talla no encaja con el tipo propuesto');
+    } finally {
+      await db.end();
+    }
   });
 });

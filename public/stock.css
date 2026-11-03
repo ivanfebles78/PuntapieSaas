@@ -83,10 +83,18 @@
 .plines-detail summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
 .plines-table .pinput { min-width: 0; width: 100%; padding: 6px 8px; }
 .plines-table td { padding: 4px 6px; }
-.plines-table td:nth-child(4) .pinput,
-.plines-table td:nth-child(5) .pinput { width: 64px; }
-.plines-table td:nth-child(6) .pinput,
-.plines-table td:nth-child(7) .pinput { width: 80px; }
+.plines-table td:nth-child(5) .pinput,
+.plines-table td:nth-child(6) .pinput { width: 64px; }
+.plines-table td:nth-child(7) .pinput,
+.plines-table td:nth-child(8) .pinput { width: 80px; }
+
+/* Tipo y subtipo de cada producto; en ámbar si solo se dedujo de la talla. */
+.plines-tipos { display: grid; gap: 4px; min-width: 132px; }
+.plines-table .plines-tipos .pinput { padding: 4px 6px; font-size: 13px; height: 32px; }
+.plines-tipos.is-dudoso .plines-tipo { border-color: var(--pv-amber-ink); background: var(--pv-amber-wash); }
+.plines-table .plines-detalle { margin-top: 4px; font-size: 12.5px; height: 30px; color: var(--espresso-soft, #5b4d42); }
+.plines-todas { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--espresso-soft, #5b4d42); }
+.plines-todas .pinput { width: auto; height: 34px; padding: 4px 8px; }
 
 .review-note { margin: 8px 0 0; }
 

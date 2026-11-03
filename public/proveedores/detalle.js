@@ -129,11 +129,14 @@ function productosSinAlta(d, onDone) {
   enlazarLineas(caja);
   const mostrar = (r) => caja.replaceChildren(h('div', { class: 'review' }, [
     r.avisos?.length ? h('ul', { class: 'review-avisos' }, r.avisos.map((a) => h('li', { text: a }))) : null,
-    bloqueLineas(r, r.productos_en_pedido),
+    bloqueLineas(r, r.productos_en_pedido, r.tipos),
     r.productos_en_pedido ? null : h('div', { class: 'pbtn-row pmt' }, h('button', { class: 'pbtn pbtn-primary', type: 'button', 'data-alta-productos': '', text: 'Dar de alta como pendientes de recibir' })),
   ]));
   section.addEventListener('click', async (e) => {
-    if (e.target.closest('[data-a-mano]')) return void mostrar({ lineas: [] });
+    if (e.target.closest('[data-a-mano]')) {
+      const tipos = await api('GET', '/api/stock/tipos');
+      return void mostrar({ lineas: [], tipos: tipos.ok ? tipos.data : null });
+    }
     if (e.target.closest('[data-leer-productos]')) {
       const res = await api('GET', `/api/stock/entradas/${d.id}/leer`);
       if (!res.ok) return void showToast(res.error, { tone: 'error' });

@@ -93,7 +93,7 @@ function tarjeta(r, i) {
         h('button', { class: 'pbtn pbtn-sm', type: 'button', 'data-add-vto': '', text: '＋ Añadir vencimiento' }),
       ]),
     ]),
-    bloqueLineas(e, r.productos_en_pedido),
+    bloqueLineas(e, r.productos_en_pedido, r.tipos),
     r.texto ? h('details', { class: 'review-raw' }, [h('summary', { text: 'Ver texto extraído del PDF' }), h('pre', { text: r.texto })]) : null,
   ]);
   return h('article', { class: 'review', 'data-i': String(i) }, [

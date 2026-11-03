@@ -12,6 +12,47 @@ import { centToEur, eurToCent } from './util.js';
 
 const unidades = (lineas) => lineas.reduce((s, l) => s + l.cantidad, 0);
 const FACTOR_MAX = 20;
+const COLUMNAS = 9;
+
+// Tipos de producto con sus subtipos (llegan con el análisis del PDF). Es el
+// mismo catálogo para todas las tarjetas.
+let catalogo = [];
+
+const PROPUESTA = Object.freeze({
+  stock: 'Ya está en el inventario con este tipo',
+  palabra: 'Lo dice la descripción',
+  lector: 'Lo indica el lector del proveedor',
+  marca: 'Es lo habitual de esta marca',
+  talla: 'Deducido de la talla: revísalo',
+});
+
+function opcionesSubtipo(select, tipo, actual) {
+  const subtipos = catalogo.find((t) => t.id === tipo)?.subtipos ?? [];
+  select.replaceChildren(
+    h('option', { value: '', text: '— Subtipo —' }),
+    ...subtipos.map((s) => h('option', { value: String(s.id), text: s.nombre, selected: s.id === actual })),
+  );
+}
+
+function celdaTipo(l) {
+  const tipo = l.tipo ?? catalogo[0]?.id ?? 'calzado';
+  const sel = h('select', { class: 'pinput plines-tipo', 'data-k': 'tipo', 'aria-label': 'Tipo de producto', title: PROPUESTA[l.propuesta] ?? null },
+    catalogo.map((t) => h('option', { value: t.id, text: t.nombre, selected: t.id === tipo })));
+  const sub = h('select', { class: 'pinput plines-subtipo', 'data-k': 'subtipo', 'aria-label': 'Subtipo' });
+  opcionesSubtipo(sub, tipo, l.subtipo_id ?? null);
+  return h('td', { class: `plines-tipos${l.propuesta === 'talla' || l.aviso_tipo ? ' is-dudoso' : ''}` }, [sel, sub]);
+}
+
+/** Selector para poner el mismo tipo a todas las filas (una factura de solo mochilas, por ejemplo). */
+function tipoParaTodas() {
+  return h('label', { class: 'plines-todas' }, [
+    h('span', { text: 'Tipo para todas' }),
+    h('select', { class: 'pinput', 'data-tipo-todas': '', 'aria-label': 'Poner el mismo tipo a todas las filas' }, [
+      h('option', { value: '', text: '—' }),
+      ...catalogo.map((t) => h('option', { value: t.id, text: t.nombre })),
+    ]),
+  ]);
+}
 
 /** Botones para calcular el PVP de todas las filas multiplicando el coste. */
 function pvpDesdeCoste() {
@@ -42,10 +83,13 @@ const docLabel = (d) => `${d.tipo === 'factura' ? 'la factura' : 'el pedido'} ${
 
 function fila(l) {
   const input = (k, value, attrs = {}) => h('input', { class: 'pinput', 'data-k': k, value: value ?? '', ...attrs });
-  // El tipo (calzado, ropa…) lo propone el lector; sin él, el servidor lo deduce de la talla.
-  return h('tr', { 'data-linea': '', 'data-tramo': l.tramo?.id ?? null, 'data-tipo': l.tipo ?? null }, [
+  return h('tr', { 'data-linea': '', 'data-tramo': l.tramo?.id ?? null }, [
+    celdaTipo(l),
     h('td', {}, input('referencia', l.referencia, { class: 'pinput mono', 'aria-label': 'Referencia' })),
-    h('td', {}, input('modelo', l.modelo, { 'aria-label': 'Modelo' })),
+    h('td', {}, [
+      input('modelo', l.modelo, { 'aria-label': 'Modelo' }),
+      input('detalle', l.detalle, { class: 'pinput plines-detalle', maxlength: '200', placeholder: 'Detalle (piel, velcro…)', 'aria-label': 'Detalle' }),
+    ]),
     h('td', {}, input('color', l.color, { 'aria-label': 'Color' })),
     h('td', {}, input('talla', l.talla === '' || l.talla === 0 ? '' : String(l.talla), { class: 'pinput num', maxlength: '10', placeholder: 'Única', 'aria-label': 'Talla (27, M, 4A, 19-22; vacía = única)' })),
     h('td', {}, input('cantidad', String(l.cantidad), { type: 'number', min: '0', max: '1000', class: 'pinput num', 'aria-label': 'Unidades' })),
@@ -58,7 +102,7 @@ function fila(l) {
 /** Cabecera de un tramo a repartir, antes de sus tallas. */
 function cabeceraTramo(l) {
   const t = l.tramo;
-  return h('tr', { class: 'plines-tramo', 'data-tramo-head': t.id, 'data-total': String(t.total) }, h('td', { colspan: '8' }, [
+  return h('tr', { class: 'plines-tramo', 'data-tramo-head': t.id, 'data-total': String(t.total) }, h('td', { colspan: String(COLUMNAS) }, [
     h('strong', { text: `${l.referencia} · ${l.modelo} · ${l.color}` }),
     ` — tallas ${t.desde}-${t.hasta}: reparte ${t.total} pares · `,
     h('span', { class: 'plines-quedan', 'data-quedan': '', text: `faltan ${t.total}` }),
@@ -77,8 +121,10 @@ function filasTabla(lineas) {
 /**
  * Bloque de productos. `yaRegistrados` = documento enlazado que ya los tiene
  * dados de alta (el pedido de una factura, o la factura de un pedido): no se duplican.
+ * `tipos` = catálogo de tipos y subtipos para los selectores.
  */
-export function bloqueLineas(e, yaRegistrados) {
+export function bloqueLineas(e, yaRegistrados, tipos = null) {
+  if (tipos?.length) catalogo = tipos;
   if (yaRegistrados) {
     return h('div', { class: 'plines' }, [
       h('h4', { class: 'psection-title', text: 'Productos' }),
@@ -92,16 +138,17 @@ export function bloqueLineas(e, yaRegistrados) {
     h('div', { class: 'plines-head' }, [
       h('label', { class: 'pcheck' }, [h('input', { type: 'checkbox', name: 'con_lineas', checked: lineas.length > 0 }), h('span', { text: 'Dar de alta los productos como pendientes de recibir' })]),
       pvpDesdeCoste(),
+      tipoParaTodas(),
       h('label', { class: 'pfield plines-marca' }, [h('span', { text: 'Marca' }), h('input', { type: 'text', name: 'marca', value: lineas[0]?.marca ?? '' })]),
     ]),
     h('details', { class: 'plines-detail', open: lineas.length > 0 && (lineas.length <= 40 || conTramos) }, [
       h('summary', {}, [lineas.length ? 'Productos que llegarán · ' : 'Sin productos leídos del PDF · ', resumen]),
       h('p', { class: 'pmuted small', text: [
         conTramos ? 'Esta factura no dice cuántos pares hay de cada talla: reparte los de cada tramo en sus tallas (deben sumar el total).' : null,
-        'Revisa modelo, color y PVP (sale en la etiqueta). Al cambiar un PVP, se cambia también en las demás tallas de la misma referencia y color que tenían ese precio.',
+        'Revisa tipo, modelo, color y PVP (sale en la etiqueta). Los tipos marcados en ámbar se han deducido solo de la talla. Al cambiar un PVP, se cambia también en las demás tallas de la misma referencia y color que tenían ese precio.',
       ].filter(Boolean).join(' ') }),
       h('div', { class: 'ptable-wrap' }, h('table', { class: 'ptable plines-table' }, [
-        h('thead', {}, h('tr', {}, ['Ref.', 'Modelo', 'Color', 'Talla', 'Uds.', 'Coste €', 'PVP €', ''].map((t) => h('th', { scope: 'col', text: t })))),
+        h('thead', {}, h('tr', {}, ['Tipo', 'Ref.', 'Modelo y detalle', 'Color', 'Talla', 'Uds.', 'Coste €', 'PVP €', ''].map((t) => h('th', { scope: 'col', text: t })))),
         h('tbody', {}, filasTabla(lineas)),
       ])),
       h('button', { class: 'pbtn pbtn-sm', type: 'button', 'data-anadir-linea': '', text: '＋ Añadir producto' }),
@@ -128,7 +175,11 @@ export function enlazarLineas(lista) {
       const ultima = [...tbody.querySelectorAll('tr[data-linea]')].at(-1);
       const g = (k) => ultima?.querySelector(`[data-k=${k}]`).value ?? '';
       // La nueva fila copia referencia, modelo, color y precios de la última: así añadir otra talla es rápido.
-      const nueva = fila({ tipo: ultima?.dataset.tipo, referencia: g('referencia'), modelo: g('modelo'), color: g('color'), talla: '', cantidad: 1, coste_cent: eurToCent(g('coste')), pvp_cent: eurToCent(g('pvp')) });
+      const nueva = fila({
+        tipo: g('tipo') || undefined, subtipo_id: g('subtipo') ? Number(g('subtipo')) : null, propuesta: ultima ? null : 'talla',
+        referencia: g('referencia'), modelo: g('modelo'), detalle: g('detalle'), color: g('color'), talla: '', cantidad: 1,
+        coste_cent: eurToCent(g('coste')), pvp_cent: eurToCent(g('pvp')),
+      });
       tbody.append(nueva);
       card.querySelector('[name=con_lineas]').checked = true;
       nueva.querySelector('[data-k=referencia]').focus();
@@ -136,12 +187,34 @@ export function enlazarLineas(lista) {
     actualizarResumen(card);
   });
   lista.addEventListener('change', (ev) => {
+    const todas = ev.target.closest('[data-tipo-todas]');
+    if (todas) return void ponerTipoATodas(todas);
     const input = ev.target.closest('[data-k]');
     if (!input) return;
+    if (input.dataset.k === 'tipo') cambiarTipo(input);
     const card = input.closest('.review');
     if (input.dataset.k === 'pvp') propagarPvp(input);
     actualizarResumen(card);
   });
+}
+
+/** Al cambiar el tipo de una fila, su subtipo se elige de nuevo y deja de estar «dudoso». */
+function cambiarTipo(select) {
+  const td = select.closest('td');
+  opcionesSubtipo(td.querySelector('[data-k=subtipo]'), select.value, null);
+  td.classList.remove('is-dudoso');
+}
+
+function ponerTipoATodas(select) {
+  if (!select.value) return;
+  const card = select.closest('.review');
+  const filas = card.querySelectorAll('tr[data-linea] [data-k=tipo]');
+  filas.forEach((s) => {
+    s.value = select.value;
+    cambiarTipo(s);
+  });
+  showToast(`Tipo «${select.selectedOptions[0].text}» en ${filas.length} fila${filas.length === 1 ? '' : 's'}.`);
+  select.value = '';
 }
 
 function calcularPvp(boton) {
@@ -207,10 +280,12 @@ export function leerLineas(card) {
   return [...card.querySelectorAll('tr[data-linea]')].map((tr) => {
     const g = (k) => tr.querySelector(`[data-k=${k}]`).value.trim();
     return {
-      tipo: tr.dataset.tipo || undefined,
+      tipo: g('tipo') || undefined,
+      subtipo_id: g('subtipo') ? Number(g('subtipo')) : null,
       marca,
       referencia: g('referencia'),
       modelo: g('modelo'),
+      detalle: g('detalle'),
       color: g('color'),
       talla: g('talla'),
       cantidad: Number(g('cantidad') || 0),

@@ -20,7 +20,8 @@ import {
   resolverFalta,
   resumenInventario,
 } from '../stock/repo.js';
-import { CLASES_TALLA, TIPOS } from '../stock/tipos.js';
+import { catalogoTipos, proponerTipos } from '../stock/propuesta.js';
+import { TIPOS } from '../stock/tipos.js';
 
 // Stock: inventario, recepción de mercancía y etiquetas con código de barras.
 
@@ -47,11 +48,7 @@ export function stockRouter({ pool, config, log = console }) {
 
   // Tipos de producto (con las tallas que admite cada uno) y sus subtipos.
   router.get('/tipos', handle(async (_req, res) => {
-    const subtipos = await listarSubtipos(pool);
-    const tipos = Object.entries(TIPOS).map(([id, t]) => ({
-      id, nombre: t.nombre, color: t.color, tallas: t.tallas.map((c) => CLASES_TALLA[c]), subtipos: subtipos.filter((s) => s.tipo === id),
-    }));
-    res.json({ ok: true, data: tipos });
+    res.json({ ok: true, data: await catalogoTipos(pool) });
   }));
 
   router.put('/articulos/:id', canWrite, handle(async (req, res) => {
@@ -89,7 +86,8 @@ export function stockRouter({ pool, config, log = console }) {
     const ya = await pool.query('SELECT 1 FROM inventory_incoming WHERE doc_id = $1 LIMIT 1', [doc.id]);
     if (ya.rowCount) throw new HttpError(409, 'Este documento ya tiene sus productos dados de alta en Stock.', 'LINES_EXIST');
     const productosEnPedido = await documentoConProductos(pool, { tipo: doc.tipo, proveedorId: doc.proveedor_id, numero: doc.numero, pedidos: doc.pedidos, excluir: doc.id });
-    res.json({ ok: true, data: { lineas: extraido.lineas, parser: extraido.parser, tipo: doc.tipo, avisos: extraido.avisos, productos_en_pedido: productosEnPedido } });
+    const lineas = await proponerTipos(pool, extraido.lineas, { marca: doc.proveedor.nombre, parser: extraido.parser });
+    res.json({ ok: true, data: { lineas, parser: extraido.parser, tipo: doc.tipo, avisos: extraido.avisos, productos_en_pedido: productosEnPedido, tipos: await catalogoTipos(pool) } });
   }));
 
   // …y se dan de alta como pendientes de recibir.
