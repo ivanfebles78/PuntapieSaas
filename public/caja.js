@@ -48,9 +48,9 @@ function header(backHref) {
       h('span', { text: 'Ventas' }),
     ]), 0),
     h('div', { class: 'users-title-row' }, h('div', {}, [
-      stagger(h('p', { class: 'eyebrow-pill', text: 'Ventas · Hasta que llegue el TPV' }), 1),
+      stagger(h('p', { class: 'eyebrow-pill', text: 'Ventas · Solo días sin TPV' }), 1),
       stagger(h('h1', { class: 'module-title', tabindex: '-1', text: 'Caja diaria' }), 1),
-      stagger(h('p', { class: 'module-summary', text: 'Apunta la mañana y, al cerrar, los totales del TPV: la tarde se calcula sola.' }), 2),
+      stagger(h('p', { class: 'module-summary', text: 'Para días sueltos en que no se usa el TPV (avería, feria…). Si ese día se usó el TPV, no se puede apuntar aquí.' }), 2),
     ])),
   ]);
 }

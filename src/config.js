@@ -58,13 +58,13 @@ export const config = Object.freeze({
     telefono: readEnv('TIENDA_TELEFONO', '922 124 962'),
     igic: Number(readEnv('TIENDA_IGIC', '7')),
   }),
-  // Aprobación a distancia de descuentos de más del 15 %: WhatsApp Cloud API de
-  // Meta (plantilla con 4 variables: quién pide, %, total y enlace). Sin token,
-  // el TPV abre WhatsApp con el mensaje escrito para enviarlo a mano.
+  // Aprobaciones a distancia (descuentos de más del 15 % y cierres de caja que no
+  // cuadran): WhatsApp Cloud API de Meta, plantilla con 2 variables ({{1}} qué se
+  // pide, {{2}} enlace). Sin token, el TPV abre WhatsApp con el mensaje escrito.
   whatsapp: Object.freeze({
     token: readEnv('WHATSAPP_TOKEN', ''),
     phoneId: readEnv('WHATSAPP_PHONE_ID', ''),
-    plantilla: readEnv('WHATSAPP_PLANTILLA', 'aprobacion_descuento'),
+    plantilla: readEnv('WHATSAPP_PLANTILLA', 'aprobacion_tpv'),
     idioma: readEnv('WHATSAPP_IDIOMA', 'es'),
     // Móviles de quien aprueba, con prefijo y sin «+» (34600111222), separados por comas.
     aprobadores: readEnv('WHATSAPP_APROBADORES', '').split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean),

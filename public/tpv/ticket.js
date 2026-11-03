@@ -44,8 +44,13 @@ export function ticketDom(t) {
 
 /** Imprime el ticket con la impresora predeterminada (la térmica). */
 export function imprimirTicket(t) {
+  imprimir(ticketDom(t));
+}
+
+/** Imprime un nodo en la térmica: la hoja de impresión solo deja ver `.tk-print`. */
+export function imprimir(nodo) {
   document.querySelector('.tk-print')?.remove();
-  const zona = h('div', { class: 'tk-print', 'aria-hidden': 'true' }, ticketDom(t));
+  const zona = h('div', { class: 'tk-print', 'aria-hidden': 'true' }, nodo);
   document.body.append(zona);
   const limpiar = () => { zona.remove(); window.removeEventListener('afterprint', limpiar); };
   window.addEventListener('afterprint', limpiar);

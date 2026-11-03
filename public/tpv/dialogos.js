@@ -86,11 +86,12 @@ export function pedirPrecio(nombre) {
 }
 
 /**
- * Aprobación de un descuento de más del 15 %: el Administrador está en la
- * tienda (usuario y contraseña) o se le pide por WhatsApp y se espera su
- * respuesta. Resuelve el id de la aprobación o null.
+ * Aprobación de un Administrador (descuento de más del 15 % o cierre de caja
+ * que no cuadra): está en la tienda (usuario y contraseña) o se le pide por
+ * WhatsApp y se espera su respuesta. `ruta` = '/api/tpv' o '/api/tpv/caja';
+ * `cuerpo` = lo que se aprueba ({ venta } o { recuento }). Resuelve el id o null.
  */
-export async function pedirAprobacion({ venta, calculo }) {
+export async function pedirAprobacion({ titulo, resumen, ruta, cuerpo }) {
   const usuario = h('input', { id: 'apr-user', autocomplete: 'off', spellcheck: 'false' });
   const contrasena = h('input', { id: 'apr-pass', type: 'password', autocomplete: 'off' });
   const estado = h('p', { class: 'tpvd-estado', 'aria-live': 'polite' });
@@ -100,7 +101,7 @@ export async function pedirAprobacion({ venta, calculo }) {
 
   const whatsapp = h('button', { type: 'button', class: 'pbtn tpvd-wa', text: 'El Administrador no está: pedirlo por WhatsApp' });
   const contenido = h('div', {}, [
-    h('p', { class: 'tpvd-pct', text: `Descuento del ${String(calculo.pct_descuento).replace('.', ',')} %: ${formatEuros(calculo.subtotal_cent)} → ${formatEuros(calculo.total_cent)}` }),
+    h('p', { class: 'tpvd-pct', text: resumen }),
     h('div', { class: 'tpvd-grid' }, [campo('apr-user', 'Usuario o correo del Administrador', usuario), campo('apr-pass', 'Contraseña', contrasena)]),
     whatsapp,
     estado,
@@ -110,7 +111,7 @@ export async function pedirAprobacion({ venta, calculo }) {
   const remoto = new Promise((r) => { resolverRemoto = r; });
   whatsapp.addEventListener('click', async () => {
     whatsapp.disabled = true;
-    const res = await api('POST', '/api/tpv/aprobaciones', { venta });
+    const res = await api('POST', `${ruta}/aprobaciones`, cuerpo);
     if (!res.ok) {
       whatsapp.disabled = false;
       estado.textContent = res.error;
@@ -135,13 +136,13 @@ export async function pedirAprobacion({ venta, calculo }) {
 
   const dialogo = openDialog({
     eyebrow: 'Necesita aprobación',
-    title: 'Descuento de más del 15 %',
+    title: titulo,
     lead: 'Un Administrador tiene que aprobarlo: aquí mismo con su usuario y contraseña, o a distancia.',
     content: contenido,
     submitLabel: 'Aprobar aquí',
     onSubmit: async () => {
       if (!usuario.value.trim() || !contrasena.value) return { error: 'Escribe el usuario y la contraseña del Administrador.' };
-      const res = await api('POST', '/api/tpv/aprobaciones/presencial', { usuario: usuario.value.trim(), contrasena: contrasena.value, venta });
+      const res = await api('POST', `${ruta}/aprobaciones/presencial`, { ...cuerpo, usuario: usuario.value.trim(), contrasena: contrasena.value });
       contrasena.value = '';
       return res.ok ? { id: res.data.id } : { error: res.error };
     },

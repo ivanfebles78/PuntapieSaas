@@ -5,6 +5,7 @@ import { auditFrom } from '../services/audit.js';
 import { diffDay, getDay, listDays, saveDay } from '../services/daily-sales.js';
 import { formatEuros, readDay } from '../services/money.js';
 import { importSales } from '../services/sales-import.js';
+import { tpvUsadoEnDia } from '../tpv/caja.js';
 
 // Ventas › Caja diaria: ventas del día por turno y método, a mano o importadas.
 
@@ -24,6 +25,10 @@ export function ventasRouter({ pool, log = console }) {
 
   // Apuntar la caja: Administrador y Empleado (el Asesor ya está bloqueado antes).
   router.put('/dia/:fecha', requireRole('admin', 'empleado'), handle(async (req, res) => {
+    // La Caja diaria es para días sin TPV: si ese día se usó el TPV, sus ventas ya están ahí.
+    if (await tpvUsadoEnDia(pool, readDay(req.params.fecha))) {
+      throw new HttpError(409, 'Ese día se usó el TPV: sus ventas ya están registradas. La Caja diaria es solo para días sin TPV.', 'TPV_USED');
+    }
     const { before, after } = await saveDay(pool, req.params.fecha, req.body ?? {}, req.user.id);
     const changes = diffDay(before, after);
     if (changes.length) {

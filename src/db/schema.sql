@@ -543,3 +543,47 @@ CREATE INDEX IF NOT EXISTS tpv_ticket_lines_ticket_idx ON tpv_ticket_lines(ticke
 CREATE INDEX IF NOT EXISTS tpv_ticket_payments_ticket_idx ON tpv_ticket_payments(ticket_id);
 CREATE INDEX IF NOT EXISTS tpv_tickets_sold_idx ON tpv_tickets(sold_at);
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS ticket_id INTEGER REFERENCES tpv_tickets(id) ON DELETE CASCADE;
+
+-- ===================== TPV: caja (apertura, movimientos y arqueo) =====================
+-- Una sesión de caja de la apertura al cierre. Se cuenta el dinero por
+-- monedas y billetes al abrir y al cerrar; al cerrar, lo contado debe ser
+-- inicial + efectivo de las ventas + entradas − salidas. Si no cuadra, el
+-- cierre necesita la aprobación de un Administrador. Solo una caja abierta.
+CREATE TABLE IF NOT EXISTS tpv_cash_sessions (
+  id               SERIAL PRIMARY KEY,
+  status           TEXT NOT NULL DEFAULT 'abierta' CHECK (status IN ('abierta', 'cerrada')),
+  opened_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  opened_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  opening_counts   JSONB NOT NULL DEFAULT '{}',
+  opening_cents    INTEGER NOT NULL CHECK (opening_cents >= 0),
+  closed_at        TIMESTAMPTZ,
+  closed_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  closing_counts   JSONB,
+  closing_cents    INTEGER,
+  expected_cents   INTEGER,
+  difference_cents INTEGER,
+  approval_id      INTEGER REFERENCES tpv_discount_requests(id) ON DELETE SET NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS tpv_cash_sessions_open_key ON tpv_cash_sessions((status)) WHERE status = 'abierta';
+
+CREATE TABLE IF NOT EXISTS tpv_cash_moves (
+  id           SERIAL PRIMARY KEY,
+  session_id   INTEGER NOT NULL REFERENCES tpv_cash_sessions(id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL CHECK (kind IN ('entrada', 'salida')),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  concept      TEXT NOT NULL,
+  created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS tpv_cash_moves_session_idx ON tpv_cash_moves(session_id);
+ALTER TABLE tpv_tickets ADD COLUMN IF NOT EXISTS session_id INTEGER REFERENCES tpv_cash_sessions(id) ON DELETE SET NULL;
+
+-- Las aprobaciones sirven para descuentos y para cierres de caja que no cuadran.
+ALTER TABLE tpv_discount_requests ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'descuento';
+ALTER TABLE tpv_discount_requests DROP CONSTRAINT IF EXISTS tpv_discount_requests_kind_check;
+ALTER TABLE tpv_discount_requests ADD CONSTRAINT tpv_discount_requests_kind_check CHECK (kind IN ('descuento', 'cierre'));
+ALTER TABLE tpv_discount_requests ADD COLUMN IF NOT EXISTS session_id INTEGER REFERENCES tpv_cash_sessions(id) ON DELETE CASCADE;
+ALTER TABLE tpv_discount_requests DROP CONSTRAINT IF EXISTS tpv_discount_requests_percent_check;
+ALTER TABLE tpv_discount_requests ADD CONSTRAINT tpv_discount_requests_percent_check CHECK (percent >= 0 AND percent <= 100);

@@ -198,7 +198,13 @@ export function renderVenta(zona, { user, salir }) {
   }
 
   async function aprobar() {
-    const id = await pedirAprobacion({ venta: ventaApi(), calculo: calcular() });
+    const c = calcular();
+    const id = await pedirAprobacion({
+      titulo: 'Descuento de más del 15 %',
+      resumen: `Descuento del ${String(c.pct_descuento).replace('.', ',')} %: ${formatEuros(c.subtotal_cent)} → ${formatEuros(c.total_cent)}`,
+      ruta: '/api/tpv',
+      cuerpo: { venta: ventaApi() },
+    });
     if (id) {
       venta = { ...venta, aprobacion: id };
       pintar();

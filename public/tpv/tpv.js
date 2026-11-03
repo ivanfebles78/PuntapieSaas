@@ -3,6 +3,7 @@ import { h } from '../dom.js';
 import { formatEuros } from '../format.js';
 import { showToast } from '../toast.js';
 import { renderAprobar } from './aprobar.js';
+import { cajaAbierta, renderCaja } from './caja.js';
 import { renderVenta } from './venta.js';
 
 // Ventas › TPV: pantalla de inicio a pantalla completa, pensada para la
@@ -57,7 +58,6 @@ const SECCIONES = Object.freeze([
 
 const NAV = Object.freeze([['inicio', 'Inicio', 'home'], ['caja', 'Caja', 'register'], ['consultas', 'Consultas', 'search'], ['ajustes', 'Ajustes', 'settings']]);
 
-const hoyIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());
 const hora = () => new Intl.DateTimeFormat('es-ES', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(new Date());
 const fechaCorta = () => new Intl.DateTimeFormat('es-ES', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' }).format(new Date())
   .replace(/^\w/, (c) => c.toUpperCase()).replace(/\./g, '');
@@ -103,7 +103,7 @@ function panel() {
     h('section', { class: 'tpv-card' }, [
       h('h2', {}, [ico('chart', 'tpv-ico tpv-ico-row'), 'Hoy en la tienda']),
       h('ul', { class: 'tpv-today' }, [filaResumen('tag', 'Ventas', 'ventas'), filaResumen('users', 'Clientes', 'clientes')]),
-      h('p', { class: 'tpv-note', text: 'Según la Caja diaria de hoy.' }),
+      h('p', { class: 'tpv-note', text: 'Ventas del TPV de hoy (sin contar lo cobrado con vales).' }),
     ]),
     h('section', { class: 'tpv-card' }, [
       h('h2', { text: 'Mis aplicaciones' }),
@@ -127,8 +127,9 @@ function pie(user) {
   ]);
 }
 
+/** Estado de la caja (arriba) y lo vendido hoy en el TPV (panel del inicio). */
 async function cargarHoy(root) {
-  const res = await api('GET', `/api/ventas/dia/${hoyIso()}`);
+  const res = await api('GET', '/api/tpv/hoy');
   const texto = root.querySelector('[data-caja-texto]');
   const estado = root.querySelector('[data-caja]');
   if (!res.ok) {
@@ -136,14 +137,14 @@ async function cargarHoy(root) {
     return;
   }
   const d = res.data;
-  const cents = d.totals.manana.cents + d.totals.tarde.cents;
-  const clientes = d.totals.manana.customers + d.totals.tarde.customers;
-  estado.classList.toggle('is-on', d.exists && d.status === 'abierto');
-  texto.textContent = d.status !== 'abierto' ? 'Hoy cerrado' : d.exists ? 'Caja de hoy apuntada' : 'Caja de hoy sin apuntar';
+  estado.classList.toggle('is-on', d.caja.abierta);
+  texto.textContent = d.caja.abierta
+    ? `Caja abierta · ${new Intl.DateTimeFormat('es-ES', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(new Date(d.caja.desde))}`
+    : 'Caja cerrada';
   const ventas = root.querySelector('[data-resumen=ventas]');
   if (!ventas) return; // ya se ha salido del inicio (p. ej. a la venta)
-  ventas.textContent = formatEuros(cents);
-  root.querySelector('[data-resumen=clientes]').textContent = String(clientes);
+  ventas.textContent = formatEuros(d.ventas_cent);
+  root.querySelector('[data-resumen=clientes]').textContent = String(d.tickets);
 }
 
 const TPV_PATH = '/app/ventas/tpv';
@@ -163,10 +164,19 @@ export function renderTpv({ main, user, params }) {
     );
     cargarHoy(root);
   }
-  function abrirVenta({ push = false } = {}) {
+  const salir = () => inicio({ push: true });
+  // Para vender, la caja tiene que estar abierta: si no, primero se abre (con el recuento).
+  async function abrirVenta({ push = false } = {}) {
     if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=venta`);
     cuerpo.classList.add('is-venta');
-    renderVenta(cuerpo, { user, salir: () => inicio({ push: true }) });
+    const vender = () => renderVenta(cuerpo, { user, salir });
+    if (await cajaAbierta()) return void vender();
+    return void renderCaja(cuerpo, { user, salir, irVenta: vender, alAbrir: vender });
+  }
+  function abrirCaja({ push = false, modo = 'resumen' } = {}) {
+    if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=caja`);
+    cuerpo.classList.add('is-venta');
+    renderCaja(cuerpo, { user, salir, irVenta: () => abrirVenta({ push: true }), modo });
   }
 
   root.addEventListener('click', (e) => {
@@ -174,10 +184,12 @@ export function renderTpv({ main, user, params }) {
     if (s?.dataset.seccion === 'venta') return void abrirVenta({ push: true });
     if (s) return void proximamente(SECCIONES.find((x) => x.id === s.dataset.seccion).nombre);
     const n = e.target.closest('[data-nav-tpv]');
-    if (n && n.dataset.navTpv !== 'inicio') return void proximamente(n.textContent);
+    if (n?.dataset.navTpv === 'inicio') return void inicio({ push: true });
+    if (n?.dataset.navTpv === 'caja') return void abrirCaja({ push: true });
+    if (n) return void proximamente(n.textContent);
     const app = e.target.closest('[data-app]');
     if (app) return void proximamente(app.dataset.app);
-    if (e.target.closest('[data-cerrar-caja]')) proximamente('Cerrar caja');
+    if (e.target.closest('[data-cerrar-caja]')) return void abrirCaja({ push: true, modo: 'cierre' });
     return undefined;
   });
   main.replaceChildren(root);
@@ -187,7 +199,9 @@ export function renderTpv({ main, user, params }) {
     cuerpo.classList.add('is-venta');
     renderAprobar(cuerpo, { token: aprobar, user });
   } else if (params?.get('seccion') === 'venta') abrirVenta();
+  else if (params?.get('seccion') === 'caja') abrirCaja();
   else inicio();
+  if (aprobar || params?.get('seccion')) cargarHoy(root);
   // El reloj se actualiza mientras la pantalla siga abierta.
   const timer = setInterval(() => {
     if (!root.isConnected) {
@@ -196,6 +210,7 @@ export function renderTpv({ main, user, params }) {
     }
     root.querySelector('[data-hora]').textContent = hora();
     root.querySelector('[data-fecha]').textContent = fechaCorta();
+    cargarHoy(root); // estado de la caja arriba (abierta/cerrada) y ventas de hoy
   }, TICK_MS);
   return root.querySelector('h1') ?? root;
 }

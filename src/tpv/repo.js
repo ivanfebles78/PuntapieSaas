@@ -117,13 +117,16 @@ export async function registrarVenta(pool, { venta, calculo, vendedor, aprobacio
   const cambio = pagos.reduce((s, p) => s + (p.entregado ? p.entregado - p.importe : 0), 0);
   return withTransaction(pool, async (client) => {
     await client.query('SELECT pg_advisory_xact_lock($1)', [CANDADO_NUMERO]);
+    // Solo se vende con la caja abierta: cada ticket cuenta en el arqueo de su caja.
+    const sesion = (await client.query("SELECT id FROM tpv_cash_sessions WHERE status = 'abierta' FOR SHARE")).rows[0];
+    if (!sesion) throw new HttpError(409, 'La caja está cerrada: ábrela (con el recuento del dinero) para poder vender.', 'CASH_CLOSED');
     const year = Number(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric' }).format(new Date()));
     const seq = (await client.query('SELECT COALESCE(max(seq), 0) + 1 AS n FROM tpv_tickets WHERE year = $1', [year])).rows[0].n;
     const numero = `T${String(year).slice(2)}-${String(seq).padStart(6, '0')}`;
     const ticket = (await client.query(
-      `INSERT INTO tpv_tickets (year, seq, number, subtotal_cents, discount_cents, total_cents, change_cents, approval_id, seller_id, seller_name)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-      [year, seq, numero, calculo.subtotal_cent, calculo.descuento_cent, calculo.total_cent, cambio, aprobacionId, vendedor.id, vendedor.name ?? ''],
+      `INSERT INTO tpv_tickets (year, seq, number, subtotal_cents, discount_cents, total_cents, change_cents, approval_id, seller_id, seller_name, session_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+      [year, seq, numero, calculo.subtotal_cent, calculo.descuento_cent, calculo.total_cent, cambio, aprobacionId, vendedor.id, vendedor.name ?? '', sesion.id],
     )).rows[0];
     const sinStock = [];
     for (const [i, l] of calculo.lineas.entries()) {
@@ -170,4 +173,16 @@ export async function obtenerTicket(db, id, tienda) {
     igic: { pct: tienda.igic, base_cent: base, cuota_cent: t.total_cents - base },
     tienda,
   };
+}
+
+/** Lo vendido hoy en el TPV: tickets y facturación (los vales se cobran, pero no son venta nueva). */
+export async function resumenHoy(db) {
+  const r = (await db.query(
+    `SELECT count(DISTINCT t.id)::int AS tickets,
+            COALESCE(sum(p.amount_cents) FILTER (WHERE p.method <> 'vales'), 0)::int AS ventas,
+            COALESCE(sum(p.amount_cents) FILTER (WHERE p.method = 'vales'), 0)::int AS vales
+       FROM tpv_tickets t LEFT JOIN tpv_ticket_payments p ON p.ticket_id = t.id
+      WHERE (t.sold_at AT TIME ZONE $1)::date = (NOW() AT TIME ZONE $1)::date`, [TZ],
+  )).rows[0];
+  return { tickets: r.tickets, ventas_cent: r.ventas, vales_cent: r.vales };
 }

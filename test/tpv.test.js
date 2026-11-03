@@ -1,7 +1,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { calcularVenta } from '../public/tpv/calculo.js';
-import { enviarAviso, textoAviso } from '../src/tpv/whatsapp.js';
+import { enviarAviso, textoAviso, textoSolicitud } from '../src/tpv/whatsapp.js';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, TEST_DATABASE_URL, startTestServer } from './helpers.js';
 
 /* ---------- Cálculo ---------- */
@@ -20,16 +20,20 @@ test('descuentos por línea y al total, y la regla del 15 % (sin falsos avisos p
   assert.throws(() => calcularVenta([]), /no tiene productos/);
 });
 
-test('el aviso de WhatsApp usa la plantilla con quién, %, total y enlace', async () => {
+test('el aviso de WhatsApp: una plantilla con qué se pide y el enlace', async () => {
   const llamadas = [];
   const enviar = async (url, opts) => { llamadas.push({ url, body: JSON.parse(opts.body), auth: opts.headers.Authorization }); return { ok: true }; };
-  const cfg = { token: 'tok', phoneId: '123', plantilla: 'aprobacion_descuento', idioma: 'es', aprobadores: ['34600111222', '34600333444'] };
-  const datos = { quien: 'Elena', pct: 25, total: 6675, enlace: 'https://x/app/ventas/tpv?aprobar=abc' };
+  const cfg = { token: 'tok', phoneId: '123', plantilla: 'aprobacion_tpv', idioma: 'es', aprobadores: ['34600111222', '34600333444'] };
+  const texto = textoSolicitud({ tipo: 'descuento', quien: 'Elena', pct: 25, total: 6675 });
+  assert.equal(texto, 'Elena pide un descuento del 25 % en una venta de 66,75 € en Puntapié');
+  const datos = { texto, enlace: 'https://x/app/ventas/tpv?aprobar=abc' };
   assert.equal(await enviarAviso(cfg, datos, { enviar }), 2);
   assert.equal(llamadas[0].url, 'https://graph.facebook.com/v21.0/123/messages');
   assert.equal(llamadas[0].auth, 'Bearer tok');
-  assert.deepEqual(llamadas[1].body.template.components[0].parameters.map((p) => p.text), ['Elena', '25 %', '66,75 €', datos.enlace]);
-  assert.match(textoAviso(datos), /Elena pide un descuento del 25 % en una venta de 66,75 €/);
+  assert.equal(llamadas[1].body.template.name, 'aprobacion_tpv');
+  assert.deepEqual(llamadas[1].body.template.components[0].parameters.map((p) => p.text), [texto, datos.enlace]);
+  assert.match(textoAviso(datos), /Elena pide un descuento.*Aprobar o rechazar: https/);
+  assert.match(textoSolicitud({ tipo: 'cierre', quien: 'Elena', esperado: 12000, contado: 11680 }), /faltan 3,20 € \(esperado 120,00 €, contado 116,80 €\)/);
 });
 
 /* ---------- API ---------- */
@@ -73,6 +77,18 @@ describe('TPV: venta', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATABASE_URL' }
     assert.equal(texto.data.modelos.length, 1);
     assert.deepEqual(texto.data.modelos[0].tallas.map((t) => [t.talla, t.stock]), [['30', 2], ['31', 1]]);
     assert.equal((await elena('GET', '/api/tpv/buscar?q=nada%20de%20nada')).data.modelos.length, 0);
+  });
+
+  test('con la caja cerrada no se vende; se abre contando monedas y billetes', async () => {
+    const cerrada = await elena('POST', '/api/tpv/ventas', venta([{ articulo_id: talla('30').id, cantidad: 1 }], { pagos: [{ metodo: 'tarjeta', importe_cent: 5995 }] }));
+    assert.equal(cerrada.status, 409);
+    assert.equal(cerrada.code, 'CASH_CLOSED');
+    assert.equal((await elena('GET', '/api/tpv/caja')).data.abierta, null);
+    assert.equal((await elena('POST', '/api/tpv/caja/abrir', { recuento: { 333: 1 } })).status, 400, 'no existe la moneda de 3,33 €');
+    const abierta = await elena('POST', '/api/tpv/caja/abrir', { recuento: { 2000: 4, 1000: 2 } });
+    assert.equal(abierta.status, 201);
+    assert.equal(abierta.data.inicial_cent, 10000);
+    assert.equal((await elena('POST', '/api/tpv/caja/abrir', { recuento: { 2000: 1 } })).status, 409, 'solo una caja abierta');
   });
 
   test('cobro repartido entre efectivo y tarjeta: ticket, cambio, stock y estadísticas', async () => {
@@ -175,5 +191,83 @@ describe('TPV: venta', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATABASE_URL' }
     const asesor = await ctx.loginAs('rperez', 'Test1234');
     await asesor('POST', '/api/auth/change-password', { newPassword: 'Asesor2026x', confirmPassword: 'Asesor2026x' });
     assert.equal((await asesor('POST', '/api/tpv/ventas', { ...conDescuento(0), pagos: [{ metodo: 'tarjeta', importe_cent: 5995 }] })).status, 403);
+  });
+
+  /* ---------- Caja: movimientos, arqueo y cierre ---------- */
+
+  // 100 € al abrir + 25,95 € en efectivo de la venta + 50 € de entrada − 12,50 € de salida = 163,45 €.
+  const CUADRA = { 5000: 3, 1000: 1, 200: 1, 100: 1, 20: 2, 5: 1 };
+  const FALTAN_5_CENT = { 5000: 3, 1000: 1, 200: 1, 100: 1, 20: 2 };
+
+  test('entradas y salidas de dinero; lo esperado en caja y lo cobrado por cada método', async () => {
+    assert.equal((await elena('POST', '/api/tpv/caja/movimientos', { tipo: 'salida', importe_cent: 1250, concepto: '' })).status, 400, 'hace falta el concepto');
+    await elena('POST', '/api/tpv/caja/movimientos', { tipo: 'entrada', importe_cent: 5000, concepto: 'Cambio del banco' });
+    const r = await elena('POST', '/api/tpv/caja/movimientos', { tipo: 'salida', importe_cent: 1250, concepto: 'Pago al cartero' });
+    assert.equal(r.status, 201);
+    assert.deepEqual([r.data.inicial_cent, r.data.ventas_efectivo_cent, r.data.entradas_cent, r.data.salidas_cent, r.data.esperado_cent], [10000, 2595, 5000, 1250, 16345]);
+    assert.equal(r.data.movimientos.length, 2);
+    assert.ok(r.data.por_metodo.tarjeta > 0 && r.data.por_metodo.bizum === 11990);
+    const hoy = await elena('GET', '/api/tpv/hoy');
+    assert.equal(hoy.data.caja.abierta, true);
+    assert.ok(hoy.data.tickets >= 5);
+  });
+
+  test('TPV y Caja diaria no se usan el mismo día', async () => {
+    const dia = new Intl.DateTimeFormat('en-CA', { timeZone: 'Atlantic/Canary' }).format(new Date());
+    const r = await admin('PUT', `/api/ventas/dia/${dia}`, { status: 'abierto', manana: { efectivo: { importe: 1000, clientes: 1 } }, tarde: {} });
+    assert.equal(r.status, 409);
+    assert.equal(r.code, 'TPV_USED');
+  });
+
+  test('si el arqueo no cuadra, la empleada no cierra sin aprobación; con ella, sí (solo ese descuadre)', async () => {
+    const sin = await elena('POST', '/api/tpv/caja/cerrar', { recuento: FALTAN_5_CENT });
+    assert.equal(sin.status, 403);
+    assert.equal(sin.code, 'CASH_MISMATCH');
+    assert.match(sin.error, /faltan 0,05 €/);
+    assert.equal((await elena('POST', '/api/tpv/caja/aprobaciones', { recuento: CUADRA })).status, 400, 'si cuadra no hace falta aprobación');
+
+    const s = await elena('POST', '/api/tpv/caja/aprobaciones', { recuento: FALTAN_5_CENT });
+    assert.equal(s.status, 201);
+    const texto = decodeURIComponent(s.data.enlace_whatsapp.split('text=')[1]);
+    assert.match(texto, /Elena quiere cerrar la caja de Puntapié con un descuadre: faltan 0,05 €/);
+    const token = new URL(texto.match(/https?:\/\/\S+/)[0]).searchParams.get('aprobar');
+    const vista = await admin('GET', `/api/tpv/aprobar/${token}`);
+    assert.deepEqual([vista.data.tipo, vista.data.subtotal_cent, vista.data.total_cent], ['cierre', 16345, 16340]);
+    await admin('POST', `/api/tpv/aprobar/${token}`, { decision: 'aprobar' });
+
+    const otro = await elena('POST', '/api/tpv/caja/cerrar', { recuento: { 5000: 3, 1000: 1 }, aprobacion_id: s.data.id });
+    assert.equal(otro.status, 403, 'la aprobación es para ese descuadre, no para otro');
+    const ok = await elena('POST', '/api/tpv/caja/cerrar', { recuento: FALTAN_5_CENT, aprobacion_id: s.data.id });
+    assert.equal(ok.status, 200);
+    assert.deepEqual([ok.data.estado, ok.data.esperado_cent, ok.data.contado_cent, ok.data.diferencia_cent], ['cerrada', 16345, 16340, -5]);
+
+    const despues = await elena('GET', '/api/tpv/caja');
+    assert.equal(despues.data.abierta, null);
+    assert.deepEqual(despues.data.recuento_sugerido, FALTAN_5_CENT, 'la próxima apertura viene rellena con lo contado');
+    assert.equal((await elena('POST', '/api/tpv/ventas', { ...conDescuento(0), pagos: [{ metodo: 'tarjeta', importe_cent: 5995 }] })).code, 'CASH_CLOSED');
+  });
+
+  test('aprobación del cierre en persona; el Administrador cierra aunque no cuadre', async () => {
+    await elena('POST', '/api/tpv/caja/abrir', { recuento: { 2000: 5 } });
+    const mal = await elena('POST', '/api/tpv/caja/aprobaciones/presencial', { usuario: 'epena', contrasena: 'Elena2026x', recuento: { 2000: 4 } });
+    assert.equal(mal.status, 403);
+    const ap = await elena('POST', '/api/tpv/caja/aprobaciones/presencial', { usuario: ADMIN_EMAIL, contrasena: ADMIN_PASSWORD, recuento: { 2000: 4 } });
+    assert.equal(ap.data.estado, 'aprobado');
+    assert.equal((await elena('POST', '/api/tpv/caja/cerrar', { recuento: { 2000: 4 }, aprobacion_id: ap.data.id })).data.diferencia_cent, -2000);
+
+    await admin('POST', '/api/tpv/caja/abrir', { recuento: { 2000: 5 } });
+    const jefe = await admin('POST', '/api/tpv/caja/cerrar', { recuento: { 2000: 6 } });
+    assert.equal(jefe.status, 200);
+    assert.equal(jefe.data.diferencia_cent, 2000);
+  });
+
+  test('si hoy se apuntó la Caja diaria, el TPV no se abre', async () => {
+    const dia = new Intl.DateTimeFormat('en-CA', { timeZone: 'Atlantic/Canary' }).format(new Date());
+    await ctx.pool.query("INSERT INTO sales_days (day, status) VALUES ($1, 'abierto') ON CONFLICT (day) DO NOTHING", [dia]);
+    await ctx.pool.query("INSERT INTO daily_sales (day, shift, method, amount_cents, customers) VALUES ($1, 'manana', 'efectivo', 1000, 1)", [dia]);
+    const r = await elena('POST', '/api/tpv/caja/abrir', { recuento: { 2000: 5 } });
+    assert.equal(r.status, 409);
+    assert.equal(r.code, 'DAILY_CASH_USED');
+    await ctx.pool.query('DELETE FROM daily_sales WHERE day = $1', [dia]);
   });
 });
