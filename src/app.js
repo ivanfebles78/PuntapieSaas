@@ -4,6 +4,7 @@ import { attachUser, forbidReadOnlyWrites, requireAuth, requirePasswordChanged, 
 import { READ_ONLY_ROLES } from './roles.js';
 import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
+import { correoRouter } from './routes/correo.js';
 import { estadisticasRouter } from './routes/estadisticas.js';
 import { gastosRouter } from './routes/gastos.js';
 import { proveedoresRouter } from './routes/proveedores.js';
@@ -61,6 +62,8 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
   app.use('/api/proveedores', ...guard, requireRole('admin', 'asesor', 'empleado'), proveedoresRouter({ pool, config, log }));
   // Stock (inventario, recepción y etiquetas): lo ven los tres roles; recibe mercancía también el Empleado.
   app.use('/api/stock', ...guard, requireRole('admin', 'asesor', 'empleado'), stockRouter({ pool, config, log }));
+  // Correo: revisión diaria del buzón (facturas, pedidos y gastos) y lo que queda para revisar.
+  app.use('/api/correo', ...guard, requireRole('admin', 'asesor', 'empleado'), correoRouter({ pool, config, log }));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ ok: false, error: 'Ruta no encontrada.' });

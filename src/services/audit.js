@@ -14,6 +14,7 @@ export const AUDIT_AREAS = Object.freeze({
   proveedores: 'Pagos a proveedores',
   ventas: 'Ventas',
   objetivos: 'Objetivos de venta',
+  correo: 'Correo',
 });
 
 export const AUDIT_ACTIONS = Object.freeze({

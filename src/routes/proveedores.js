@@ -30,6 +30,7 @@ import {
   vencimientosPendientes,
   withTransaction,
 } from '../proveedores/repo.js';
+import { resolverPorArchivo } from '../correo/repo.js';
 import { auditFrom } from '../services/audit.js';
 import { registrarEntrada } from '../stock/repo.js';
 import { cleanFilename, MAX_FILE_BYTES } from '../services/expense-files.js';
@@ -129,6 +130,8 @@ export function proveedoresRouter({ pool, config, log = console }) {
     const { doc, archivo, entrada } = await withTransaction(pool, async (client) => {
       const file = await consolidarArchivo(client, tempId, req.user.id);
       const creado = await crearDocumento(client, datos, file, { userId: req.user.id });
+      // Si este PDF llegó por correo y estaba «para revisar», queda resuelto.
+      await resolverPorArchivo(client, { sha256: file?.hash, docId: creado.id });
       return { archivo: file, doc: creado, entrada: await registrarEntrada(client, creado, lineas, marca ?? creado.proveedor.nombre) };
     });
     await audit(req, {

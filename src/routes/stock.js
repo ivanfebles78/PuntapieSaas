@@ -20,6 +20,7 @@ import {
   resolverFalta,
   resumenInventario,
 } from '../stock/repo.js';
+import { resolverProductos } from '../correo/repo.js';
 import { catalogoTipos, proponerTipos } from '../stock/propuesta.js';
 import { TIPOS } from '../stock/tipos.js';
 
@@ -97,7 +98,10 @@ export function stockRouter({ pool, config, log = console }) {
     if (!Array.isArray(lineas) || !lineas.length) throw new HttpError(400, 'No hay productos que dar de alta.', 'NO_LINES');
     const r = await withTransaction(pool, async (client) => {
       const doc = await obtenerDocumento(client, docId);
-      return registrarEntrada(client, doc, lineas, marca ?? doc.proveedor.nombre);
+      const entrada = await registrarEntrada(client, doc, lineas, marca ?? doc.proveedor.nombre);
+      // Una factura llegada por correo con los productos por repartir queda resuelta.
+      if (entrada.lineas) await resolverProductos(client, docId);
+      return entrada;
     });
     if (r.omitido) throw new HttpError(409, `Los productos ya están dados de alta con ${r.omitido.tipo === 'factura' ? 'la factura' : 'el pedido'} ${r.omitido.numero}.`, 'LINES_IN_LINKED_DOC');
     const entrada = await obtenerEntrada(pool, docId);

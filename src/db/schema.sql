@@ -427,3 +427,51 @@ CREATE TABLE IF NOT EXISTS inventory_incoming (
 CREATE INDEX IF NOT EXISTS inventory_incoming_doc_idx ON inventory_incoming(doc_id);
 CREATE INDEX IF NOT EXISTS inventory_incoming_item_idx ON inventory_incoming(item_id);
 CREATE INDEX IF NOT EXISTS inventory_incoming_state_idx ON inventory_incoming(state);
+
+-- ===================== Correo =====================
+-- Revisión diaria del buzón: cada ejecución, los correos ya vistos (para no
+-- procesarlos dos veces) y sus PDF. Un PDF que no se registra solo queda
+-- «revisar» con su contenido, para confirmarlo a mano en «Importar PDF».
+CREATE TABLE IF NOT EXISTS mail_runs (
+  id           SERIAL PRIMARY KEY,
+  origin       TEXT NOT NULL CHECK (origin IN ('auto', 'manual')),
+  started_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  finished_at  TIMESTAMPTZ,
+  summary      JSONB,
+  error        TEXT,
+  started_by   INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS mail_messages (
+  id           SERIAL PRIMARY KEY,
+  message_id   TEXT NOT NULL UNIQUE,
+  uid          BIGINT,
+  from_addr    TEXT NOT NULL DEFAULT '',
+  subject      TEXT NOT NULL DEFAULT '',
+  sent_at      TIMESTAMPTZ,
+  marked_read  BOOLEAN NOT NULL DEFAULT FALSE,
+  run_id       INTEGER REFERENCES mail_runs(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS mail_attachments (
+  id           SERIAL PRIMARY KEY,
+  message_ref  INTEGER NOT NULL REFERENCES mail_messages(id) ON DELETE CASCADE,
+  filename     TEXT NOT NULL,
+  sha256       TEXT NOT NULL,
+  -- proveedor (factura/pedido), gasto (recurrente) o desconocido
+  kind         TEXT NOT NULL CHECK (kind IN ('proveedor', 'gasto', 'desconocido')),
+  -- creado: registrado solo · productos: factura creada, faltan sus productos ·
+  -- revisar: hay que confirmarlo · ignorado: no hacía falta · hecho/descartado: resuelto a mano
+  state        TEXT NOT NULL CHECK (state IN ('creado', 'productos', 'revisar', 'ignorado', 'hecho', 'descartado')),
+  reason       TEXT NOT NULL DEFAULT '',
+  doc_id       INTEGER REFERENCES supplier_docs(id) ON DELETE SET NULL,
+  expense_id   INTEGER REFERENCES recurring_expenses(id) ON DELETE SET NULL,
+  month        DATE,
+  data         BYTEA,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_at  TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS mail_attachments_state_idx ON mail_attachments(state);
+CREATE INDEX IF NOT EXISTS mail_attachments_sha_idx ON mail_attachments(sha256);

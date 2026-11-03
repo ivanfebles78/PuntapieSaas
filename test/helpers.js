@@ -24,6 +24,8 @@ export const testConfig = Object.freeze({
   loginMaxFailedAttempts: 1000,
   forgotMaxRequests: 1000,
   proveedores: { cifsPropios: ['B76766294'], ai: { apiKey: '', model: '', mode: 'off' } },
+  businessStart: '2026-04-16',
+  correo: { user: '', pass: '', hora: 8 },
 });
 
 const silentLog = { info() {}, warn() {}, error() {} };
@@ -34,7 +36,7 @@ const silentLog = { info() {}, warn() {}, error() {} };
  */
 export async function startTestServer() {
   const pool = createPool(TEST_DATABASE_URL);
-  await pool.query('DROP TABLE IF EXISTS inventory_incoming, inventory_items, daily_sales, sales_days, supplier_uploads, supplier_payments, supplier_dues, supplier_docs, suppliers, supplier_files, audit_log, free_shifts, special_opening_staff, special_openings, work_schedules, settings, sales, expense_files, recurring_entries, recurring_amounts, recurring_expenses, vacations, password_resets, sessions, users CASCADE');
+  await pool.query('DROP TABLE IF EXISTS mail_attachments, mail_messages, mail_runs, inventory_incoming, inventory_items, product_subtypes, daily_sales, sales_days, supplier_uploads, supplier_payments, supplier_dues, supplier_docs, suppliers, supplier_files, audit_log, free_shifts, special_opening_staff, special_openings, work_schedules, settings, sales, expense_files, recurring_entries, recurring_amounts, recurring_expenses, vacations, password_resets, sessions, users CASCADE');
   await applySchema(pool);
   await seedAdmin(pool, testConfig, silentLog);
   await seedTeam(pool, undefined, silentLog);

@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { showToast } from '../toast.js';
+import { bloqueCorreo } from './correo.js';
 import { bloqueLineas, enlazarLineas, errorReparto, leerLineas } from './lineas.js';
 import { API, badge, centToEur, eur, eurToCent, fecha, hoy, subir } from './util.js';
 
@@ -16,7 +17,8 @@ const MOTIVOS = Object.freeze({
   importe: 'Ya hay un documento del mismo proveedor con la misma fecha e importe',
 });
 
-let cola = []; // { tempId, archivo_nombre, extraido, duplicado, productos_en_pedido, texto, error, guardado, docId, entrada, forzado }
+let cola = []; // { tempId, archivo_nombre, extraido, duplicado, productos_en_pedido, texto, error, guardado, docId, entrada, forzado, correo_id }
+let recargarCorreo = null;
 
 function campo(label, name, value, { type = 'text', cls = '', wide = false } = {}) {
   return h('label', { class: `pfield${wide ? ' pfield-wide' : ''}` }, [h('span', { text: label }), h('input', { type, name, value: value ?? '', class: cls })]);
@@ -155,6 +157,7 @@ async function guardar(review, i, ctx) {
   if (!res.ok) return void showToast(res.error, { tone: 'error' });
   cola[i] = { ...r, guardado: true, docId: res.data.id, entrada: res.data.entrada };
   ctx.markChanged();
+  if (r.correo_id) recargarCorreo?.();
   const uds = res.data.entrada?.unidades;
   showToast(`${tipo === 'pedido' ? 'Pedido' : 'Factura'} ${res.data.numero} guardada${uds ? ` con ${uds} unidades pendientes de recibir` : ''}.`);
   return void pintar(review);
@@ -170,11 +173,21 @@ export async function renderImportar(ctx) {
     h('span', { class: 'pmuted', text: `o pulsa para elegirlos · facturas y pedidos, hasta ${MAX_FILES} a la vez` }),
   ]);
   const review = h('div', { class: 'review-list' });
+  // Lo que llegó por correo y no se pudo registrar solo se revisa en esta misma lista.
+  const correo = bloqueCorreo(ctx, {
+    onRevisar: (analisis) => {
+      cola = [{ ...analisis, guardado: false }, ...cola];
+      pintar(review);
+      review.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+  });
+  recargarCorreo = correo.recargar;
   const root = h('div', {}, [
     h('div', { class: 'phead' }, h('div', {}, [
       h('h3', { text: 'Importar facturas y pedidos' }),
       h('p', { text: `Se reconocen automáticamente ${lectores}${cfg.data?.ia ? ' y cualquier otro proveedor mediante IA' : '; para otros proveedores se hace una lectura aproximada que debes revisar'}. Se avisa si un PDF ya está importado (mismo archivo, mismo número o misma fecha e importe).` }),
     ])),
+    correo.caja,
     drop,
     input,
     review,

@@ -3,6 +3,7 @@ import { createApp } from './app.js';
 import { createPool } from './db/pool.js';
 import { applySchema, seedAdmin } from './db/migrate.js';
 import { seedTeam } from './db/seed-team.js';
+import { iniciarRevisionDiaria } from './correo/programador.js';
 import { limpiarTemporales } from './proveedores/analisis.js';
 
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
@@ -28,6 +29,9 @@ async function main() {
     });
   }, CLEANUP_INTERVAL_MS);
   cleanup.unref();
+
+  // Cada día, a partir de las 8:00, mira el correo y registra facturas, pedidos y gastos.
+  iniciarRevisionDiaria({ pool, config });
 
   const app = createApp({ pool, config });
   const server = app.listen(config.port, () => {

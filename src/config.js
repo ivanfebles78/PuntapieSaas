@@ -49,6 +49,12 @@ export const config = Object.freeze({
   // Día en que la tienda pasó a ser nuestra: las estadísticas no cuentan ventas
   // ni gastos anteriores (eran del dueño anterior).
   businessStart: readEnv('BUSINESS_START', '2026-04-16'),
+  // Revisión diaria del correo (facturas y pedidos): Gmail con contraseña de aplicación.
+  correo: Object.freeze({
+    user: readEnv('GMAIL_USER', '').trim(),
+    pass: readEnv('GMAIL_APP_PASSWORD', '').replace(/\s+/g, ''),
+    hora: Number(readEnv('CORREO_HORA', '8')),
+  }),
   proveedores: Object.freeze({
     // CIF/NIF propios (Calzando Sueños): se ignoran al buscar el proveedor en un PDF.
     cifsPropios: readEnv('CIFS_PROPIOS', 'B76766294').split(',').map((s) => s.trim()).filter(Boolean),

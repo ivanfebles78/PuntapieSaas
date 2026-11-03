@@ -771,3 +771,16 @@ select.pinput { width: auto; }
 .pswitch input:disabled + .pswitch-track { opacity: 0.55; }
 .pswitch:has(input:disabled) { cursor: default; }
 .pswitch-text { font-size: 13px; font-weight: 600; min-width: 92px; }
+
+/* ---------- Correo (Importar PDF): revisión diaria del buzón ---------- */
+.correo { margin-bottom: 16px; }
+.correo-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.correo .texto-error { color: var(--pv-red); }
+.correo-pendientes summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
+.correo-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.correo-item {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px;
+  padding: 10px 12px; border-radius: 14px; background: var(--pv-amber-wash);
+}
+.correo-archivo { overflow-wrap: anywhere; }
+.correo-motivo { margin-top: 2px; font-size: 13px; color: var(--pv-amber-ink); font-weight: 600; }
