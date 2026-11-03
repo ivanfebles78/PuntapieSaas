@@ -18,6 +18,7 @@ import {
   docDePago,
   eliminarDocumento,
   eliminarPago,
+  fusionarProveedores,
   leerArchivo,
   listarDocumentos,
   listarProveedores,
@@ -268,6 +269,22 @@ export function proveedoresRouter({ pool, config, log = console }) {
       .map(([k, field, show = (v) => v]) => ({ field, from: show(before[k]), to: show(after[k]) }));
     if (changes.length) await audit(req, { area: 'proveedores', action: 'editar', target: `Proveedor ${after.nombre}`, changes });
     res.json({ ok: true, data: after });
+  }));
+
+  // Dos fichas que son el mismo proveedor: pasa los documentos y borra la que sobra.
+  router.post('/lista/:id/fusionar', canWrite, handle(async (req, res) => {
+    const r = await fusionarProveedores(pool, readId(req.params.id, 'Ese proveedor'), readId(req.body?.destino_id, 'El proveedor destino'));
+    await audit(req, {
+      area: 'proveedores',
+      action: 'editar',
+      target: `Proveedor ${r.destino}`,
+      changes: [
+        { field: 'Unido con', from: r.origen, to: r.destino },
+        ...(r.movidos.length ? [{ field: 'Documentos pasados', from: null, to: r.movidos.join(', ') }] : []),
+        ...(r.duplicados.length ? [{ field: 'Repetidos (se quedan en el origen)', from: null, to: r.duplicados.join(', ') }] : []),
+      ],
+    });
+    res.json({ ok: true, data: r });
   }));
 
   /* ---------- Previsión, resumen y calendario ---------- */

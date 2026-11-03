@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { openDialog } from '../dialogs.js';
 import { h } from '../dom.js';
 import { showToast } from '../toast.js';
 import { API, elegirArchivos, eur, soloConsulta, subir, writeBtn } from './util.js';
@@ -44,7 +45,32 @@ function importBlock(ctx) {
   return block;
 }
 
-/** Proveedores: se crean solos al importar (por CIF); aquí se renombran. */
+/** Une una ficha con otra del mismo proveedor: sus documentos pasan a la elegida y la ficha se borra. */
+async function unirProveedor(ctx, proveedores, origenId) {
+  const origen = proveedores.find((p) => p.id === origenId);
+  const destino = h('select', { id: 'unir-destino', name: 'destino' },
+    proveedores.filter((p) => p.id !== origenId).map((p) => h('option', { value: String(p.id), text: p.cif ? `${p.nombre} · ${p.cif}` : p.nombre })));
+  const r = await openDialog({
+    eyebrow: 'Unir proveedores',
+    title: `¿Con quién unes «${origen.nombre}»?`,
+    lead: 'Sus facturas y pedidos pasan al proveedor que elijas y esta ficha se borra. Si alguno ya está en el otro (mismo número), no se pasa y la ficha se queda para que lo revises.',
+    content: h('div', { class: 'field pform' }, [h('label', { for: destino.id, text: 'Proveedor que se queda' }), destino]),
+    submitLabel: 'Unir',
+    tone: 'danger',
+    onSubmit: async () => {
+      const res = await api('POST', `${API}/lista/${origenId}/fusionar`, { destino_id: Number(destino.value) });
+      return res.ok ? res.data : { error: res.error };
+    },
+  });
+  if (!r) return;
+  ctx.markChanged();
+  showToast(r.eliminado
+    ? `Unido: ${r.movidos.length} documento(s) pasados a «${r.destino}».`
+    : `Pasados ${r.movidos.length}; ${r.duplicados.length} ya estaban en «${r.destino}» y se quedan en «${r.origen}»: ${r.duplicados.join(', ')}.`, { tone: r.eliminado ? undefined : 'error' });
+  ctx.go('proveedores');
+}
+
+/** Proveedores: se crean solos al importar (por CIF); aquí se renombran o se unen. */
 export async function renderProveedores(ctx) {
   const res = await api('GET', `${API}/lista`);
   if (!res.ok) return void ctx.body.replaceChildren(h('p', { class: 'notice', text: res.error }));
@@ -64,7 +90,10 @@ export async function renderProveedores(ctx) {
         h('td', { class: 'num', text: String(p.pedidos) }),
         h('td', { class: 'num', text: eur(p.facturado_cent) }),
         h('td', { class: `num ${p.pendiente_cent > 0 ? 'strong' : 'pmuted'}`, text: eur(p.pendiente_cent) }),
-        h('td', {}, writeBtn('Guardar', { 'data-guardar': String(p.id) }, 'pbtn-sm')),
+        h('td', {}, h('div', { class: 'pbtn-row' }, [
+          writeBtn('Guardar', { 'data-guardar': String(p.id) }, 'pbtn-sm'),
+          res.data.length > 1 ? writeBtn('Unir con…', { 'data-unir': String(p.id), title: 'Es el mismo proveedor que otro: pasa sus documentos y borra esta ficha' }, 'pbtn-sm pbtn-ghost') : null,
+        ])),
       ]))),
     ])) : h('div', { class: 'pempty' }, [h('h3', { text: 'Sin proveedores todavía' }), h('p', { text: 'Aparecerán al importar la primera factura.' })]),
     ctx.user?.role === 'admin' ? importBlock(ctx) : null,
@@ -73,6 +102,8 @@ export async function renderProveedores(ctx) {
   root.addEventListener('click', async (e) => {
     const fact = e.target.closest('[data-facturas]');
     if (fact) return void ctx.go('facturas', { proveedor_id: fact.dataset.facturas });
+    const unir = e.target.closest('[data-unir]');
+    if (unir) return void unirProveedor(ctx, res.data, Number(unir.dataset.unir));
     const save = e.target.closest('[data-guardar]');
     if (!save) return undefined;
     const tr = save.closest('tr');

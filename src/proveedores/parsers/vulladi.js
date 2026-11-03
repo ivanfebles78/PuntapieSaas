@@ -54,7 +54,8 @@ export const vulladi = {
     const paresPdf = totales ? Number(totales[1]) : null;
     return {
       tipo: 'factura',
-      proveedor: { nombre: 'Vulladi', cif: CIF },
+      // Vulladi es la marca de Vulcanizados RJG: sus facturas van a esa ficha (por nombre).
+      proveedor: { nombre: 'VULCANIZADOS RJG, S.L.U.', cif: CIF },
       numero: cab ? cab[3].replace(/\./g, '') : null,
       fecha: cab ? parseFecha(cab[2]) : null,
       total_cent: totales ? parseImporteEs(totales[2]) : null,

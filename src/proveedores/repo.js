@@ -181,6 +181,35 @@ export async function actualizarProveedor(db, id, { nombre, cif, notas, domicili
   };
 }
 
+/**
+ * Une dos fichas del mismo proveedor: los documentos de `origenId` pasan a
+ * `destinoId`, salvo los que el destino ya tiene (mismo tipo y número), que se
+ * quedan donde están. Si el origen queda sin documentos, se borra.
+ */
+export async function fusionarProveedores(pool, origenId, destinoId) {
+  if (origenId === destinoId) throw new HttpError(400, 'Elige otro proveedor con el que unirlo.', 'SAME_SUPPLIER');
+  return withTransaction(pool, async (client) => {
+    const rows = (await client.query('SELECT * FROM suppliers WHERE id = ANY($1) ORDER BY id FOR UPDATE', [[origenId, destinoId]])).rows;
+    const origen = rows.find((r) => r.id === origenId);
+    const destino = rows.find((r) => r.id === destinoId);
+    if (!origen || !destino) throw new HttpError(404, 'Proveedor no encontrado.', 'SUPPLIER_NOT_FOUND');
+    const movidos = (await client.query(`
+      UPDATE supplier_docs d SET supplier_id = $2
+      WHERE d.supplier_id = $1 AND NOT EXISTS (
+        SELECT 1 FROM supplier_docs x WHERE x.supplier_id = $2 AND x.kind = d.kind AND x.number = d.number)
+      RETURNING kind, number`, [origenId, destinoId])).rows;
+    const duplicados = (await client.query('SELECT kind, number FROM supplier_docs WHERE supplier_id = $1 ORDER BY number', [origenId])).rows;
+    if (!duplicados.length) await client.query('DELETE FROM suppliers WHERE id = $1', [origenId]);
+    return {
+      origen: origen.name,
+      destino: destino.name,
+      movidos: movidos.map((d) => `${d.kind} ${d.number}`),
+      duplicados: duplicados.map((d) => `${d.kind} ${d.number}`),
+      eliminado: !duplicados.length,
+    };
+  });
+}
+
 /* ---------- Archivos ---------- */
 
 /** Guarda un archivo (ya validado) y devuelve su id. */

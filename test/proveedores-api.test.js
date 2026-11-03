@@ -205,4 +205,33 @@ describe('API de pagos a proveedores', { skip: !TEST_DATABASE_URL && 'Falta TEST
     const actions = log.data.items.map((i) => i.action);
     for (const a of ['crear', 'pagar', 'anular_pago', 'borrar', 'importar']) assert.ok(actions.includes(a), a);
   });
+
+  test('unir dos fichas del mismo proveedor: pasa lo que no está repetido y borra la ficha vacía', async () => {
+    const alta = (proveedor, numero) => admin('POST', '/api/proveedores/documentos', {
+      tipo: 'factura', proveedor, numero, fecha: '2026-10-15', total_cent: 1000, vencimientos: [{ fecha: '2026-11-15', importe_cent: 1000 }],
+    });
+    const rjg = (await alta({ nombre: 'Vulcanizados RJG', cif: 'B54612577' }, 'R-1')).data.proveedor.id;
+    const vulladi = (await alta({ nombre: 'Vulladi' }, 'V-1')).data.proveedor.id;
+    await alta({ nombre: 'Vulladi' }, 'R-1');
+    await alta({ nombre: 'Otra marca' }, 'O-1');
+    const otra = (await admin('GET', '/api/proveedores/lista')).data.find((p) => p.nombre === 'Otra marca').id;
+
+    assert.equal((await admin('POST', `/api/proveedores/lista/${rjg}/fusionar`, { destino_id: rjg })).status, 400);
+    assert.equal((await admin('POST', `/api/proveedores/lista/${rjg}/fusionar`, { destino_id: 999999 })).status, 404);
+
+    const parcial = await admin('POST', `/api/proveedores/lista/${vulladi}/fusionar`, { destino_id: rjg });
+    assert.equal(parcial.status, 200);
+    assert.deepEqual(parcial.data.movidos, ['factura V-1']);
+    assert.deepEqual(parcial.data.duplicados, ['factura R-1'], 'la repetida no se pasa');
+    assert.equal(parcial.data.eliminado, false, 'la ficha se queda mientras tenga la repetida');
+
+    const repetida = (await admin('GET', `/api/proveedores/documentos?proveedor_id=${vulladi}`)).data[0];
+    await admin('DELETE', `/api/proveedores/documentos/${repetida.id}`);
+    const final = await admin('POST', `/api/proveedores/lista/${vulladi}/fusionar`, { destino_id: rjg });
+    assert.equal(final.data.eliminado, true);
+    const lista = (await admin('GET', '/api/proveedores/lista')).data;
+    assert.equal(lista.some((p) => p.id === vulladi), false, 'Vulladi ya no está');
+    assert.equal(lista.find((p) => p.id === rjg).facturas, 2);
+    assert.equal(lista.find((p) => p.id === otra).facturas, 1, 'los demás no se tocan');
+  });
 });
