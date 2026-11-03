@@ -6,9 +6,13 @@ const MAX_FILES_PER_ENTRY = 20;
 const MAX_FILENAME_LENGTH = 120;
 export const FILE_KINDS = Object.freeze(['factura', 'justificante']);
 
+// El estándar PDF admite bytes antes de la cabecera (algunos bancos los ponen):
+// basta con que %PDF- aparezca en los primeros 1024.
+const PDF_HEADER_WINDOW = 1024;
+
 // Solo PDF e imágenes, comprobando también la firma del contenido.
 const ALLOWED = Object.freeze({
-  'application/pdf': (b) => b.subarray(0, 5).toString('latin1') === '%PDF-',
+  'application/pdf': (b) => b.subarray(0, PDF_HEADER_WINDOW).includes('%PDF-', 0, 'latin1'),
   'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
   'image/png': (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
   'image/webp': (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP',

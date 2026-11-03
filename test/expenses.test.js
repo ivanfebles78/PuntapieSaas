@@ -112,9 +112,14 @@ describe('gastos recurrentes', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATABAS
       body: PNG, headers: { 'Content-Type': 'image/png', 'X-File-Name': 'transferencia.png' },
     });
     assert.equal(justificante.status, 201);
+    // Los PDF de algunos bancos traen bytes antes de %PDF- (lo permite el estándar).
+    const delBanco = await admin.raw('POST', `/api/gastos/${ids.alquiler}/archivos?mes=2026-11&tipo=justificante`, {
+      body: Buffer.concat([Buffer.from('\r\n﻿'), PDF]), headers: { 'Content-Type': 'application/pdf', 'X-File-Name': 'justificante banco.pdf' },
+    });
+    assert.equal(delBanco.status, 201);
     nov = await item('2026-11', ids.alquiler);
     assert.equal(nov.status, 'pagado');
-    assert.equal(nov.receipts.length, 1);
+    assert.equal(nov.receipts.length, 2);
 
     const download = await admin.raw('GET', `/api/gastos/archivos/${nov.invoices[0].id}`);
     assert.equal(download.status, 200);
@@ -122,8 +127,10 @@ describe('gastos recurrentes', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATABAS
     assert.match(download.headers.get('content-disposition'), /inline; filename=/);
     assert.deepEqual(Buffer.from(await download.arrayBuffer()), PDF);
 
-    const del = await admin('DELETE', `/api/gastos/archivos/${nov.receipts[0].id}`);
-    assert.equal(del.status, 200);
+    for (const r of nov.receipts) {
+      const del = await admin('DELETE', `/api/gastos/archivos/${r.id}`);
+      assert.equal(del.status, 200);
+    }
     assert.equal((await item('2026-11', ids.alquiler)).status, 'pendiente');
   });
 
@@ -136,6 +143,10 @@ describe('gastos recurrentes', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATABAS
       body: Buffer.from('<html>hola</html>'), headers: { 'Content-Type': 'application/pdf', 'X-File-Name': 'falso.pdf' },
     });
     assert.equal(fake.status, 415);
+    const tarde = await admin.raw('POST', `/api/gastos/${ids.luz}/archivos?mes=2026-10&tipo=factura`, {
+      body: Buffer.concat([Buffer.alloc(1100, 0x20), PDF]), headers: { 'Content-Type': 'application/pdf', 'X-File-Name': 'tarde.pdf' },
+    });
+    assert.equal(tarde.status, 415, 'la cabecera %PDF- tiene que estar en los primeros 1024 bytes');
     const big = await admin.raw('POST', `/api/gastos/${ids.luz}/archivos?mes=2026-10&tipo=factura`, {
       body: Buffer.concat([PDF, Buffer.alloc(10 * 1024 * 1024)]), headers: { 'Content-Type': 'application/pdf' },
     });
