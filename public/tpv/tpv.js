@@ -2,6 +2,8 @@ import { api } from '../api.js';
 import { h } from '../dom.js';
 import { formatEuros } from '../format.js';
 import { showToast } from '../toast.js';
+import { renderAprobar } from './aprobar.js';
+import { renderVenta } from './venta.js';
 
 // Ventas › TPV: pantalla de inicio a pantalla completa, pensada para la
 // pantalla táctil de la caja. Por ahora solo los botones de cada sección
@@ -138,23 +140,38 @@ async function cargarHoy(root) {
   const clientes = d.totals.manana.customers + d.totals.tarde.customers;
   estado.classList.toggle('is-on', d.exists && d.status === 'abierto');
   texto.textContent = d.status !== 'abierto' ? 'Hoy cerrado' : d.exists ? 'Caja de hoy apuntada' : 'Caja de hoy sin apuntar';
-  root.querySelector('[data-resumen=ventas]').textContent = formatEuros(cents);
+  const ventas = root.querySelector('[data-resumen=ventas]');
+  if (!ventas) return; // ya se ha salido del inicio (p. ej. a la venta)
+  ventas.textContent = formatEuros(cents);
   root.querySelector('[data-resumen=clientes]').textContent = String(clientes);
 }
 
-/** Pinta Ventas › TPV a pantalla completa. */
-export function renderTpv({ main, user }) {
-  const root = h('div', { class: 'tpv', role: 'application', 'aria-label': 'TPV Puntapié' }, [
-    cabecera(),
-    h('div', { class: 'tpv-body' }, [
+const TPV_PATH = '/app/ventas/tpv';
+
+/** Pinta Ventas › TPV a pantalla completa (?seccion=venta abre la venta; ?aprobar= el enlace del WhatsApp). */
+export function renderTpv({ main, user, params }) {
+  const cuerpo = h('div', { class: 'tpv-body' });
+  const root = h('div', { class: 'tpv', role: 'application', 'aria-label': 'TPV Puntapié' }, [cabecera(), cuerpo, pie(user)]);
+
+  function inicio({ push = false } = {}) {
+    if (push) history.pushState({ app: true }, '', TPV_PATH);
+    cuerpo.classList.remove('is-venta');
+    cuerpo.replaceChildren(
       h('h1', { class: 'sr-only', tabindex: '-1', text: 'TPV' }),
       h('div', { class: 'tpv-grid' }, SECCIONES.map(boton)),
       panel(),
-    ]),
-    pie(user),
-  ]);
+    );
+    cargarHoy(root);
+  }
+  function abrirVenta({ push = false } = {}) {
+    if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=venta`);
+    cuerpo.classList.add('is-venta');
+    renderVenta(cuerpo, { user, salir: () => inicio({ push: true }) });
+  }
+
   root.addEventListener('click', (e) => {
     const s = e.target.closest('[data-seccion]');
+    if (s?.dataset.seccion === 'venta') return void abrirVenta({ push: true });
     if (s) return void proximamente(SECCIONES.find((x) => x.id === s.dataset.seccion).nombre);
     const n = e.target.closest('[data-nav-tpv]');
     if (n && n.dataset.navTpv !== 'inicio') return void proximamente(n.textContent);
@@ -165,6 +182,12 @@ export function renderTpv({ main, user }) {
   });
   main.replaceChildren(root);
   document.title = 'TPV · Puntapié';
+  const aprobar = params?.get('aprobar');
+  if (aprobar) {
+    cuerpo.classList.add('is-venta');
+    renderAprobar(cuerpo, { token: aprobar, user });
+  } else if (params?.get('seccion') === 'venta') abrirVenta();
+  else inicio();
   // El reloj se actualiza mientras la pantalla siga abierta.
   const timer = setInterval(() => {
     if (!root.isConnected) {
@@ -174,6 +197,5 @@ export function renderTpv({ main, user }) {
     root.querySelector('[data-hora]').textContent = hora();
     root.querySelector('[data-fecha]').textContent = fechaCorta();
   }, TICK_MS);
-  cargarHoy(root);
-  return root.querySelector('h1');
+  return root.querySelector('h1') ?? root;
 }

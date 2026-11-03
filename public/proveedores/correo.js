@@ -65,7 +65,7 @@ export function bloqueCorreo(ctx, { onRevisar }) {
           h('summary', { text: `Para revisar (${lista.length})` }),
           h('ul', { class: 'correo-lista' }, lista.map(fila)),
         ])
-        : null,
+        : '',
     );
     return undefined;
   }

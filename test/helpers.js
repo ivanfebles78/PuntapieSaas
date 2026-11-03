@@ -26,6 +26,8 @@ export const testConfig = Object.freeze({
   proveedores: { cifsPropios: ['B76766294'], ai: { apiKey: '', model: '', mode: 'off' } },
   businessStart: '2026-04-16',
   correo: { user: '', pass: '', hora: 8 },
+  tienda: { nombre: 'Puntapié', razonSocial: 'Calzando Sueños, S.L.', cif: 'B76766294', direccion: 'Calle Viera y Clavijo, 1', telefono: '922 124 962', igic: 7 },
+  whatsapp: { token: '', phoneId: '', plantilla: 'aprobacion_descuento', idioma: 'es', aprobadores: ['34600111222'] },
 });
 
 const silentLog = { info() {}, warn() {}, error() {} };
@@ -36,7 +38,7 @@ const silentLog = { info() {}, warn() {}, error() {} };
  */
 export async function startTestServer() {
   const pool = createPool(TEST_DATABASE_URL);
-  await pool.query('DROP TABLE IF EXISTS mail_attachments, mail_messages, mail_runs, inventory_incoming, inventory_items, product_subtypes, daily_sales, sales_days, supplier_uploads, supplier_payments, supplier_dues, supplier_docs, suppliers, supplier_files, audit_log, free_shifts, special_opening_staff, special_openings, work_schedules, settings, sales, expense_files, recurring_entries, recurring_amounts, recurring_expenses, vacations, password_resets, sessions, users CASCADE');
+  await pool.query('DROP TABLE IF EXISTS tpv_ticket_payments, tpv_ticket_lines, tpv_tickets, tpv_discount_requests, mail_attachments, mail_messages, mail_runs, inventory_incoming, inventory_items, product_subtypes, daily_sales, sales_days, supplier_uploads, supplier_payments, supplier_dues, supplier_docs, suppliers, supplier_files, audit_log, free_shifts, special_opening_staff, special_openings, work_schedules, settings, sales, expense_files, recurring_entries, recurring_amounts, recurring_expenses, vacations, password_resets, sessions, users CASCADE');
   await applySchema(pool);
   await seedAdmin(pool, testConfig, silentLog);
   await seedTeam(pool, undefined, silentLog);

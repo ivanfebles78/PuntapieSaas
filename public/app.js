@@ -293,8 +293,28 @@ function enterApp(user, path = APP_ROOT, { push = false } = {}) {
   else if (currentLocation() !== canonical) history.replaceState({ app: true }, '', canonical);
 }
 
+// Si se abrió un enlace de la app sin sesión (p. ej. «Aprobar descuento» desde
+// el WhatsApp), tras entrar se vuelve a él.
+const NEXT_KEY = 'puntapie_next';
+
+function rememberNext(path) {
+  try { sessionStorage.setItem(NEXT_KEY, path); } catch { /* sin almacenamiento: se va al inicio */ }
+}
+
+function takeNext() {
+  try {
+    const next = sessionStorage.getItem(NEXT_KEY);
+    sessionStorage.removeItem(NEXT_KEY);
+    return next && isAppPath(next) ? next : null;
+  } catch {
+    return null;
+  }
+}
+
 function enterHome(user) {
-  enterApp(user, APP_ROOT, { push: location.pathname !== APP_ROOT });
+  const next = takeNext();
+  if (next) return enterApp(user, next, { push: true });
+  return enterApp(user, APP_ROOT, { push: location.pathname !== APP_ROOT });
 }
 
 // Enlaces internos de la aplicación (mosaico, migas, logo, secciones).
@@ -334,6 +354,7 @@ async function route() {
   if (me.ok) return enterApp(me.data, path + location.search);
   currentUser = null;
   if (path === ROUTES.forgot) return show('forgot');
+  if (isAppPath(path) && path !== APP_ROOT) rememberNext(path + location.search);
   if (path !== ROUTES.login) history.replaceState({ view: 'login' }, '', ROUTES.login);
   return show('login', { focus: window.matchMedia('(min-width: 960px)').matches });
 }

@@ -49,6 +49,26 @@ export const config = Object.freeze({
   // Día en que la tienda pasó a ser nuestra: las estadísticas no cuentan ventas
   // ni gastos anteriores (eran del dueño anterior).
   businessStart: readEnv('BUSINESS_START', '2026-04-16'),
+  // Datos de la tienda que salen en el ticket (factura simplificada).
+  tienda: Object.freeze({
+    nombre: readEnv('TIENDA_NOMBRE', 'Puntapié'),
+    razonSocial: readEnv('TIENDA_RAZON_SOCIAL', 'Calzando Sueños, S.L.'),
+    cif: readEnv('TIENDA_CIF', 'B76766294'),
+    direccion: readEnv('TIENDA_DIRECCION', 'Calle Viera y Clavijo, 1 · 38003 Santa Cruz de Tenerife'),
+    telefono: readEnv('TIENDA_TELEFONO', '922 124 962'),
+    igic: Number(readEnv('TIENDA_IGIC', '7')),
+  }),
+  // Aprobación a distancia de descuentos de más del 15 %: WhatsApp Cloud API de
+  // Meta (plantilla con 4 variables: quién pide, %, total y enlace). Sin token,
+  // el TPV abre WhatsApp con el mensaje escrito para enviarlo a mano.
+  whatsapp: Object.freeze({
+    token: readEnv('WHATSAPP_TOKEN', ''),
+    phoneId: readEnv('WHATSAPP_PHONE_ID', ''),
+    plantilla: readEnv('WHATSAPP_PLANTILLA', 'aprobacion_descuento'),
+    idioma: readEnv('WHATSAPP_IDIOMA', 'es'),
+    // Móviles de quien aprueba, con prefijo y sin «+» (34600111222), separados por comas.
+    aprobadores: readEnv('WHATSAPP_APROBADORES', '').split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean),
+  }),
   // Revisión diaria del correo (facturas y pedidos): Gmail con contraseña de aplicación.
   correo: Object.freeze({
     user: readEnv('GMAIL_USER', '').trim(),

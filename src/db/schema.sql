@@ -475,3 +475,71 @@ CREATE TABLE IF NOT EXISTS mail_attachments (
 
 CREATE INDEX IF NOT EXISTS mail_attachments_state_idx ON mail_attachments(state);
 CREATE INDEX IF NOT EXISTS mail_attachments_sha_idx ON mail_attachments(sha256);
+
+-- ===================== TPV: ventas =====================
+-- Un ticket por venta, con sus líneas (artículo del stock o libre) y sus
+-- pagos (se puede repartir entre varios métodos). Cada pago se apunta también
+-- en `sales`, que es lo que leen las estadísticas.
+CREATE TABLE IF NOT EXISTS tpv_discount_requests (
+  id            SERIAL PRIMARY KEY,
+  token_hash    TEXT NOT NULL UNIQUE,
+  requested_by  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Cómo se pide: en persona (usuario y contraseña del admin) o a distancia (WhatsApp).
+  channel       TEXT NOT NULL CHECK (channel IN ('presencial', 'whatsapp')),
+  percent       NUMERIC(5, 2) NOT NULL CHECK (percent > 0 AND percent <= 100),
+  subtotal_cents INTEGER NOT NULL CHECK (subtotal_cents >= 0),
+  total_cents   INTEGER NOT NULL CHECK (total_cents >= 0),
+  summary       JSONB NOT NULL DEFAULT '[]',
+  status        TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente', 'aprobado', 'rechazado', 'usado', 'caducado')),
+  decided_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  decided_at    TIMESTAMPTZ,
+  notified      TEXT NOT NULL DEFAULT '',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at    TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tpv_tickets (
+  id              SERIAL PRIMARY KEY,
+  year            SMALLINT NOT NULL,
+  seq             INTEGER NOT NULL,
+  number          TEXT NOT NULL UNIQUE,
+  sold_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  subtotal_cents  INTEGER NOT NULL CHECK (subtotal_cents >= 0),
+  discount_cents  INTEGER NOT NULL DEFAULT 0 CHECK (discount_cents >= 0),
+  total_cents     INTEGER NOT NULL CHECK (total_cents >= 0),
+  change_cents    INTEGER NOT NULL DEFAULT 0 CHECK (change_cents >= 0),
+  approval_id     INTEGER REFERENCES tpv_discount_requests(id) ON DELETE SET NULL,
+  seller_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  seller_name     TEXT NOT NULL DEFAULT '',
+  UNIQUE (year, seq)
+);
+
+CREATE TABLE IF NOT EXISTS tpv_ticket_lines (
+  id              SERIAL PRIMARY KEY,
+  ticket_id       INTEGER NOT NULL REFERENCES tpv_tickets(id) ON DELETE CASCADE,
+  position        SMALLINT NOT NULL,
+  item_id         INTEGER REFERENCES inventory_items(id) ON DELETE SET NULL,
+  description     TEXT NOT NULL,
+  barcode         TEXT,
+  size            TEXT,
+  type            TEXT,
+  quantity        INTEGER NOT NULL CHECK (quantity > 0),
+  unit_cents      INTEGER NOT NULL CHECK (unit_cents >= 0),
+  discount_cents  INTEGER NOT NULL DEFAULT 0 CHECK (discount_cents >= 0),
+  total_cents     INTEGER NOT NULL CHECK (total_cents >= 0),
+  cost_cents      INTEGER,
+  without_stock   BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS tpv_ticket_payments (
+  id              SERIAL PRIMARY KEY,
+  ticket_id       INTEGER NOT NULL REFERENCES tpv_tickets(id) ON DELETE CASCADE,
+  method          TEXT NOT NULL CHECK (method IN ('efectivo', 'tarjeta', 'bizum', 'bonos', 'vales')),
+  amount_cents    INTEGER NOT NULL CHECK (amount_cents > 0),
+  tendered_cents  INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS tpv_ticket_lines_ticket_idx ON tpv_ticket_lines(ticket_id);
+CREATE INDEX IF NOT EXISTS tpv_ticket_payments_ticket_idx ON tpv_ticket_payments(ticket_id);
+CREATE INDEX IF NOT EXISTS tpv_tickets_sold_idx ON tpv_tickets(sold_at);
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS ticket_id INTEGER REFERENCES tpv_tickets(id) ON DELETE CASCADE;

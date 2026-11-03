@@ -1,0 +1,173 @@
+// Ventas del TPV: búsqueda de artículos, cálculo con los precios del stock,
+// alta del ticket (con su número), sus pagos y la salida del stock.
+import { calcularVenta } from '../../public/tpv/calculo.js';
+import { HttpError } from '../http-error.js';
+import { withTransaction } from '../proveedores/repo.js';
+
+export const METODOS = Object.freeze(['efectivo', 'tarjeta', 'bizum', 'bonos', 'vales']);
+const MAX_GRUPOS = 30;
+const MAX_LINEAS = 100;
+const CANDADO_NUMERO = 727101;
+const TZ = 'Atlantic/Canary';
+
+const invalida = (msg) => new HttpError(400, `Venta no válida: ${msg}.`, 'INVALID_SALE');
+const texto = (v, max) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
+
+const articulo = (r) => ({
+  id: r.id, tipo: r.type, marca: r.brand, modelo: r.model, referencia: r.reference, color: r.color, talla: r.size,
+  detalle: r.detail, codigo: r.barcode, stock: r.stock, pvp_cent: r.sale_price_cents,
+});
+
+/**
+ * Lo que escribe o escanea quien vende: un código de barras (el nuestro o el
+ * de fábrica) da el artículo exacto; si no, se busca por texto y salen los
+ * modelos con sus tallas.
+ */
+export async function buscarArticulos(db, q) {
+  const consulta = texto(q, 100);
+  if (!consulta) return { exacto: null, modelos: [] };
+  if (/^\d{8,14}$/.test(consulta)) {
+    const r = (await db.query('SELECT * FROM inventory_items WHERE barcode = $1 OR maker_barcode = $1 LIMIT 1', [consulta])).rows[0];
+    if (r) return { exacto: articulo(r), modelos: [] };
+  }
+  const palabras = consulta.split(' ').slice(0, 5).map((p) => `%${p.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+  // Cada palabra tiene que aparecer en algún campo («bota marino» encuentra la bota en color marino).
+  const condiciones = palabras.map((_, i) => `(a.brand || ' ' || a.model || ' ' || a.reference || ' ' || a.color || ' ' || a.detail) ILIKE $${i + 2}`);
+  const rows = (await db.query(
+    `SELECT a.* FROM inventory_items a
+      WHERE (a.barcode = $1 OR ${condiciones.join(' AND ')})
+      ORDER BY lower(a.brand), lower(a.model), a.reference, lower(a.color), a.size_order LIMIT 600`,
+    [consulta, ...palabras],
+  )).rows;
+  const grupos = new Map();
+  for (const r of rows) {
+    const k = [r.brand, r.reference, r.model, r.color].join('|').toLowerCase();
+    if (!grupos.has(k)) grupos.set(k, { marca: r.brand, referencia: r.reference, modelo: r.model, color: r.color, tipo: r.type, detalle: r.detail, tallas: [] });
+    grupos.get(k).tallas.push(articulo(r));
+  }
+  return { exacto: null, modelos: [...grupos.values()].slice(0, MAX_GRUPOS) };
+}
+
+/**
+ * Normaliza la venta que manda la pantalla y le pone los precios del stock
+ * (el PVP de un artículo no se puede cambiar desde la caja: para eso están los
+ * descuentos). Devuelve las líneas listas para calcular.
+ */
+export async function prepararVenta(db, venta) {
+  const entrada = venta?.lineas;
+  if (!Array.isArray(entrada) || !entrada.length) throw invalida('no tiene productos');
+  if (entrada.length > MAX_LINEAS) throw invalida(`como mucho ${MAX_LINEAS} líneas`);
+  const ids = [...new Set(entrada.map((l) => Number(l.articulo_id)).filter((n) => Number.isInteger(n) && n > 0))];
+  const items = new Map((ids.length ? (await db.query('SELECT * FROM inventory_items WHERE id = ANY($1)', [ids])).rows : []).map((r) => [r.id, r]));
+  const lineas = entrada.map((l, i) => {
+    const id = l.articulo_id == null || l.articulo_id === '' ? null : Number(l.articulo_id);
+    const descuento = l.descuento && l.descuento.valor !== '' && l.descuento.valor != null
+      ? { tipo: l.descuento.tipo === 'eur' ? 'eur' : 'pct', valor: Number(l.descuento.valor) } : null;
+    if (id !== null) {
+      const a = items.get(id);
+      if (!a) throw invalida(`el artículo de la línea ${i + 1} no existe`);
+      const precio = a.sale_price_cents ?? Number(l.precio_cent);
+      if (!Number.isInteger(precio) || precio <= 0) throw invalida(`«${a.brand} ${a.reference}» no tiene PVP: ponlo en Inventario o escribe el precio`);
+      const desc = [a.brand, a.model !== a.reference ? a.model : null, a.reference, a.color].filter(Boolean).join(' · ');
+      return {
+        articulo_id: a.id, descripcion: desc, codigo: a.barcode, talla: a.size, tipo: a.type, coste_cent: a.cost_cents,
+        precio_cent: precio, cantidad: Number(l.cantidad), descuento,
+      };
+    }
+    const descripcion = texto(l.descripcion, 80);
+    if (!descripcion) throw invalida(`falta el concepto del artículo libre de la línea ${i + 1}`);
+    return {
+      articulo_id: null, descripcion, codigo: null, talla: null, tipo: l.tipo && ['calzado', 'ropa', 'accesorios', 'juguetes'].includes(l.tipo) ? l.tipo : null,
+      coste_cent: null, precio_cent: Number(l.precio_cent), cantidad: Number(l.cantidad), descuento,
+    };
+  });
+  const descuento = venta.descuento && venta.descuento.valor !== '' && venta.descuento.valor != null
+    ? { tipo: venta.descuento.tipo === 'eur' ? 'eur' : 'pct', valor: Number(venta.descuento.valor) } : null;
+  try {
+    return { ...calcularVenta(lineas, descuento), descuento_ticket: descuento };
+  } catch (error) {
+    if (error instanceof RangeError) throw invalida(error.message);
+    throw error;
+  }
+}
+
+function leerPagos(pagos, total) {
+  if (!Array.isArray(pagos) || !pagos.length) throw invalida('falta el cobro');
+  const lista = pagos.map((p) => {
+    const metodo = String(p.metodo);
+    const importe = Number(p.importe_cent);
+    const entregado = p.entregado_cent == null || p.entregado_cent === '' ? null : Number(p.entregado_cent);
+    if (!METODOS.includes(metodo)) throw invalida('método de pago no válido');
+    if (!Number.isInteger(importe) || importe <= 0) throw invalida('importe de pago no válido');
+    if (entregado !== null && (metodo !== 'efectivo' || !Number.isInteger(entregado) || entregado < importe)) throw invalida('el efectivo entregado no cubre su importe');
+    return { metodo, importe, entregado };
+  });
+  const suma = lista.reduce((s, p) => s + p.importe, 0);
+  if (suma !== total) throw invalida(`los pagos suman ${(suma / 100).toFixed(2)} € y el total es ${(total / 100).toFixed(2)} €`);
+  return lista;
+}
+
+/**
+ * Registra la venta: ticket con número correlativo del año, sus líneas, sus
+ * pagos (también en `sales` para las estadísticas) y la salida del stock.
+ * `aprobacionId` = descuento aprobado (lo comprueba quien llama).
+ */
+export async function registrarVenta(pool, { venta, calculo, vendedor, aprobacionId = null }) {
+  const pagos = leerPagos(venta.pagos, calculo.total_cent);
+  const cambio = pagos.reduce((s, p) => s + (p.entregado ? p.entregado - p.importe : 0), 0);
+  return withTransaction(pool, async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock($1)', [CANDADO_NUMERO]);
+    const year = Number(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric' }).format(new Date()));
+    const seq = (await client.query('SELECT COALESCE(max(seq), 0) + 1 AS n FROM tpv_tickets WHERE year = $1', [year])).rows[0].n;
+    const numero = `T${String(year).slice(2)}-${String(seq).padStart(6, '0')}`;
+    const ticket = (await client.query(
+      `INSERT INTO tpv_tickets (year, seq, number, subtotal_cents, discount_cents, total_cents, change_cents, approval_id, seller_id, seller_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+      [year, seq, numero, calculo.subtotal_cent, calculo.descuento_cent, calculo.total_cent, cambio, aprobacionId, vendedor.id, vendedor.name ?? ''],
+    )).rows[0];
+    const sinStock = [];
+    for (const [i, l] of calculo.lineas.entries()) {
+      let falta = false;
+      if (l.articulo_id) {
+        // Se vende aunque el sistema diga que no hay (el zapato está en la mano); se avisa.
+        const antes = (await client.query('SELECT stock FROM inventory_items WHERE id = $1 FOR UPDATE', [l.articulo_id])).rows[0].stock;
+        falta = antes < l.cantidad;
+        await client.query('UPDATE inventory_items SET stock = GREATEST(stock - $2, 0), updated_at = NOW() WHERE id = $1', [l.articulo_id, l.cantidad]);
+        if (falta) sinStock.push(`${l.descripcion} T. ${l.talla}`);
+      }
+      await client.query(
+        `INSERT INTO tpv_ticket_lines (ticket_id, position, item_id, description, barcode, size, type, quantity, unit_cents, discount_cents, total_cents, cost_cents, without_stock)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [ticket.id, i, l.articulo_id, l.descripcion, l.codigo, l.talla, l.tipo, l.cantidad, l.precio_cent, l.descuento_cent, l.total_cent, l.coste_cent, falta],
+      );
+    }
+    for (const p of pagos) {
+      await client.query('INSERT INTO tpv_ticket_payments (ticket_id, method, amount_cents, tendered_cents) VALUES ($1, $2, $3, $4)', [ticket.id, p.metodo, p.importe, p.entregado]);
+      await client.query('INSERT INTO sales (sold_at, total_cents, payment_method, created_by, ticket_id) VALUES (NOW(), $1, $2, $3, $4)', [p.importe, p.metodo, vendedor.id, ticket.id]);
+    }
+    if (aprobacionId) await client.query("UPDATE tpv_discount_requests SET status = 'usado' WHERE id = $1", [aprobacionId]);
+    return { id: ticket.id, numero, sin_stock: sinStock };
+  });
+}
+
+/** Un ticket completo, para la pantalla y para imprimirlo. */
+export async function obtenerTicket(db, id, tienda) {
+  const t = (await db.query(
+    `SELECT t.*, to_char(t.sold_at AT TIME ZONE $2, 'DD/MM/YYYY HH24:MI') AS fecha FROM tpv_tickets t WHERE t.id = $1`, [id, TZ],
+  )).rows[0];
+  if (!t) throw new HttpError(404, 'Ese ticket no existe.', 'TICKET_NOT_FOUND');
+  const lineas = (await db.query('SELECT * FROM tpv_ticket_lines WHERE ticket_id = $1 ORDER BY position', [id])).rows;
+  const pagos = (await db.query('SELECT * FROM tpv_ticket_payments WHERE ticket_id = $1 ORDER BY id', [id])).rows;
+  const base = Math.round(t.total_cents / (1 + tienda.igic / 100));
+  return {
+    id: t.id, numero: t.number, fecha: t.fecha, vendedor: t.seller_name,
+    subtotal_cent: t.subtotal_cents, descuento_cent: t.discount_cents, total_cent: t.total_cents, cambio_cent: t.change_cents,
+    lineas: lineas.map((l) => ({
+      descripcion: l.description, talla: l.size, codigo: l.barcode, cantidad: l.quantity, precio_cent: l.unit_cents,
+      descuento_cent: l.discount_cents, total_cent: l.total_cents, sin_stock: l.without_stock,
+    })),
+    pagos: pagos.map((p) => ({ metodo: p.method, importe_cent: p.amount_cents, entregado_cent: p.tendered_cents })),
+    igic: { pct: tienda.igic, base_cent: base, cuota_cent: t.total_cents - base },
+    tienda,
+  };
+}
