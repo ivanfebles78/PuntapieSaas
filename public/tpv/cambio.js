@@ -197,21 +197,23 @@ export function renderCambio(zona, { user, salir }) {
       showToast(r.error, { tone: 'error' });
       return enfocar();
     }
+    // Dos documentos: la rectificativa (lo devuelto) y, si se lleva algo, su venta.
     const t = r.data;
-    imprimirTicket(t);
+    imprimirTicket(t.rectificativa, t.venta);
     if (t.vale) imprimirVale({ ...t.vale, tienda: t.tienda });
     estado = { devueltos: [], nuevos: [], aprobacion: null };
     calculo = null;
     pintar();
     resultados.replaceChildren(h('div', { class: 'vt-hecha' }, [
-      h('strong', { text: `Cambio ${t.numero} hecho` }),
+      h('strong', { text: `Devolución ${t.rectificativa.numero}${t.venta ? ` y venta ${t.venta.numero}` : ''} hechas` }),
       t.vale ? h('p', { class: 'vt-cambio', text: `Vale de ${formatEuros(t.vale.importe_cent)} · caduca el ${t.vale.caduca}` }) : '',
       h('div', { class: 'vt-hecha-acciones' }, [
         t.vale ? h('button', { type: 'button', class: 'tpv-ghost', 'data-reimprimir-vale': '', text: 'Imprimir el vale otra vez' }) : '',
-        h('button', { type: 'button', class: 'tpv-ghost', 'data-reimprimir': '', text: 'Imprimir el ticket otra vez' }),
+        h('button', { type: 'button', class: 'tpv-ghost', 'data-reimprimir': '', text: t.venta ? 'Imprimir los tickets otra vez' : 'Imprimir el ticket otra vez' }),
       ]),
       h('div', { class: 'cb-impresos' }, [
-        h('div', { class: 'vt-ticket-vista' }, ticketDom(t)),
+        h('div', { class: 'vt-ticket-vista' }, ticketDom(t.rectificativa)),
+        t.venta ? h('div', { class: 'vt-ticket-vista' }, ticketDom(t.venta)) : '',
         t.vale ? h('div', { class: 'vt-ticket-vista' }, valeImpresoDom({ ...t.vale, tienda: t.tienda })) : '',
       ]),
     ]));
@@ -275,7 +277,10 @@ export function renderCambio(zona, { user, salir }) {
       pintar();
       return enfocar();
     }
-    if (t.closest('[data-reimprimir]')) return void imprimirTicket(JSON.parse(resultados.dataset.ultimo));
+    if (t.closest('[data-reimprimir]')) {
+      const u = JSON.parse(resultados.dataset.ultimo);
+      return void imprimirTicket(u.rectificativa, u.venta);
+    }
     if (t.closest('[data-reimprimir-vale]')) {
       const u = JSON.parse(resultados.dataset.ultimo);
       return void imprimirVale({ ...u.vale, tienda: u.tienda });

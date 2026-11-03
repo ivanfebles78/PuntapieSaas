@@ -39,7 +39,7 @@ export function valeDom(v) {
       h('div', {}, [h('span', { text: 'Importe' }), h('strong', { text: formatEuros(v.importe_cent) })]),
       h('div', {}, [h('span', { text: 'Caduca' }), h('strong', { text: v.caduca })]),
     ]),
-    h('p', { class: 'vt-vale-origen', text: `Emitido el ${v.emitido}${v.ticket_origen ? ` en el cambio ${v.ticket_origen}` : ''}.` }),
+    h('p', { class: 'vt-vale-origen', text: `Emitido el ${v.emitido}${v.ticket_origen ? ` en ${v.ticket_origen.startsWith('R') ? 'la devolución' : 'el cambio'} ${v.ticket_origen}` : ''}.` }),
     v.usos.length
       ? h('ul', { class: 'vt-vale-usos' }, v.usos.map((u) => h('li', {}, [h('span', { text: `${u.fecha} · ticket ${u.ticket}` }), h('strong', { text: `−${formatEuros(u.importe_cent)}` })])))
       : h('p', { class: 'vt-vale-origen', text: 'Aún no se ha usado.' }),

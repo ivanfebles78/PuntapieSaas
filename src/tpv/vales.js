@@ -1,5 +1,5 @@
 // Vales de compra: se emiten en un cambio por lo que el cliente no se lleva.
-// Tienen un código (el del QR), importe, saldo y caducidad a 1 año; se gastan
+// Tienen un código (el del QR), importe, saldo y caducidad (TPV_VALE_MESES); se gastan
 // en una o varias compras hasta agotar el saldo. No se cambian por dinero.
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
@@ -26,15 +26,15 @@ export function leerCodigoVale(texto) {
 export const formatoCodigo = (c) => `${c.slice(0, 3)}-${c.slice(3, 7)}-${c.slice(7)}`;
 
 /** Emite un vale por `importe` dentro de la transacción del cambio. */
-export async function emitirVale(client, { importe, ticketId, usuario }) {
+export async function emitirVale(client, { importe, ticketId, usuario, meses }) {
   const year = Number(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric' }).format(new Date()));
   for (let i = 0; i < 5; i += 1) {
     const code = nuevoCodigoVale(year);
     const r = await client.query(
       `INSERT INTO tpv_vouchers (code, expires_on, amount_cents, balance_cents, origin_ticket_id, issued_by)
-       VALUES ($1, ((NOW() AT TIME ZONE $5)::date + INTERVAL '1 year')::date, $2, $2, $3, $4)
+       VALUES ($1, ((NOW() AT TIME ZONE $5)::date + make_interval(months => $6))::date, $2, $2, $3, $4)
        ON CONFLICT (code) DO NOTHING RETURNING id`,
-      [code, importe, ticketId, usuario.id, TZ],
+      [code, importe, ticketId, usuario.id, TZ, meses],
     );
     if (r.rowCount) return { id: r.rows[0].id, codigo: code };
   }
@@ -47,7 +47,9 @@ export async function obtenerVale(db, codigo, { conQr = false } = {}) {
   if (!code) throw new HttpError(404, 'Ese código no es de un vale.', 'VOUCHER_NOT_FOUND');
   const v = (await db.query(
     `SELECT v.*, to_char(v.issued_at AT TIME ZONE $2, 'DD/MM/YYYY') AS emitido, to_char(v.expires_on, 'DD/MM/YYYY') AS caduca,
-            (v.expires_on < (NOW() AT TIME ZONE $2)::date) AS caducado, t.number AS ticket
+            (v.expires_on < (NOW() AT TIME ZONE $2)::date) AS caducado, t.number AS ticket,
+            (EXTRACT(year FROM age(v.expires_on, (v.issued_at AT TIME ZONE $2)::date)) * 12
+              + EXTRACT(month FROM age(v.expires_on, (v.issued_at AT TIME ZONE $2)::date)))::int AS meses
        FROM tpv_vouchers v LEFT JOIN tpv_tickets t ON t.id = v.origin_ticket_id WHERE v.code = $1`, [code, TZ],
   )).rows[0];
   if (!v) throw new HttpError(404, `El vale ${formatoCodigo(code)} no existe.`, 'VOUCHER_NOT_FOUND');
@@ -57,7 +59,7 @@ export async function obtenerVale(db, codigo, { conQr = false } = {}) {
   )).rows;
   const estado = v.caducado ? 'caducado' : v.balance_cents === 0 ? 'agotado' : 'activo';
   return {
-    id: v.id, codigo: v.code, codigo_legible: formatoCodigo(v.code), emitido: v.emitido, caduca: v.caduca, estado,
+    id: v.id, codigo: v.code, codigo_legible: formatoCodigo(v.code), emitido: v.emitido, caduca: v.caduca, validez_meses: v.meses, estado,
     importe_cent: v.amount_cents, saldo_cent: v.balance_cents, ticket_origen: v.ticket,
     usos: usos.map((u) => ({ importe_cent: u.amount_cents, fecha: u.fecha, ticket: u.ticket })),
     ...(conQr ? { qr_svg: await QRCode.toString(v.code, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }) } : {}),

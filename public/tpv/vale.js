@@ -19,7 +19,7 @@ export function valeImpresoDom(v) {
   const t = v.tienda ?? {};
   const condiciones = [
     `Vale canjeable por productos en ${t.nombre ?? 'Puntapié'}. No se cambia por dinero.`,
-    `Válido hasta el ${v.caduca} (1 año desde su emisión). Pasada esa fecha no se aceptará.`,
+    `Válido hasta el ${v.caduca} (${v.validez_meses === 12 ? '1 año' : `${v.validez_meses} meses`} desde su emisión). Pasada esa fecha no se aceptará.`,
     'Se puede usar en una o varias compras hasta agotar su saldo.',
     'Consérvelo en buen estado: si está tan deteriorado que nuestro sistema no puede leer su código QR y no podemos identificarlo, nos reservamos el derecho a no aceptarlo.',
     `Vale al portador: ${t.nombre ?? 'Puntapié'} no se hace responsable de su pérdida o robo.`,
@@ -39,7 +39,7 @@ export function valeImpresoDom(v) {
     h('div', { class: 'tk-sep' }),
     h('div', { class: 'tk-fila' }, [h('span', { text: 'Fecha del vale' }), h('span', { text: v.emitido })]),
     h('div', { class: 'tk-fila tk-total' }, [h('span', { text: 'Caduca el' }), h('span', { text: v.caduca })]),
-    v.ticket_origen ? h('div', { class: 'tk-fila' }, [h('span', { text: 'Cambio' }), h('span', { text: v.ticket_origen })]) : '',
+    v.ticket_origen ? h('div', { class: 'tk-fila' }, [h('span', { text: v.ticket_origen.startsWith('R') ? 'Devolución' : 'Cambio' }), h('span', { text: v.ticket_origen })]) : '',
     h('div', { class: 'tk-sep' }),
     h('ul', { class: 'vl-condiciones' }, condiciones.map((c) => h('li', { text: c }))),
   ]);

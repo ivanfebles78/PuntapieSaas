@@ -99,11 +99,12 @@ export async function calcularCambio(db, cambio) {
 }
 
 /**
- * Registra el cambio: ticket de tipo «cambio» con lo nuevo (sale del stock) y
- * lo que se paga de diferencia; lo devuelto vuelve al stock; y si sobra
- * crédito, un vale por ese importe. `comprobar(credito)` valida la aprobación si hace falta.
+ * Registra el cambio en dos documentos: la rectificativa (serie R) con lo
+ * devuelto, que vuelve al stock, y, si se lleva algo, una venta normal
+ * (serie T) pagada con ese abono y, si vale más, con la diferencia. Si sobra
+ * abono, un vale por el resto. `comprobarAprobacion(credito)` valida la aprobación si hace falta.
  */
-export async function registrarCambio(pool, { cambio, vendedor, comprobarAprobacion }) {
+export async function registrarCambio(pool, { cambio, vendedor, comprobarAprobacion, valeMeses }) {
   return withTransaction(pool, async (client) => {
     const dev = await valorarDevueltos(client, cambio?.devueltos, { bloquear: true });
     const nuevos = await valorarNuevos(client, cambio?.nuevos);
@@ -111,18 +112,28 @@ export async function registrarCambio(pool, { cambio, vendedor, comprobarAprobac
     const aPagar = Math.max(0, totalNuevos - dev.credito);
     const pagos = leerPagos(aPagar ? cambio.pagos : [], aPagar);
     const aprobacionId = dev.requiere_aprobacion && vendedor.role !== 'admin' ? await comprobarAprobacion(client, dev.credito) : null;
-    const t = await crearTicket(client, { calculo: nuevos, pagos, vendedor, aprobacionId, tipo: 'cambio', creditoCent: dev.credito });
+    const rect = await crearTicket(client, {
+      calculo: null, pagos: [], vendedor, aprobacionId, tipo: 'rectificativa', serie: 'R', totalCent: dev.credito, creditoCent: dev.credito,
+    });
     for (const l of dev.lineas) {
       await client.query(
         `INSERT INTO tpv_return_lines (ticket_id, item_id, sold_line_id, description, size, quantity, credit_cents, paper_ticket, sold_on)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [t.id, l.item_id, l.sold_line_id, l.descripcion, l.talla, l.cantidad, l.credito, l.papel ? l.ticket : null, l.dia],
+        [rect.id, l.item_id, l.sold_line_id, l.descripcion, l.talla, l.cantidad, l.credito, l.papel ? l.ticket : null, l.dia],
       );
       // Lo devuelto vuelve siempre al stock.
       if (l.item_id) await client.query('UPDATE inventory_items SET stock = stock + $2, updated_at = NOW() WHERE id = $1', [l.item_id, l.cantidad]);
     }
+    let venta = null;
+    if (nuevos?.lineas?.length) {
+      const abono = Math.min(dev.credito, totalNuevos);
+      const conAbono = abono ? [{ metodo: 'abono', importe: abono, entregado: null, creditTicketId: rect.id }, ...pagos] : pagos;
+      venta = await crearTicket(client, { calculo: nuevos, pagos: conAbono, vendedor, abonoDeId: rect.id });
+    }
     const sobra = Math.max(0, dev.credito - totalNuevos);
-    const vale = sobra ? await emitirVale(client, { importe: sobra, ticketId: t.id, usuario: vendedor }) : null;
-    return { ...t, vale, credito: dev.credito, motivos: dev.motivos };
+    const vale = sobra ? await emitirVale(client, { importe: sobra, ticketId: rect.id, usuario: vendedor, meses: valeMeses }) : null;
+    return {
+      rectificativa: rect, venta, vale, credito: dev.credito, motivos: dev.motivos, sin_stock: venta?.sin_stock ?? [],
+    };
   });
 }

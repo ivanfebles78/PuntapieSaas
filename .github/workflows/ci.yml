@@ -1,0 +1,63 @@
+# Cada push y cada pull request: sintaxis, dependencias y tests contra un
+# PostgreSQL de pruebas. Las facturas reales (test/fixtures-proveedores) no
+# están en el repo: los tests que las usan se saltan solos.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: puntapie
+          POSTGRES_PASSWORD: puntapie
+          POSTGRES_DB: puntapie_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U puntapie"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://puntapie:puntapie@localhost:5432/puntapie_test
+      TZ: Atlantic/Canary
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Sintaxis
+        run: find src public test -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Sin console.log en el código
+        run: |
+          if grep -rn "console\.log" public src --include='*.js' | grep -v "^src/server.js"; then
+            echo "Quita los console.log de arriba." && exit 1
+          fi
+
+      - name: Dependencias (vulnerabilidades altas o críticas)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Tests
+        run: npm test

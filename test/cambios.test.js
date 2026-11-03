@@ -43,7 +43,7 @@ describe('TPV: cambios y vales', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
     await ctx?.stop();
   });
 
-  test('cambio por un vale: vale lo que se pagó (con su descuento), vuelve al stock y el vale caduca en un año', async () => {
+  test('devolución por un vale: rectificativa en su serie (R), vale lo que se pagó, vuelve al stock y el vale caduca en un año', async () => {
     const venta = await vender(art.A1, { metodo: 'tarjeta', importe_cent: 5395 }, { tipo: 'pct', valor: 10 });
     assert.equal(venta.total_cent, 5395);
     const info = await elena('GET', `/api/tpv/cambios/articulo?q=${art.A1.codigo}`);
@@ -55,12 +55,20 @@ describe('TPV: cambios y vales', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
     const antes = await stock(art.A1);
     const r = await elena('POST', '/api/tpv/cambios', { devueltos: [{ linea_id: v.linea_id, cantidad: 1 }] });
     assert.equal(r.status, 201);
-    assert.equal(r.data.tipo, 'cambio');
-    assert.equal(r.data.total_cent, 0, 'no se cobra nada');
-    assert.equal(r.data.devueltos[0].credito_cent, 5395);
+    const rect = r.data.rectificativa;
+    assert.equal(rect.tipo, 'rectificativa');
+    assert.match(rect.numero, /^R\d{2}-000001$/, 'las rectificativas tienen su propia serie');
+    assert.deepEqual(rect.rectifica, [venta.numero], 'dice qué venta rectifica');
+    assert.equal(rect.total_cent, 5395);
+    assert.equal(rect.igic.base_cent + rect.igic.cuota_cent, -5395, 'base e IGIC en negativo');
+    assert.ok(rect.igic.base_cent < 0);
+    assert.equal(rect.devueltos[0].credito_cent, 5395);
+    assert.equal(r.data.venta, null, 'no se lleva nada: no hay venta');
+    assert.equal(r.data.vale.ticket_origen, rect.numero);
     assert.equal(r.data.vale.importe_cent, 5395);
     assert.equal(r.data.vale.saldo_cent, 5395);
     assert.match(r.data.vale.qr_svg, /^<svg/);
+    assert.equal(r.data.vale.validez_meses, 12);
     const enUnAno = new Date();
     enUnAno.setFullYear(enUnAno.getFullYear() + 1);
     assert.equal(r.data.vale.caduca.slice(-4), String(enUnAno.getFullYear()));
@@ -86,15 +94,24 @@ describe('TPV: cambios y vales', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
       devueltos: [{ linea_id: lineaB, cantidad: 1 }], nuevos: [{ articulo_id: art.C1.id, cantidad: 1 }], pagos: [{ metodo: 'tarjeta', importe_cent: 5000 }],
     });
     assert.equal(caro.status, 201);
-    assert.deepEqual([caro.data.total_cent, caro.data.credito_cent, caro.data.vale], [5000, 3995, null]);
-    assert.equal(vB.numero !== caro.data.numero, true);
+    const { rectificativa: rc, venta: vc } = caro.data;
+    assert.deepEqual([rc.total_cent, rc.rectifica, caro.data.vale], [3995, [vB.numero], null]);
+    assert.match(vc.numero, /^T\d{2}-/, 'lo nuevo es una venta normal, con su IGIC entero');
+    assert.equal(vc.total_cent, 8995);
+    assert.equal(vc.igic.base_cent + vc.igic.cuota_cent, 8995);
+    assert.deepEqual(vc.pagos.map((p) => [p.metodo, p.importe_cent]), [['abono', 3995], ['tarjeta', 5000]]);
+    assert.deepEqual([vc.vinculado, rc.vinculado], [rc.numero, vc.numero], 'cada documento cita al otro');
     assert.equal(await stock(art.C1), 0);
+    const caja = (await elena('GET', '/api/tpv/caja')).data.abierta;
+    assert.equal(caja.por_metodo.abono, undefined, 'el abono no es dinero de la caja');
 
     // Ahora devuelve el C1 (sale del ticket del cambio) y se lleva el B1: sobran 50 € en vale.
     const lineaC = (await elena('GET', `/api/tpv/cambios/articulo?q=${art.C1.codigo}`)).data.ventas[0].linea_id;
     const barato = await elena('POST', '/api/tpv/cambios', { devueltos: [{ linea_id: lineaC, cantidad: 1 }], nuevos: [{ articulo_id: art.B1.id, cantidad: 1 }] });
     assert.equal(barato.status, 201);
-    assert.deepEqual([barato.data.total_cent, barato.data.vale.importe_cent], [0, 5000]);
+    assert.deepEqual([barato.data.rectificativa.total_cent, barato.data.rectificativa.rectifica], [8995, [vc.numero]]);
+    assert.deepEqual(barato.data.venta.pagos.map((p) => [p.metodo, p.importe_cent]), [['abono', 3995]]);
+    assert.equal(barato.data.vale.importe_cent, 5000);
     assert.equal(await stock(art.C1), 1);
   });
 
@@ -144,6 +161,7 @@ describe('TPV: cambios y vales', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
     const ok = await elena('POST', '/api/tpv/cambios', { devueltos: [papel], aprobacion_id: ap.data.id });
     assert.equal(ok.status, 201);
     assert.equal(ok.data.vale.importe_cent, 5995);
+    assert.deepEqual(ok.data.rectificativa.rectifica, ['ticket de papel 000123']);
     assert.equal((await admin('POST', '/api/tpv/cambios', { devueltos: [papel] })).status, 201, 'el Administrador no necesita aprobación');
 
     // Una venta de hace 40 días: fuera de plazo.
@@ -161,5 +179,13 @@ describe('TPV: cambios y vales', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
     const c = await elena('POST', '/api/tpv/cambios', { devueltos: [{ linea_id: linea.linea_id, cantidad: 1 }] });
     assert.equal(c.code, 'CASH_CLOSED');
     assert.ok(r);
+  });
+
+  test('(al final: bloquea el resto de pruebas) buscar vales por código: muchos códigos que no existen seguidos se bloquean', async () => {
+    let ultimo;
+    for (const letra of 'ABCDEFGHJKLMNPQRSTUVW') ultimo = await elena('GET', `/api/tpv/vales/V26ZZZZ${letra}ZZZ`);
+    assert.equal(ultimo.status, 429);
+    assert.equal(ultimo.code, 'TOO_MANY_VOUCHER_LOOKUPS');
+    assert.equal((await elena('GET', '/api/tpv/buscar?q=Gioseppo')).status, 200, 'buscar productos no se bloquea');
   });
 });

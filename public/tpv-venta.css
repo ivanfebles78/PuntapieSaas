@@ -244,6 +244,7 @@
 .tk-cab { display: grid; justify-items: center; text-align: center; }
 .tk-nombre { font-size: 18px; }
 .tk-sep { margin: 6px 0; border-top: 1px dashed #000; }
+.tk-corte { margin: 14px 0; border-top: 2px dashed #000; break-after: page; }
 .tk-fila { display: flex; justify-content: space-between; gap: 8px; }
 .tk-desc { margin-top: 4px; font-weight: 700; }
 .tk-total { margin: 4px 0; font-size: 16px; font-weight: 800; }

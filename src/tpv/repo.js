@@ -110,26 +110,33 @@ export function leerPagos(pagos, total) {
   return lista;
 }
 
+/** Pagos con dinero (o vale): los que cuentan en `sales`. El abono de una rectificativa no es dinero nuevo. */
+const esDinero = (p) => p.metodo !== 'abono';
+
 /**
- * Alta de un ticket (venta o cambio) dentro de una transacción: número
- * correlativo del año, sus líneas nuevas (salen del stock), sus pagos (con
- * vales, descontando su saldo) y cada pago en `sales` para las estadísticas.
+ * Alta de un ticket dentro de una transacción: número correlativo del año en
+ * su serie (T = ventas, R = rectificativas), sus líneas nuevas (salen del
+ * stock), sus pagos (con vales, descontando su saldo; con «abono», el de una
+ * rectificativa) y cada pago en dinero en `sales` para las estadísticas.
  * Solo con la caja abierta: cada ticket cuenta en el arqueo de su caja.
  */
-export async function crearTicket(client, { calculo, pagos, vendedor, aprobacionId = null, tipo = 'venta', creditoCent = 0 }) {
+export async function crearTicket(client, {
+  calculo, pagos, vendedor, aprobacionId = null, tipo = 'venta', creditoCent = 0, serie = 'T', totalCent = null, abonoDeId = null,
+}) {
   await client.query('SELECT pg_advisory_xact_lock($1)', [CANDADO_NUMERO]);
   const sesion = (await client.query("SELECT id FROM tpv_cash_sessions WHERE status = 'abierta' FOR SHARE")).rows[0];
   if (!sesion) throw new HttpError(409, 'La caja está cerrada: ábrela (con el recuento del dinero) para poder vender.', 'CASH_CLOSED');
   const year = Number(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric' }).format(new Date()));
-  const seq = (await client.query('SELECT COALESCE(max(seq), 0) + 1 AS n FROM tpv_tickets WHERE year = $1', [year])).rows[0].n;
-  const numero = `T${String(year).slice(2)}-${String(seq).padStart(6, '0')}`;
-  const pagado = pagos.reduce((s, p) => s + p.importe, 0);
+  const seq = (await client.query('SELECT COALESCE(max(seq), 0) + 1 AS n FROM tpv_tickets WHERE series = $1 AND year = $2', [serie, year])).rows[0].n;
+  const numero = `${serie}${String(year).slice(2)}-${String(seq).padStart(6, '0')}`;
+  const pagado = totalCent ?? pagos.reduce((s, p) => s + p.importe, 0);
   const cambio = pagos.reduce((s, p) => s + (p.entregado ? p.entregado - p.importe : 0), 0);
   const ticket = (await client.query(
-    `INSERT INTO tpv_tickets (year, seq, number, subtotal_cents, discount_cents, total_cents, change_cents, approval_id, seller_id, seller_name, session_id, kind, credit_cents)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
-    [year, seq, numero, calculo?.subtotal_cent ?? 0, calculo?.descuento_cent ?? 0, pagado, cambio, aprobacionId, vendedor.id, vendedor.name ?? '',
-      sesion.id, tipo, creditoCent],
+    `INSERT INTO tpv_tickets (year, seq, number, subtotal_cents, discount_cents, total_cents, change_cents, approval_id, seller_id, seller_name, session_id,
+                              kind, credit_cents, series, credit_from_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+    [year, seq, numero, calculo?.subtotal_cent ?? totalCent ?? 0, calculo?.descuento_cent ?? 0, pagado, cambio, aprobacionId, vendedor.id, vendedor.name ?? '',
+      sesion.id, tipo, creditoCent, serie, abonoDeId],
   )).rows[0];
   const sinStock = [];
   for (const [i, l] of (calculo?.lineas ?? []).entries()) {
@@ -148,9 +155,11 @@ export async function crearTicket(client, { calculo, pagos, vendedor, aprobacion
     );
   }
   for (const p of await cobrarConVales(client, pagos, ticket.id)) {
-    await client.query('INSERT INTO tpv_ticket_payments (ticket_id, method, amount_cents, tendered_cents, voucher_id) VALUES ($1, $2, $3, $4, $5)',
-      [ticket.id, p.metodo, p.importe, p.entregado, p.voucherId ?? null]);
-    await client.query('INSERT INTO sales (sold_at, total_cents, payment_method, created_by, ticket_id) VALUES (NOW(), $1, $2, $3, $4)', [p.importe, p.metodo, vendedor.id, ticket.id]);
+    await client.query('INSERT INTO tpv_ticket_payments (ticket_id, method, amount_cents, tendered_cents, voucher_id, credit_ticket_id) VALUES ($1, $2, $3, $4, $5, $6)',
+      [ticket.id, p.metodo, p.importe, p.entregado, p.voucherId ?? null, p.creditTicketId ?? null]);
+    if (esDinero(p)) {
+      await client.query('INSERT INTO sales (sold_at, total_cents, payment_method, created_by, ticket_id) VALUES (NOW(), $1, $2, $3, $4)', [p.importe, p.metodo, vendedor.id, ticket.id]);
+    }
   }
   if (aprobacionId) await client.query("UPDATE tpv_discount_requests SET status = 'usado' WHERE id = $1", [aprobacionId]);
   return { id: ticket.id, numero, sin_stock: sinStock };
@@ -174,9 +183,22 @@ export async function obtenerTicket(db, id, tienda) {
   )).rows;
   const devueltos = (await db.query('SELECT * FROM tpv_return_lines WHERE ticket_id = $1 ORDER BY id', [id])).rows;
   const valeEmitido = (await db.query('SELECT code, amount_cents FROM tpv_vouchers WHERE origin_ticket_id = $1 LIMIT 1', [id])).rows[0] ?? null;
-  const base = Math.round(t.total_cents / (1 + tienda.igic / 100));
+  // Una rectificativa resta: su base y su cuota van en negativo.
+  const signo = t.kind === 'rectificativa' ? -1 : 1;
+  const total = signo * t.total_cents;
+  const base = Math.round(total / (1 + tienda.igic / 100));
+  const ventasRectificadas = t.kind === 'rectificativa' ? (await db.query(
+    `SELECT DISTINCT tt.number FROM tpv_return_lines r JOIN tpv_ticket_lines l ON l.id = r.sold_line_id JOIN tpv_tickets tt ON tt.id = l.ticket_id
+      WHERE r.ticket_id = $1 ORDER BY tt.number`, [id],
+  )).rows.map((r) => r.number) : [];
+  const papel = devueltos.filter((d) => d.paper_ticket).map((d) => d.paper_ticket);
+  const vinculado = (await db.query(
+    'SELECT number FROM tpv_tickets WHERE id = $1 OR credit_from_id = $2 ORDER BY id LIMIT 1', [t.credit_from_id ?? 0, id],
+  )).rows[0]?.number ?? null;
   return {
-    id: t.id, tipo: t.kind, numero: t.number, fecha: t.fecha, vendedor: t.seller_name,
+    id: t.id, tipo: t.kind, serie: t.series, numero: t.number, fecha: t.fecha, vendedor: t.seller_name,
+    rectifica: [...ventasRectificadas, ...papel.map((n) => `ticket de papel ${n}`)],
+    vinculado,
     subtotal_cent: t.subtotal_cents, descuento_cent: t.discount_cents, total_cent: t.total_cents, cambio_cent: t.change_cents, credito_cent: t.credit_cents,
     lineas: lineas.map((l) => ({
       descripcion: l.description, talla: l.size, codigo: l.barcode, cantidad: l.quantity, precio_cent: l.unit_cents,
@@ -185,7 +207,7 @@ export async function obtenerTicket(db, id, tienda) {
     devueltos: devueltos.map((d) => ({ descripcion: d.description, talla: d.size, cantidad: d.quantity, credito_cent: d.credit_cents })),
     vale_emitido: valeEmitido ? { codigo: formatoCodigo(valeEmitido.code), importe_cent: valeEmitido.amount_cents } : null,
     pagos: pagos.map((p) => ({ metodo: p.method, importe_cent: p.amount_cents, entregado_cent: p.tendered_cents, vale: p.vale ? formatoCodigo(p.vale) : null })),
-    igic: { pct: tienda.igic, base_cent: base, cuota_cent: t.total_cents - base },
+    igic: { pct: tienda.igic, base_cent: base, cuota_cent: total - base },
     tienda,
   };
 }
@@ -194,7 +216,7 @@ export async function obtenerTicket(db, id, tienda) {
 export async function resumenHoy(db) {
   const r = (await db.query(
     `SELECT count(DISTINCT t.id)::int AS tickets,
-            COALESCE(sum(p.amount_cents) FILTER (WHERE p.method <> 'vales'), 0)::int AS ventas,
+            COALESCE(sum(p.amount_cents) FILTER (WHERE p.method NOT IN ('vales', 'abono')), 0)::int AS ventas,
             COALESCE(sum(p.amount_cents) FILTER (WHERE p.method = 'vales'), 0)::int AS vales
        FROM tpv_tickets t LEFT JOIN tpv_ticket_payments p ON p.ticket_id = t.id
       WHERE (t.sold_at AT TIME ZONE $1)::date = (NOW() AT TIME ZONE $1)::date`, [TZ],

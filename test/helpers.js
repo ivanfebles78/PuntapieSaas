@@ -27,6 +27,7 @@ export const testConfig = Object.freeze({
   businessStart: '2026-04-16',
   correo: { user: '', pass: '', hora: 8 },
   tienda: { nombre: 'Puntapié', razonSocial: 'Calzando Sueños, S.L.', cif: 'B76766294', direccion: 'Calle Viera y Clavijo, 1', telefono: '922 124 962', igic: 7 },
+  tpv: { valeMeses: 12 },
   whatsapp: { token: '', phoneId: '', plantilla: 'aprobacion_tpv', idioma: 'es', aprobadores: ['34600111222'] },
 });
 

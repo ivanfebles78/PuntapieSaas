@@ -648,3 +648,27 @@ CREATE INDEX IF NOT EXISTS tpv_return_lines_sold_idx ON tpv_return_lines(sold_li
 
 ALTER TABLE tpv_discount_requests DROP CONSTRAINT IF EXISTS tpv_discount_requests_kind_check;
 ALTER TABLE tpv_discount_requests ADD CONSTRAINT tpv_discount_requests_kind_check CHECK (kind IN ('descuento', 'cierre', 'cambio'));
+
+-- ===================== TPV: serie rectificativa =====================
+-- Cada devolución es una factura rectificativa en su propia serie (R26-…)
+-- con lo devuelto (importe en positivo, resta en las ventas). Lo nuevo que se
+-- lleva es una venta normal (T26-…) que se paga en parte con ese «abono»; si
+-- sobra, el resto va a un vale. Los tickets «cambio» antiguos se siguen leyendo.
+ALTER TABLE tpv_tickets ADD COLUMN IF NOT EXISTS series TEXT NOT NULL DEFAULT 'T';
+ALTER TABLE tpv_tickets DROP CONSTRAINT IF EXISTS tpv_tickets_series_check;
+ALTER TABLE tpv_tickets ADD CONSTRAINT tpv_tickets_series_check CHECK (series IN ('T', 'R'));
+ALTER TABLE tpv_tickets DROP CONSTRAINT IF EXISTS tpv_tickets_kind_check;
+ALTER TABLE tpv_tickets ADD CONSTRAINT tpv_tickets_kind_check CHECK (kind IN ('venta', 'cambio', 'rectificativa'));
+-- En una venta pagada con abono: la rectificativa de la que sale.
+ALTER TABLE tpv_tickets ADD COLUMN IF NOT EXISTS credit_from_id INTEGER REFERENCES tpv_tickets(id) ON DELETE SET NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tpv_tickets_series_year_seq_key') THEN
+    ALTER TABLE tpv_tickets DROP CONSTRAINT IF EXISTS tpv_tickets_year_seq_key;
+    ALTER TABLE tpv_tickets ADD CONSTRAINT tpv_tickets_series_year_seq_key UNIQUE (series, year, seq);
+  END IF;
+END $$;
+ALTER TABLE tpv_ticket_payments DROP CONSTRAINT IF EXISTS tpv_ticket_payments_method_check;
+ALTER TABLE tpv_ticket_payments ADD CONSTRAINT tpv_ticket_payments_method_check
+  CHECK (method IN ('efectivo', 'tarjeta', 'bizum', 'bonos', 'vales', 'abono'));
+ALTER TABLE tpv_ticket_payments ADD COLUMN IF NOT EXISTS credit_ticket_id INTEGER REFERENCES tpv_tickets(id) ON DELETE SET NULL;

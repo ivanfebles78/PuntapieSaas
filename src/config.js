@@ -18,6 +18,12 @@ function readEnv(name, fallback) {
   return value === undefined || value === '' ? fallback : value;
 }
 
+function leerMeses(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 60) throw new Error(`TPV_VALE_MESES debe ser un número de meses entre 1 y 60 (es «${value}»).`);
+  return n;
+}
+
 // Nunca se deriva del Host de la petición: evita enlaces de reseteo envenenados.
 function resolveAppUrl(port) {
   const explicit = readEnv('APP_URL', '');
@@ -57,6 +63,10 @@ export const config = Object.freeze({
     direccion: readEnv('TIENDA_DIRECCION', 'Calle Viera y Clavijo, 1 · 38003 Santa Cruz de Tenerife'),
     telefono: readEnv('TIENDA_TELEFONO', '922 124 962'),
     igic: Number(readEnv('TIENDA_IGIC', '7')),
+  }),
+  // TPV: meses que vale un vale desde que se emite (provisional: pendiente de revisión jurídica).
+  tpv: Object.freeze({
+    valeMeses: leerMeses(readEnv('TPV_VALE_MESES', '12')),
   }),
   // Aprobaciones a distancia (descuentos de más del 15 % y cierres de caja que no
   // cuadran): WhatsApp Cloud API de Meta, plantilla con 2 variables ({{1}} qué se

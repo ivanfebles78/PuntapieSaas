@@ -82,9 +82,13 @@ export async function resumenSesion(db, id) {
   if (!s) throw new HttpError(404, 'Esa caja no existe.', 'SESSION_NOT_FOUND');
   const metodos = (await db.query(
     `SELECT p.method, sum(p.amount_cents)::int AS cents, count(DISTINCT t.id)::int AS tickets
-       FROM tpv_tickets t JOIN tpv_ticket_payments p ON p.ticket_id = t.id WHERE t.session_id = $1 GROUP BY p.method`, [id],
+       FROM tpv_tickets t JOIN tpv_ticket_payments p ON p.ticket_id = t.id WHERE t.session_id = $1 AND p.method <> 'abono' GROUP BY p.method`, [id],
   )).rows;
-  const tickets = (await db.query('SELECT count(*)::int AS n, COALESCE(sum(total_cents), 0)::int AS total FROM tpv_tickets WHERE session_id = $1', [id])).rows[0];
+  // Las rectificativas restan de lo vendido.
+  const tickets = (await db.query(
+    "SELECT count(*)::int AS n, COALESCE(sum(CASE WHEN kind = 'rectificativa' THEN -total_cents ELSE total_cents END), 0)::int AS total FROM tpv_tickets WHERE session_id = $1",
+    [id],
+  )).rows[0];
   const movimientos = (await db.query(
     `SELECT m.id, m.kind, m.amount_cents, m.concept, u.name AS quien, to_char(m.created_at AT TIME ZONE $2, 'HH24:MI') AS hora
        FROM tpv_cash_moves m LEFT JOIN users u ON u.id = m.created_by WHERE m.session_id = $1 ORDER BY m.created_at`, [id, TZ],

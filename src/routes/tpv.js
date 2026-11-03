@@ -22,6 +22,7 @@ import { enlaceManual, enviarAviso, textoSolicitud, whatsappAutomatico } from '.
 
 const handle = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const INTENTOS_VENTANA_MS = 15 * 60 * 1000;
+const VALES_FALLOS_MAX = 20;
 
 function readId(value, label = 'Ese ticket') {
   const id = Number(value);
@@ -38,6 +39,14 @@ export function tpvRouter({ pool, config, log = console, enviar = fetch }) {
   const limitePresencial = rateLimit({
     windowMs: INTENTOS_VENTANA_MS, limit: 10, standardHeaders: true, legacyHeaders: false,
     message: { ok: false, error: 'Demasiados intentos. Espera unos minutos.' },
+  });
+
+  // Buscar vales por su código: pocos fallos seguidos (nadie adivina códigos a base de probar).
+  const limiteVales = rateLimit({
+    windowMs: INTENTOS_VENTANA_MS, limit: VALES_FALLOS_MAX, standardHeaders: true, legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    skip: (req) => req.path.startsWith('/buscar') && !leerCodigoVale(req.query.q),
+    message: { ok: false, error: 'Demasiados códigos de vale que no existen. Espera unos minutos.', code: 'TOO_MANY_VOUCHER_LOOKUPS' },
   });
 
   /** Usuario y contraseña de un Administrador escritos en la caja. */
@@ -62,7 +71,7 @@ export function tpvRouter({ pool, config, log = console, enviar = fetch }) {
   /* ---------- Venta ---------- */
 
   // Lo escaneado puede ser un artículo o el QR de un vale (entonces se enseña el vale).
-  router.get('/buscar', vende, handle(async (req, res) => {
+  router.get('/buscar', vende, limiteVales, handle(async (req, res) => {
     if (leerCodigoVale(req.query.q)) return void res.json({ ok: true, data: { exacto: null, modelos: [], vale: await obtenerVale(pool, req.query.q) } });
     return void res.json({ ok: true, data: await buscarArticulos(pool, req.query.q) });
   }));
@@ -156,19 +165,21 @@ export function tpvRouter({ pool, config, log = console, enviar = fetch }) {
     const r = await registrarCambio(pool, {
       cambio: req.body,
       vendedor,
+      valeMeses: config.tpv.valeMeses,
       comprobarAprobacion: (client, credito) => comprobarAprobacionCambio(client, req.body?.aprobacion_id, { credito, vendedor }),
     });
     await audit(req, {
-      area: 'ventas', action: 'crear', target: `Cambio ${r.numero}`,
+      area: 'ventas', action: 'crear', target: `Devolución ${r.rectificativa.numero}${r.venta ? ` y venta ${r.venta.numero}` : ''}`,
       changes: [
         { field: 'Devuelto', from: null, to: formatEuros(r.credito) },
         ...(r.vale ? [{ field: 'Vale emitido', from: null, to: r.vale.codigo }] : []),
         ...(r.motivos.length ? [{ field: 'Con aprobación', from: null, to: r.motivos.join(', ') }] : []),
       ],
     });
-    const ticket = await obtenerTicket(pool, r.id, config.tienda);
+    const rectificativa = await obtenerTicket(pool, r.rectificativa.id, config.tienda);
+    const venta = r.venta ? await obtenerTicket(pool, r.venta.id, config.tienda) : null;
     const vale = r.vale ? await obtenerVale(pool, r.vale.codigo, { conQr: true }) : null;
-    res.status(201).json({ ok: true, data: { ...ticket, sin_stock: r.sin_stock, vale } });
+    res.status(201).json({ ok: true, data: { rectificativa, venta, vale, tienda: config.tienda, sin_stock: r.sin_stock } });
   }));
 
   router.post('/cambios/aprobaciones/presencial', vende, limitePresencial, handle(async (req, res) => {
@@ -188,7 +199,7 @@ export function tpvRouter({ pool, config, log = console, enviar = fetch }) {
   }));
 
   // Un vale (al escanear su QR): importe, saldo, caducidad y usos; con el QR para reimprimirlo.
-  router.get('/vales/:codigo', handle(async (req, res) => {
+  router.get('/vales/:codigo', limiteVales, handle(async (req, res) => {
     res.json({ ok: true, data: { ...(await obtenerVale(pool, req.params.codigo, { conQr: true })), tienda: config.tienda } });
   }));
 
