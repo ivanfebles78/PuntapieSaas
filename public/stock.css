@@ -1,6 +1,8 @@
 /* Stock › Inventario y Recepción, y la tabla de productos de «Importar PDF». */
 
 .stk-body { display: grid; gap: 14px; }
+/* Sin esto, la tabla ancha estira toda la página en el móvil en vez de desplazarse dentro. */
+.stk-body > * { min-width: 0; }
 
 .stk-toolbar { justify-content: space-between; }
 
@@ -113,3 +115,28 @@
 .plines-pvp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .plines-pvp-label { font-size: 13px; font-weight: 700; color: var(--espresso-soft, #5b4d42); }
 .plines-pvp .plines-pvp-libre { width: 76px; padding: 6px 8px; }
+
+/* ----- Alta de productos (uno a uno o desde Excel) ----- */
+.stk-alta { justify-content: flex-end; }
+.sheet:has(.alta-revision) { width: min(980px, calc(100vw - 32px)); }
+.alta-excel > p { margin: 0; }
+.alta-excel a { color: var(--pv-violet-ink); text-underline-offset: 2px; }
+.alta-revision { display: grid; gap: 12px; max-height: 46dvh; overflow: auto; padding-right: 4px; }
+.alta-resumen { display: flex; flex-wrap: wrap; gap: 6px; }
+.alta-errores { padding: 10px 14px; border-radius: 12px; background: var(--pv-red-wash); color: var(--pv-red); }
+.alta-errores p, .alta-errores ul { margin: 0; }
+.alta-errores ul { padding-left: 18px; margin-top: 6px; display: grid; gap: 3px; font-size: 13px; }
+.alta-conflictos { display: grid; gap: 8px; }
+.alta-conflictos-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.alta-conflictos-head p { margin: 0; }
+.alta-detalle summary { cursor: pointer; font-weight: 700; padding: 4px 0; }
+.alta-dif { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--pv-amber-wash); color: var(--pv-amber-ink); }
+.alta-dif p, .alta-dif ul { margin: 0; }
+.alta-dif ul { padding-left: 18px; margin: 6px 0 8px; }
+.alta-opciones { display: grid; gap: 6px; }
+.alta-radio { display: flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
+.alta-otra { margin-top: 10px; }
+@media (max-width: 640px) {
+  .stk-alta { justify-content: stretch; }
+  .stk-alta > * { flex: 1 1 auto; justify-content: center; }
+}

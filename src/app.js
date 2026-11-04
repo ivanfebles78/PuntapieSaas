@@ -17,6 +17,7 @@ import { createMailer } from './services/mail.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public', import.meta.url));
 const JSON_LIMIT = '64kb';
+const ALTA_STOCK = '/api/stock/alta/';
 const IMAGE_MAX_AGE = '30d';
 
 export function createApp({ pool, config, log = console, mailer = createMailer(config, log) }) {
@@ -25,7 +26,9 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
   // Railway pone un proxy TLS delante: necesario para cookies "secure" y rate limit por IP.
   app.set('trust proxy', 1);
 
-  app.use(express.json({ limit: JSON_LIMIT }));
+  // El alta de inventario manda hasta 2000 filas: su JSON lo lee la ruta, ya con sesión y con más margen.
+  const json = express.json({ limit: JSON_LIMIT });
+  app.use((req, res, next) => (req.path.startsWith(ALTA_STOCK) ? next() : json(req, res, next)));
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -88,6 +91,9 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
   app.use((error, _req, res, _next) => {
     if (error.type === 'entity.parse.failed') {
       return res.status(400).json({ ok: false, error: 'JSON no válido.' });
+    }
+    if (error.type === 'entity.too.large') {
+      return res.status(413).json({ ok: false, error: 'Es demasiado grande para enviarlo de una vez.', code: 'TOO_BIG' });
     }
     log.error('[error]', error);
     return res.status(500).json({ ok: false, error: 'Error interno del servidor.' });

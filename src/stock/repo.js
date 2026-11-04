@@ -183,7 +183,7 @@ function lineaPublica(r) {
   };
 }
 
-function articuloPublico(r) {
+export function articuloPublico(r) {
   return {
     id: r.id,
     tipo: r.type,
@@ -398,9 +398,17 @@ export async function actualizarArticulo(db, id, cambios) {
  * Etiquetas a imprimir: una por unidad. De un documento (todas sus líneas o
  * solo `lineas`) o de un artículo suelto (`articulo` × `copias`).
  */
-export async function etiquetasPara(db, { docId = null, lineas = null, articulo = null, copias = 1 }) {
+export async function etiquetasPara(db, { docId = null, lineas = null, articulo = null, copias = 1, lista = null }) {
   let rows;
-  if (articulo) {
+  if (lista) {
+    // Varios artículos sueltos con sus copias (lo dado de alta de una vez).
+    if (!Array.isArray(lista) || lista.length > MAX_ETIQUETAS) throw invalid(['lista de artículos no válida']);
+    const pedidas = lista.map((x) => ({ id: Number(x?.id), copias: Number(x?.copias) })).filter((x) => x.copias !== 0);
+    if (pedidas.some((x) => !idValido(x.id) || !Number.isInteger(x.copias) || x.copias < 1 || x.copias > MAX_CANTIDAD)) throw invalid(['lista de artículos no válida']);
+    if (pedidas.reduce((s, x) => s + x.copias, 0) > MAX_ETIQUETAS) throw invalid([`como mucho ${MAX_ETIQUETAS} etiquetas de una vez`]);
+    const porId = new Map((await db.query('SELECT * FROM inventory_items WHERE id = ANY($1::int[])', [pedidas.map((x) => x.id)])).rows.map((a) => [a.id, a]));
+    rows = pedidas.filter((x) => porId.has(x.id)).map((x) => ({ ...porId.get(x.id), unidades: x.copias }));
+  } else if (articulo) {
     if (!idValido(articulo)) throw new HttpError(404, 'Artículo no encontrado.', 'ITEM_NOT_FOUND');
     const n = Number(copias);
     if (!Number.isInteger(n) || n < 1 || n > 500) throw invalid(['número de copias no válido']);

@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { requireRole } from '../auth/middleware.js';
 import { HttpError, httpErrorHandler } from '../http-error.js';
 import { extraer } from '../proveedores/analisis.js';
@@ -6,6 +6,8 @@ import { leerArchivo, obtenerDocumento, withTransaction } from '../proveedores/r
 import { auditFrom } from '../services/audit.js';
 import { formatEuros } from '../services/money.js';
 import { todayInShop } from '../services/vacation-balance.js';
+import { confirmarAlta, etiquetaSku, resumenAlta, revisarAlta, revisionPublica } from '../stock/alta.js';
+import { leerExcelAlta, plantillaAlta } from '../stock/alta-excel.js';
 import { generarEtiquetasPdf } from '../stock/pdf/etiquetas.js';
 import {
   actualizarArticulo,
@@ -25,6 +27,10 @@ import { catalogoTipos, proponerTipos } from '../stock/propuesta.js';
 import { TIPOS } from '../stock/tipos.js';
 
 // Stock: inventario, recepción de mercancía y etiquetas con código de barras.
+
+const MAX_EXCEL_BYTES = 5 * 1024 * 1024;
+const JSON_ALTA = express.json({ limit: '2mb' });
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 const handle = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const entradaLabel = (e) => `${e.documento.tipo === 'pedido' ? 'Pedido' : 'Factura'} ${e.documento.numero} · ${e.documento.proveedor.nombre}`;
@@ -136,6 +142,61 @@ export function stockRouter({ pool, config, log = console }) {
     res.json({ ok: true, data: r.entrada });
   }));
 
+  /* ----- Alta de productos sin pedido: uno a uno o desde un Excel ----- */
+
+  router.get('/alta/plantilla.xlsx', handle(async (_req, res) => {
+    const subtipos = (await pool.query('SELECT type, name FROM product_subtypes ORDER BY type, name')).rows;
+    res.setHeader('Content-Type', XLSX);
+    res.setHeader('Content-Disposition', 'attachment; filename="plantilla-inventario.xlsx"');
+    res.send(await plantillaAlta(subtipos));
+  }));
+
+  // Sube el Excel: devuelve las filas leídas (para confirmarlas después) y qué pasará con cada una.
+  router.post('/alta/excel', canWrite, express.raw({ type: () => true, limit: MAX_EXCEL_BYTES }), handle(async (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw new HttpError(400, 'Elige un archivo Excel.', 'NO_FILE');
+    const filas = await leerExcelAlta(req.body);
+    res.json({ ok: true, data: { filas, revision: revisionPublica(await revisarAlta(pool, filas)) } });
+  }));
+
+  router.post('/alta/revisar', canWrite, JSON_ALTA, handle(async (req, res) => {
+    res.json({ ok: true, data: revisionPublica(await revisarAlta(pool, req.body?.filas)) });
+  }));
+
+  router.post('/alta/confirmar', canWrite, JSON_ALTA, handle(async (req, res) => {
+    const hechos = await confirmarAlta(pool, req.body?.filas, req.body?.decisiones ?? {});
+    const resumen = resumenAlta(hechos);
+    const porExcel = req.body?.origen === 'excel';
+    const unico = hechos.length === 1 ? hechos[0] : null;
+    await audit(req, unico && !porExcel
+      ? {
+        area: 'stock', action: unico.accion === 'nuevo' ? 'crear' : 'editar', target: etiquetaSku(unico.articulo),
+        changes: [{ field: 'Stock', from: unico.accion === 'nuevo' ? null : String(unico.antes), to: String(unico.articulo.stock) },
+          ...(unico.accion === 'actualizar' ? [{ field: 'Datos', from: null, to: 'Actualizados con los del alta' }] : [])],
+      }
+      : {
+        area: 'stock', action: 'importar', target: porExcel ? 'Inventario desde Excel' : 'Alta de inventario',
+        changes: [
+          { field: 'Productos nuevos', from: null, to: String(resumen.nuevos) },
+          { field: 'Productos con unidades sumadas', from: null, to: String(resumen.sumados) },
+          { field: 'Datos actualizados', from: null, to: String(resumen.actualizados) },
+          { field: 'Unidades', from: null, to: String(resumen.unidades) },
+        ],
+      });
+    const articulos = hechos.filter((x) => x.accion !== 'omitir').map((x) => ({
+      id: x.articulo.id, codigo: x.articulo.barcode, descripcion: etiquetaSku(x.articulo), accion: x.accion, unidades: x.unidades, stock: x.articulo.stock,
+    }));
+    res.status(201).json({ ok: true, data: { resumen, articulos } });
+  }));
+
+  // Etiquetas de varios artículos a la vez: { articulos: [{ id, copias }] }.
+  router.post('/alta/etiquetas.pdf', JSON_ALTA, handle(async (req, res) => {
+    const etiquetas = await etiquetasPara(pool, { lista: req.body?.articulos });
+    if (!etiquetas.length) throw new HttpError(404, 'No hay etiquetas que imprimir.', 'NO_LABELS');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="etiquetas-${todayInShop()}.pdf"`);
+    res.send(generarEtiquetasPdf(etiquetas));
+  }));
+
   // ?doc=ID[&lineas=1,2] o ?articulo=ID&copias=N. ?ver=1 lo abre en el navegador.
   router.get('/etiquetas.pdf', handle(async (req, res) => {
     const { doc, lineas, articulo, copias } = req.query;
@@ -152,5 +213,8 @@ export function stockRouter({ pool, config, log = console }) {
   }));
 
   router.use(httpErrorHandler);
+  router.use((error, _req, res, next) => (error.type === 'entity.too.large'
+    ? res.status(413).json({ ok: false, error: 'Es demasiado grande para enviarlo de una vez (el Excel, como mucho 5 MB): divídelo en varios.', code: 'FILE_TOO_LARGE' })
+    : next(error)));
   return router;
 }

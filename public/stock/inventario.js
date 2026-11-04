@@ -4,6 +4,7 @@ import { icon } from '../icons.js';
 import { isReadOnly } from '../modules.js';
 import { centToEur, eur, eurToCent } from '../proveedores/util.js';
 import { showToast } from '../toast.js';
+import { importarExcel, nuevoProducto } from './alta.js';
 import { editarArticulo } from './articulo.js';
 
 // Stock › Inventario: existencias por SKU con su código de barras. «Disponible»
@@ -83,7 +84,7 @@ async function cargar() {
         .map((t, i) => h('th', { scope: 'col', class: [5, 7, 8, 9, 10].includes(i) ? 'num' : null, text: t })))),
       h('tbody', {}, articulos.map((a) => fila(a, ro))),
     ]))
-    : h('div', { class: 'pempty' }, [h('h3', { text: 'No hay artículos que mostrar' }), h('p', { text: 'Se dan de alta al importar el PDF de un pedido o factura con sus productos.' })]));
+    : h('div', { class: 'pempty' }, [h('h3', { text: 'No hay artículos que mostrar' }), h('p', { text: 'Se dan de alta al importar el PDF de un pedido o factura, con «Nuevo producto» o desde un Excel.' })]));
   return undefined;
 }
 
@@ -95,6 +96,11 @@ function bind(root) {
       if (!a || !(await editarArticulo(a, state.tipos))) return;
       showToast('Artículo guardado.');
       return void cargar();
+    }
+    const alta = ev.target.closest('[data-alta]');
+    if (alta) {
+      const hecho = alta.dataset.alta === 'excel' ? await importarExcel() : await nuevoProducto(state.tipos);
+      return void (hecho && cargar());
     }
     const f = ev.target.closest('[data-filtro]');
     if (!f) return;
@@ -120,7 +126,13 @@ function bind(root) {
 export function renderInventario({ main, user, backHref }) {
   state.user = user;
   const tipoSelect = h('select', { class: 'pinput', 'data-tipo': '', 'aria-label': 'Tipo de producto' }, h('option', { value: '', text: 'Todos los tipos' }));
+  const ro = isReadOnly(user);
   state.body = h('div', { class: 'stk-body' }, [
+    ro ? null : h('div', { class: 'pbtn-row stk-alta' }, [
+      h('button', { type: 'button', class: 'pbtn pbtn-primary', 'data-alta': 'manual', text: 'Nuevo producto' }),
+      h('button', { type: 'button', class: 'pbtn pbtn-ghost', 'data-alta': 'excel', text: 'Importar Excel' }),
+      h('a', { class: 'pbtn pbtn-ghost', href: '/api/stock/alta/plantilla.xlsx', download: 'plantilla-inventario.xlsx', text: 'Plantilla Excel' }),
+    ]),
     h('div', { class: 'pstats', 'data-stats': '' }),
     h('div', { class: 'ptoolbar stk-toolbar' }, [
       h('input', { type: 'search', class: 'pinput grow', placeholder: 'Buscar por marca, referencia, modelo, detalle o código…', value: state.q, 'data-buscar': '' }),
