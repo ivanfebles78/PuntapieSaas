@@ -1,3 +1,4 @@
+import { renderCatalogo } from './admin-catalogo.js';
 import { renderAsistente } from './admin-correo.js';
 import { renderLog } from './admin-log.js';
 import { renderOpenings } from './admin-openings.js';
@@ -26,6 +27,7 @@ const VIEWS = Object.freeze({
   aperturas: renderOpenings,
   log: renderLog,
   asistente: renderAsistente,
+  catalogo: renderCatalogo,
   caja: renderCaja,
   gastos: renderExpenses,
   estadisticas: renderStats,

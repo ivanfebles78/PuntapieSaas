@@ -2,13 +2,30 @@
 // (un zapato va por número; un pijama por letra o edad) y si el color es
 // obligatorio. La talla se guarda como texto normalizado («27», «38,5», «M»,
 // «4A», «19-22», «Única») junto con un orden numérico para listarlas bien.
+//
+// Los tipos se editan en Admin › Catálogo (tabla product_types): aquí se
+// guarda una copia en memoria que `cargarTipos` refresca al arrancar y después
+// de cada cambio. Hasta entonces valen los cuatro de siempre.
 
-export const TIPOS = Object.freeze({
-  calzado: Object.freeze({ nombre: 'Calzado', tallas: Object.freeze(['numero']), color: true }),
-  ropa: Object.freeze({ nombre: 'Ropa', tallas: Object.freeze(['letra', 'edad', 'rango', 'ropa', 'unica']), color: true }),
-  accesorios: Object.freeze({ nombre: 'Accesorios', tallas: Object.freeze(['unica', 'letra']), color: true }),
-  juguetes: Object.freeze({ nombre: 'Juguetes', tallas: Object.freeze(['unica']), color: false }),
+const congelar = (t) => Object.freeze({ nombre: t.nombre, tallas: Object.freeze([...t.tallas]), color: Boolean(t.color) });
+
+const INICIALES = Object.freeze({
+  calzado: congelar({ nombre: 'Calzado', tallas: ['numero'], color: true }),
+  ropa: congelar({ nombre: 'Ropa', tallas: ['letra', 'edad', 'rango', 'ropa', 'unica'], color: true }),
+  accesorios: congelar({ nombre: 'Accesorios', tallas: ['unica', 'letra'], color: true }),
+  juguetes: congelar({ nombre: 'Juguetes', tallas: ['unica'], color: false }),
 });
+
+// eslint-disable-next-line import/no-mutable-exports -- se sustituye entero (nunca se modifica) al recargar
+export let TIPOS = INICIALES;
+
+/** Lee los tipos de la base de datos (en su orden) y sustituye la copia en memoria. */
+export async function cargarTipos(db) {
+  const rows = (await db.query('SELECT key, name, size_classes, color_required FROM product_types ORDER BY position, name')).rows;
+  if (!rows.length) return TIPOS;
+  TIPOS = Object.freeze(Object.fromEntries(rows.map((r) => [r.key, congelar({ nombre: r.name, tallas: r.size_classes, color: r.color_required })])));
+  return TIPOS;
+}
 
 export const CLASES_TALLA = Object.freeze({
   numero: 'número de pie (27, 38,5)',
@@ -68,13 +85,24 @@ export const leerTalla = (valor) => leerCon(ORDEN_GENERAL, valor);
 
 /** Talla válida para ese tipo, o un mensaje que explica qué tallas admite. */
 export function tallaParaTipo(valor, tipo) {
+  if (!esTipo(tipo)) return { ok: false, error: 'tipo de producto no válido' };
   const admitidas = TIPOS[tipo].tallas;
   const t = leerCon(admitidas, valor);
   if (t) return { ok: true, ...t };
   return { ok: false, error: `talla «${String(valor ?? '').trim() || 'vacía'}» no válida para ${TIPOS[tipo].nombre.toLowerCase()}: usa ${admitidas.map((c) => CLASES_TALLA[c]).join(', ')}` };
 }
 
-/** Tipo de una línea que no lo indica: con número de pie es calzado; si no, accesorio (se corrige en Inventario). */
+/** Lee una talla con unas clases concretas (para comprobar un cambio de tipo antes de guardarlo). */
+export const leerTallaCon = (clases, valor) => leerCon(clases, valor);
+
+/**
+ * Tipo de una línea que no lo indica: con número de pie, calzado; si no,
+ * accesorios (se corrige en Inventario). Si esos tipos ya no existen, el
+ * primero cuyas tallas admitan esa talla.
+ */
 export function tipoPorDefecto(talla) {
-  return leerTalla(talla)?.clase === 'numero' ? 'calzado' : 'accesorios';
+  const preferido = leerTalla(talla)?.clase === 'numero' ? 'calzado' : 'accesorios';
+  if (esTipo(preferido)) return preferido;
+  const ids = Object.keys(TIPOS);
+  return ids.find((id) => leerCon(TIPOS[id].tallas, talla)) ?? ids[0];
 }

@@ -16,6 +16,7 @@
 import { HttpError } from '../http-error.js';
 import { withTransaction } from '../proveedores/repo.js';
 import { esEan13, nuevoCodigo } from './barcode.js';
+import { asegurarMarcas } from './catalogo.js';
 import { leerTalla, tallaParaTipo, tipoPorDefecto, TIPOS } from './tipos.js';
 
 export const MAX_FILAS_ALTA = 2000;
@@ -38,9 +39,14 @@ const NOMBRES_TIPO = Object.freeze({
   juguete: 'juguetes', juguetes: 'juguetes', juego: 'juguetes', juegos: 'juguetes',
 });
 
+/** Tipo por su clave o su nombre en el catálogo (Admin › Catálogo), o por las formas de siempre. */
 function leerTipo(v) {
   const t = sinTildes(v);
-  return Object.hasOwn(NOMBRES_TIPO, t) ? NOMBRES_TIPO[t] : undefined;
+  if (!t) return undefined;
+  const porNombre = Object.keys(TIPOS).find((id) => id === t || sinTildes(TIPOS[id].nombre) === t);
+  if (porNombre) return porNombre;
+  const alias = Object.hasOwn(NOMBRES_TIPO, t) ? NOMBRES_TIPO[t] : undefined;
+  return alias && Object.hasOwn(TIPOS, alias) ? alias : undefined;
 }
 
 /** Euros a céntimos: 12,5 · «12,50» · «1.234,50 €» · 12.5. Vacío = null. */
@@ -364,6 +370,8 @@ export async function confirmarAlta(pool, filas, decisiones = {}) {
       const a = await sumarArticulo(client, l.articulo, l.datos.unidades, conSubtipo);
       hechos.push({ accion, articulo: a, unidades: l.datos.unidades, antes: l.articulo.stock });
     }
+    // Un fabricante nuevo (o usado en otro tipo) queda en el catálogo para la próxima vez.
+    await asegurarMarcas(client, hechos.filter((x) => x.accion !== 'omitir').map((x) => ({ marca: x.articulo.brand, tipo: x.articulo.type })));
     return hechos;
   });
 }

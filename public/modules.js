@@ -74,7 +74,7 @@ export const MODULES = Object.freeze([
     icon: 'shield',
     tone: 'admin',
     roles: ['admin', 'asesor'],
-    summary: 'Equipo, turnos, accesos, vacaciones, log de acciones y asistente de correo.',
+    summary: 'Equipo, turnos, accesos, vacaciones, catálogo de productos, log de acciones y asistente de correo.',
     // `to` enlaza con una pantalla ya construida. Cada persona se gestiona
     // desde Usuarios: altas, bajas, roles, contraseñas, turno y vacaciones.
     submodules: [
@@ -91,6 +91,13 @@ export const MODULES = Object.freeze([
         icon: 'calendar',
         summary: 'Sábados por la tarde y domingos que abrimos de forma puntual, y quién los trabaja (+7 h de descanso).',
         to: 'aperturas',
+      },
+      {
+        slug: 'catalogo',
+        name: 'Catálogo',
+        icon: 'box',
+        summary: 'Tipos de producto y sus tallas, subtipos y fabricantes: lo que se ofrece al dar de alta un producto.',
+        to: 'catalogo',
       },
       {
         slug: 'log',

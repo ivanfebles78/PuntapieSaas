@@ -1,12 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { hashPassword } from '../auth/password.js';
+import { cargarTipos } from '../stock/tipos.js';
 
 const SCHEMA_PATH = fileURLToPath(new URL('./schema.sql', import.meta.url));
 
 export async function applySchema(pool) {
   const sql = await readFile(SCHEMA_PATH, 'utf8');
   await pool.query(sql);
+  await cargarTipos(pool);
 }
 
 /**

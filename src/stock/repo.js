@@ -5,6 +5,7 @@
 import { HttpError } from '../http-error.js';
 import { normalizarRef, withTransaction } from '../proveedores/repo.js';
 import { esEan13, nuevoCodigo } from './barcode.js';
+import { asegurarMarcas } from './catalogo.js';
 import { esTipo, tallaParaTipo, tipoPorDefecto, TIPOS } from './tipos.js';
 
 const MAX_LINEAS = 2000;
@@ -162,6 +163,7 @@ export async function registrarEntrada(db, doc, lineasEntrada, marcaPorDefecto) 
     if (art.creado) nuevos += 1;
     await db.query('INSERT INTO inventory_incoming (doc_id, item_id, quantity) VALUES ($1, $2, $3)', [doc.id, art.id, l.cantidad]);
   }
+  await asegurarMarcas(db, lineas.map((l) => ({ marca: l.marca, tipo: l.tipo })));
   return { lineas: lineas.length, unidades: lineas.reduce((s, l) => s + l.cantidad, 0), articulos_nuevos: nuevos, omitido: null };
 }
 

@@ -35,7 +35,8 @@ const PALABRAS = Object.freeze([
 /** Tipo y subtipo (por nombre) que dice la descripción, o null. */
 export function tipoPorPalabras(texto) {
   const t = String(texto ?? '').toUpperCase();
-  const hit = PALABRAS.find(([re]) => re.test(t));
+  // Solo los tipos que siguen en el catálogo (se pueden borrar en Admin › Catálogo).
+  const hit = PALABRAS.find(([re, tipo]) => Object.hasOwn(TIPOS, tipo) && re.test(t));
   return hit ? { tipo: hit[1], subtipo: hit[2] } : null;
 }
 
@@ -77,8 +78,8 @@ export async function proponerTipos(db, lineas, { marca: marcaDefecto = '', pars
     const marca = String(l.marca || marcaDefecto).trim().toLowerCase();
     const previo = porRef.get(`${marca}|${String(l.referencia ?? '').trim().toLowerCase()}`);
     const palabra = tipoPorPalabras(`${l.modelo ?? ''} ${l.detalle ?? ''}`);
-    const lector = l.tipo && TIPOS[l.tipo] ? l.tipo
-      : LECTORES_CALZADO.has(parser) && leerTalla(l.talla)?.clase === 'numero' ? 'calzado' : null;
+    const lector = l.tipo && Object.hasOwn(TIPOS, l.tipo) ? l.tipo
+      : Object.hasOwn(TIPOS, 'calzado') && LECTORES_CALZADO.has(parser) && leerTalla(l.talla)?.clase === 'numero' ? 'calzado' : null;
     let r;
     if (previo) r = { tipo: previo.type, subtipo_id: previo.subtype_id, propuesta: 'stock' };
     else if (palabra) r = { tipo: palabra.tipo, subtipo_id: subtipoId(palabra.tipo, palabra.subtipo), propuesta: 'palabra' };

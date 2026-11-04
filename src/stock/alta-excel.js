@@ -5,7 +5,6 @@ import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { HttpError } from '../http-error.js';
 import { MAX_FILAS_ALTA } from './alta.js';
-import { TIPOS } from './tipos.js';
 
 const FILAS_CABECERA = 10; // la cabecera se busca en las primeras filas
 const MAX_DESCOMPRIMIDO = 40 * 1024 * 1024; // un .xlsx de 2000 filas ocupa mucho menos
@@ -13,6 +12,7 @@ const MAX_CELDA = 250; // ningún dato del alta es más largo
 
 export const COLUMNAS = Object.freeze([
   { campo: 'tipo', titulo: 'Tipo de producto', ancho: 16, alias: ['tipo', 'tipodeproducto', 'tipoproducto', 'categoria'] },
+  { campo: 'subtipo', titulo: 'Subtipo', ancho: 14, alias: ['subtipo'], opcional: true },
   { campo: 'marca', titulo: 'Fabricante', ancho: 18, alias: ['fabricante', 'marca'] },
   { campo: 'modelo', titulo: 'Modelo', ancho: 22, alias: ['modelo', 'nombre'] },
   { campo: 'referencia', titulo: 'Referencia', ancho: 14, alias: ['referencia', 'ref', 'refer'] },
@@ -22,7 +22,6 @@ export const COLUMNAS = Object.freeze([
   { campo: 'pvp', titulo: 'PVP', ancho: 10, alias: ['pvp', 'precioventa', 'preciodeventa', 'precioventaopvp', 'preciodeventaopvp', 'precioventapvp'], euros: true },
   { campo: 'unidades', titulo: 'Unidades', ancho: 10, alias: ['unidades', 'uds', 'unid', 'cantidad', 'stock'] },
   { campo: 'codigo', titulo: 'Código de barras', ancho: 18, alias: ['codigodebarras', 'codigobarras', 'codigo', 'ean', 'barcode'], texto: true },
-  { campo: 'subtipo', titulo: 'Subtipo', ancho: 14, alias: ['subtipo'], opcional: true },
   { campo: 'detalle', titulo: 'Detalle', ancho: 30, alias: ['detalle', 'descripcion', 'notas'], opcional: true },
 ]);
 const OBLIGATORIAS = Object.freeze(['marca', 'referencia', 'unidades']);
@@ -100,15 +99,77 @@ export async function leerExcelAlta(buffer) {
   return filas;
 }
 
+// Ejemplos por campo (el orden de las columnas lo pone COLUMNAS).
 const EJEMPLOS = Object.freeze([
-  ['Calzado', 'Pablosky', 'Bota cremallera', '504555', '27', 'Marino', '22,50', '45,95', '2', '', 'Botas', 'Piel, forro de lana'],
-  ['Calzado', 'Pablosky', 'Bota cremallera', '504555', '28', 'Marino', '22,50', '45,95', '1', '2004567890126', 'Botas', 'Piel, forro de lana'],
-  ['Ropa', 'Fabricante', 'Pijama manga larga', 'PJ-200', '4A', 'Gris', '9', '19,95', '3', '8412345678905', 'Pijamas', ''],
-  ['Juguetes', 'Fabricante', 'Yoyó de madera', 'YY-01', '', '', '2,10', '5,50', '10', '', 'Yoyós', ''],
+  { tipo: 'Calzado', subtipo: 'Botas', marca: 'Pablosky', modelo: 'Bota cremallera', referencia: '504555', talla: '27', color: 'Marino', coste: '22,50', pvp: '45,95', unidades: '2', codigo: '', detalle: 'Piel, forro de lana' },
+  { tipo: 'Calzado', subtipo: 'Botas', marca: 'Pablosky', modelo: 'Bota cremallera', referencia: '504555', talla: '28', color: 'Marino', coste: '22,50', pvp: '45,95', unidades: '1', codigo: '2004567890126', detalle: 'Piel, forro de lana' },
+  { tipo: 'Ropa', subtipo: 'Pijamas', marca: 'Fabricante', modelo: 'Pijama manga larga', referencia: 'PJ-200', talla: '4A', color: 'Gris', coste: '9', pvp: '19,95', unidades: '3', codigo: '8412345678905', detalle: '' },
+  { tipo: 'Juguetes', subtipo: 'Yoyós', marca: 'Fabricante', modelo: 'Yoyó de madera', referencia: 'YY-01', talla: '', color: '', coste: '2,10', pvp: '5,50', unidades: '10', codigo: '', detalle: '' },
 ]);
 
-/** Plantilla .xlsx: hoja «Productos» vacía con sus títulos y hoja «Instrucciones» con ejemplos. */
-export async function plantillaAlta(subtipos = []) {
+const HOJA_LISTAS = 'Listas';
+// Columnas de «Listas» que alimentan los desplegables de «Productos».
+const LISTA = Object.freeze({ tipos: 'A', subtipos: 'B', marcas: 'C' });
+
+/** Desplegable de una columna de «Productos» con los valores de una columna de «Listas». */
+function desplegable(hoja, campo, letra, n, estricto) {
+  if (!n) return;
+  const c = COLUMNAS.findIndex((x) => x.campo === campo) + 1;
+  const titulo = COLUMNAS[c - 1].titulo;
+  for (let r = 2; r <= MAX_FILAS_ALTA + 1; r += 1) {
+    hoja.getCell(r, c).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`'${HOJA_LISTAS}'!$${letra}$2:$${letra}$${n + 1}`],
+      // El fabricante no es estricto: se puede escribir uno nuevo (entra solo en el catálogo).
+      showErrorMessage: estricto,
+      errorStyle: 'stop',
+      errorTitle: titulo,
+      error: `Elige un valor de la lista (hoja «${HOJA_LISTAS}»).`,
+    };
+  }
+}
+
+/**
+ * Hoja «Listas»: los tipos, subtipos y fabricantes (columnas A-C, para los
+ * desplegables) y, después, los subtipos y fabricantes de cada tipo, para consultar.
+ */
+function hojaListas(libro, catalogo) {
+  const hoja = libro.addWorksheet(HOJA_LISTAS);
+  const { tipos } = catalogo;
+  const subtipos = [...new Set(tipos.flatMap((t) => t.subtipos.map((s) => s.nombre)))].sort((a, b) => a.localeCompare(b, 'es'));
+  const marcas = catalogo.marcas.map((m) => m.nombre);
+  const marcasDe = (t) => catalogo.marcas
+    .filter((m) => !m.ambitos.length || m.ambitos.some((a) => a.tipo === t.id))
+    .map((m) => {
+      const sub = m.ambitos.filter((a) => a.tipo === t.id && a.subtipo_id)
+        .map((a) => t.subtipos.find((s) => s.id === a.subtipo_id)?.nombre).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
+      return sub.length ? `${m.nombre} (${sub.join(', ')})` : m.nombre;
+    });
+  const columnas = [
+    ['Tipos', tipos.map((t) => t.nombre)],
+    ['Subtipos', subtipos],
+    ['Fabricantes', marcas],
+    ...tipos.flatMap((t) => [[`Subtipos de ${t.nombre}`, t.subtipos.map((s) => s.nombre)], [`Fabricantes de ${t.nombre}`, marcasDe(t)]]),
+  ];
+  columnas.forEach(([titulo, valores], i) => {
+    hoja.getColumn(i + 1).width = Math.min(40, Math.max(14, titulo.length + 2, ...valores.map((v) => v.length + 2)));
+    hoja.getCell(1, i + 1).value = titulo;
+    valores.forEach((v, j) => { hoja.getCell(j + 2, i + 1).value = v; });
+  });
+  hoja.getRow(1).font = { bold: true };
+  hoja.views = [{ state: 'frozen', ySplit: 1 }];
+  return { tipos: tipos.length, subtipos: subtipos.length, marcas: marcas.length };
+}
+
+const listaConO = (nombres) => (nombres.length > 1 ? `${nombres.slice(0, -1).join(', ')} o ${nombres.at(-1)}` : nombres.join(''));
+
+/**
+ * Plantilla .xlsx: hoja «Productos» vacía con sus títulos y desplegables,
+ * «Instrucciones» con ejemplos y «Listas» con el catálogo.
+ * @param {{ tipos: object[], marcas: object[] }} catalogo  como lo da leerCatalogo
+ */
+export async function plantillaAlta(catalogo = { tipos: [], marcas: [] }) {
   const libro = new ExcelJS.Workbook();
   libro.creator = 'Puntapié · Gestión';
   libro.created = new Date();
@@ -117,27 +178,28 @@ export async function plantillaAlta(subtipos = []) {
   const cabecera = hoja.getRow(1);
   cabecera.font = { bold: true, color: { argb: 'FFFFFFFF' } };
   cabecera.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F5D50' } };
-  const tipos = Object.values(TIPOS).map((t) => t.nombre).join(',');
-  const colTipo = COLUMNAS.findIndex((c) => c.campo === 'tipo') + 1;
-  for (let r = 2; r <= MAX_FILAS_ALTA + 1; r += 1) {
-    hoja.getCell(r, colTipo).dataValidation = {
-      type: 'list', allowBlank: true, formulae: [`"${tipos}"`], showErrorMessage: true, errorTitle: 'Tipo de producto', error: `Elige: ${tipos.replace(/,/g, ', ')}`,
-    };
-  }
+
   const ayuda = libro.addWorksheet('Instrucciones');
+  const n = hojaListas(libro, catalogo);
+  desplegable(hoja, 'tipo', LISTA.tipos, n.tipos, true);
+  desplegable(hoja, 'subtipo', LISTA.subtipos, n.subtipos, true);
+  desplegable(hoja, 'marca', LISTA.marcas, n.marcas, false);
+
   ayuda.columns = COLUMNAS.map((c) => ({ header: c.titulo, width: c.ancho }));
   ayuda.getRow(1).font = { bold: true };
-  EJEMPLOS.forEach((fila) => ayuda.addRow(fila));
+  EJEMPLOS.forEach((e) => ayuda.addRow(COLUMNAS.map((c) => e[c.campo] ?? '')));
+  const tipos = listaConO(catalogo.tipos.map((t) => t.nombre));
   const notas = [
     '',
     'Copia tus productos en la hoja «Productos» (una fila por talla y color) y súbela en Stock › Inventario › Importar Excel.',
-    'Obligatorios: Fabricante, Referencia, Unidades y la Talla (vacía = talla única, para juguetes y accesorios). El Color, salvo en juguetes.',
-    'Tipo de producto: Calzado, Ropa, Accesorios o Juguetes. Si se deja vacío: con talla de pie es calzado; si no, accesorio.',
+    'Obligatorios: Fabricante, Referencia, Unidades y la Talla (vacía = talla única, para juguetes y accesorios). El Color, salvo en los tipos que no lo piden.',
+    `Tipo de producto: ${tipos || `uno de la hoja «${HOJA_LISTAS}»`}. Si se deja vacío: con talla de pie es calzado; si no, accesorio.`,
+    `Subtipo (opcional): uno del tipo de esa fila. En la hoja «${HOJA_LISTAS}» están los subtipos y los fabricantes de cada tipo.`,
+    'Fabricante: elígelo de la lista o escribe uno nuevo (se añade solo a Admin › Catálogo).',
     'Modelo: si se deja vacío se usa la referencia.',
     'Precios en euros (22,50). Unidades: cuántas hay en la tienda (0 = dar de alta sin stock).',
     'Código de barras: vacío = se genera uno nuevo (200…). Un 200… de las etiquetas antiguas se conserva. Otro (el de la caja) se guarda como código de fábrica y se genera uno nuevo para la etiqueta.',
     'Si un producto (fabricante + modelo + referencia + color + talla) ya existe con los mismos datos, sus unidades se suman. Si algún dato es distinto, se te pregunta antes de importar.',
-    subtipos.length ? `Subtipos (opcional): ${subtipos.map((s) => `${TIPOS[s.type]?.nombre ?? s.type}: ${s.name}`).join(' · ')}.` : '',
   ];
   notas.forEach((t) => ayuda.addRow([t]));
   return Buffer.from(await libro.xlsx.writeBuffer());

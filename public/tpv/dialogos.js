@@ -7,7 +7,12 @@ import { eurToCent } from '../proveedores/util.js';
 // Diálogos de la venta: descuento (de una línea o del ticket), artículo libre
 // y aprobación de un descuento de más del 15 %.
 
-const TIPOS = Object.freeze([['', 'Sin tipo'], ['calzado', 'Calzado'], ['ropa', 'Ropa'], ['accesorios', 'Accesorios'], ['juguetes', 'Juguetes']]);
+// Los tipos vienen del catálogo (Admin › Catálogo); si no cargan, los de siempre.
+const TIPOS_RESPALDO = Object.freeze([['calzado', 'Calzado'], ['ropa', 'Ropa'], ['accesorios', 'Accesorios'], ['juguetes', 'Juguetes']]);
+async function tiposLibre() {
+  const res = await api('GET', '/api/stock/tipos');
+  return [['', 'Sin tipo'], ...(res.ok ? res.data.map((t) => [t.id, t.nombre]) : TIPOS_RESPALDO)];
+}
 const ESPERA_MS = 3000;
 
 const campo = (id, label, control) => h('div', { class: 'field' }, [h('label', { for: id, text: label }), control]);
@@ -44,11 +49,12 @@ export async function pedirDescuento({ titulo, actual, importe }) {
 }
 
 /** Artículo sin ficha en el stock (arreglo, plantillas, varios…). */
-export function pedirLibre({ precioSugerido = null, concepto = '' } = {}) {
+export async function pedirLibre({ precioSugerido = null, concepto = '' } = {}) {
+  const tipos = await tiposLibre();
   const desc = h('input', { id: 'lib-desc', maxlength: '80', value: concepto, autocomplete: 'off' });
   const precio = h('input', { id: 'lib-precio', inputmode: 'decimal', autocomplete: 'off', value: precioSugerido ? (precioSugerido / 100).toFixed(2).replace('.', ',') : '' });
   const cantidad = h('input', { id: 'lib-cant', type: 'number', min: '1', max: '999', value: '1' });
-  const tipo = h('select', { id: 'lib-tipo' }, TIPOS.map(([v, t]) => h('option', { value: v, text: t })));
+  const tipo = h('select', { id: 'lib-tipo' }, tipos.map(([v, t]) => h('option', { value: v, text: t })));
   return openDialog({
     eyebrow: 'Artículo libre',
     title: 'Añadir sin ficha',

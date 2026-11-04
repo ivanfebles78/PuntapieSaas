@@ -65,14 +65,35 @@ test('el Excel se lee por sus títulos (en cualquier orden, con o sin tildes) y 
   await assert.rejects(leerExcelAlta(Buffer.from('a,b\n1,2')), /no es un Excel .xlsx/);
 });
 
-test('la plantilla trae los títulos que luego se leen y los ejemplos aparte', async () => {
-  const buffer = await plantillaAlta([{ type: 'calzado', name: 'Botas' }]);
+test('la plantilla trae los títulos que luego se leen, desplegables del catálogo y los ejemplos aparte', async () => {
+  const catalogo = {
+    tipos: [
+      { id: 'calzado', nombre: 'Calzado', subtipos: [{ id: 1, nombre: 'Botas' }, { id: 2, nombre: 'Tenis' }] },
+      { id: 'ropa', nombre: 'Ropa', subtipos: [{ id: 3, nombre: 'Pijamas' }] },
+    ],
+    marcas: [
+      { id: 1, nombre: 'Pablosky', ambitos: [{ tipo: 'calzado', subtipo_id: 1 }] },
+      { id: 2, nombre: 'Todo', ambitos: [] },
+    ],
+  };
+  const buffer = await plantillaAlta(catalogo);
   const libro = new ExcelJS.Workbook();
   await libro.xlsx.load(buffer);
-  assert.deepEqual(libro.worksheets.map((h) => h.name), ['Productos', 'Instrucciones']);
-  const titulos = libro.getWorksheet('Productos').getRow(1).values.slice(1);
-  assert.deepEqual(titulos.slice(0, 10), ['Tipo de producto', 'Fabricante', 'Modelo', 'Referencia', 'Talla', 'Color', 'Precio coste', 'PVP', 'Unidades', 'Código de barras']);
-  assert.equal(libro.getWorksheet('Productos').getRow(2).values.length, 0, 'la hoja de productos va vacía: los ejemplos no se importan');
+  assert.deepEqual(libro.worksheets.map((h) => h.name), ['Productos', 'Instrucciones', 'Listas']);
+  const productos = libro.getWorksheet('Productos');
+  const titulos = productos.getRow(1).values.slice(1);
+  assert.deepEqual(titulos, ['Tipo de producto', 'Subtipo', 'Fabricante', 'Modelo', 'Referencia', 'Talla', 'Color', 'Precio coste', 'PVP', 'Unidades', 'Código de barras', 'Detalle']);
+  assert.equal(productos.getRow(2).values.length, 0, 'la hoja de productos va vacía: los ejemplos no se importan');
+  assert.deepEqual(productos.getCell('A2').dataValidation.formulae, ["'Listas'!$A$2:$A$3"]);
+  assert.deepEqual(productos.getCell('B2').dataValidation.formulae, ["'Listas'!$B$2:$B$4"]);
+  assert.notEqual(productos.getCell('C2').dataValidation.showErrorMessage, true, 'el fabricante admite uno nuevo');
+  assert.equal(productos.getCell('A2').dataValidation.showErrorMessage, true, 'el tipo, solo de la lista');
+  const listas = libro.getWorksheet('Listas');
+  assert.deepEqual(listas.getRow(1).values.slice(1), ['Tipos', 'Subtipos', 'Fabricantes', 'Subtipos de Calzado', 'Fabricantes de Calzado', 'Subtipos de Ropa', 'Fabricantes de Ropa']);
+  assert.equal(listas.getCell('E2').value, 'Pablosky (Botas)');
+  assert.equal(listas.getCell('G2').value, 'Todo', 'un fabricante sin ámbitos sale en todos los tipos');
+  const ejemplo = libro.getWorksheet('Instrucciones').getRow(2).values.slice(1);
+  assert.deepEqual(ejemplo.slice(0, 3), ['Calzado', 'Botas', 'Pablosky'], 'los ejemplos siguen el orden de las columnas');
   await assert.rejects(leerExcelAlta(buffer), /no tiene productos/);
 });
 

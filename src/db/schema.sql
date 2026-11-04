@@ -342,21 +342,55 @@ ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS legacy_ref TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS recurring_expenses_legacy_ref_key ON recurring_expenses(legacy_ref) WHERE legacy_ref IS NOT NULL;
 
 -- ===================== Stock =====================
--- Subtipos de producto dentro de cada tipo (los tipos y sus reglas de talla
--- están en src/stock/tipos.js). Se pueden añadir más.
+-- Tipos de producto, editables en Admin › Catálogo. `size_classes` dice qué
+-- tallas admite cada uno (las clases están en src/stock/tipos.js) y
+-- `color_required` si el color es obligatorio. La clave no cambia nunca.
+CREATE TABLE IF NOT EXISTS product_types (
+  key             TEXT PRIMARY KEY CHECK (key ~ '^[a-z0-9-]{1,30}$'),
+  name            TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 40),
+  size_classes    TEXT[] NOT NULL CHECK (cardinality(size_classes) > 0),
+  color_required  BOOLEAN NOT NULL DEFAULT TRUE,
+  position        INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS product_types_name_key ON product_types (lower(name));
+-- Los de partida, solo la primera vez: lo que se borre o renombre en Admin no vuelve.
+INSERT INTO product_types (key, name, size_classes, color_required, position)
+SELECT * FROM (VALUES
+  ('calzado', 'Calzado', '{numero}'::text[], TRUE, 1),
+  ('ropa', 'Ropa', '{letra,edad,rango,ropa,unica}'::text[], TRUE, 2),
+  ('accesorios', 'Accesorios', '{unica,letra}'::text[], TRUE, 3),
+  ('juguetes', 'Juguetes', '{unica}'::text[], FALSE, 4)
+) AS v(key, name, size_classes, color_required, position)
+WHERE NOT EXISTS (SELECT 1 FROM product_types)
+ON CONFLICT DO NOTHING;
+
+-- Subtipos de producto dentro de cada tipo.
 CREATE TABLE IF NOT EXISTS product_subtypes (
   id    SERIAL PRIMARY KEY,
-  type  TEXT NOT NULL CHECK (type IN ('calzado', 'ropa', 'accesorios', 'juguetes')),
+  type  TEXT NOT NULL REFERENCES product_types(key) ON DELETE CASCADE,
   name  TEXT NOT NULL,
   UNIQUE (type, name)
 );
+-- Antes el tipo era una lista fija: pasa a la tabla de tipos.
+ALTER TABLE product_subtypes DROP CONSTRAINT IF EXISTS product_subtypes_type_check;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'product_subtypes_type_fkey') THEN
+    ALTER TABLE product_subtypes ADD CONSTRAINT product_subtypes_type_fkey FOREIGN KEY (type) REFERENCES product_types(key) ON DELETE CASCADE;
+  END IF;
+END $$;
 
-INSERT INTO product_subtypes (type, name) VALUES
+-- Igual: los subtipos de partida solo con la tabla vacía (y de tipos que existan).
+INSERT INTO product_subtypes (type, name)
+SELECT v.type, v.name FROM (VALUES
   ('calzado', 'Tenis'), ('calzado', 'Zapatos'), ('calzado', 'Escolares'), ('calzado', 'Sandalias'), ('calzado', 'Botas'),
   ('ropa', 'Calcetines'), ('ropa', 'Pijamas'), ('ropa', 'Chubasqueros'), ('ropa', 'Bañadores'),
   ('accesorios', 'Mochilas'), ('accesorios', 'Paraguas'), ('accesorios', 'Botellas'), ('accesorios', 'Estuches'),
   ('juguetes', 'Juegos de mesa'), ('juguetes', 'Yoyós'), ('juguetes', 'Juegos de cartas')
-ON CONFLICT (type, name) DO NOTHING;
+) AS v(type, name)
+JOIN product_types t ON t.key = v.type
+WHERE NOT EXISTS (SELECT 1 FROM product_subtypes)
+ON CONFLICT DO NOTHING;
 
 -- Un artículo por SKU (marca + modelo + referencia + color + talla) con su
 -- código de barras EAN-13, como el inventario de la web antigua. `stock` es lo
@@ -398,7 +432,12 @@ ALTER TABLE inventory_items ALTER COLUMN size_order SET NOT NULL;
 -- Lo que ya había es calzado; el tipo y el subtipo se pueden cambiar en Inventario.
 ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'calzado';
 ALTER TABLE inventory_items DROP CONSTRAINT IF EXISTS inventory_items_type_check;
-ALTER TABLE inventory_items ADD CONSTRAINT inventory_items_type_check CHECK (type IN ('calzado', 'ropa', 'accesorios', 'juguetes'));
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'inventory_items_type_fkey') THEN
+    ALTER TABLE inventory_items ADD CONSTRAINT inventory_items_type_fkey FOREIGN KEY (type) REFERENCES product_types(key) ON DELETE RESTRICT;
+  END IF;
+END $$;
 ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS subtype_id INTEGER REFERENCES product_subtypes(id) ON DELETE SET NULL;
 -- Detalle: lo que explica el producto (suele venir en la descripción de la factura).
 ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS detail TEXT NOT NULL DEFAULT '';
@@ -407,6 +446,37 @@ ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS maker_barcode TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS inventory_items_maker_barcode_key ON inventory_items(maker_barcode) WHERE maker_barcode IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS inventory_items_reference_idx ON inventory_items(reference);
+CREATE INDEX IF NOT EXISTS inventory_items_brand_lower_idx ON inventory_items (lower(brand));
+
+-- Fabricantes del catálogo (Admin › Catálogo) y para qué tipos y subtipos se
+-- ofrecen al dar de alta un producto. Sin ámbitos = para todos los tipos; un
+-- ámbito sin subtipo = todo ese tipo. El inventario guarda el nombre (texto).
+CREATE TABLE IF NOT EXISTS product_brands (
+  id    SERIAL PRIMARY KEY,
+  name  TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 50)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS product_brands_name_key ON product_brands (lower(name));
+CREATE TABLE IF NOT EXISTS product_brand_scopes (
+  id          SERIAL PRIMARY KEY,
+  brand_id    INTEGER NOT NULL REFERENCES product_brands(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL REFERENCES product_types(key) ON DELETE CASCADE,
+  subtype_id  INTEGER REFERENCES product_subtypes(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS product_brand_scopes_key ON product_brand_scopes (brand_id, type, COALESCE(subtype_id, 0));
+-- Los fabricantes que ya hay en el inventario entran solos, con los tipos de sus productos.
+WITH nuevas AS (
+  INSERT INTO product_brands (name)
+  SELECT DISTINCT ON (lower(i.brand)) i.brand FROM inventory_items i
+  WHERE length(i.brand) BETWEEN 1 AND 50
+    AND NOT EXISTS (SELECT 1 FROM product_brands b WHERE lower(b.name) = lower(i.brand))
+  GROUP BY i.brand
+  ORDER BY lower(i.brand), count(*) DESC, i.brand
+  ON CONFLICT DO NOTHING
+  RETURNING id, name
+)
+INSERT INTO product_brand_scopes (brand_id, type)
+SELECT DISTINCT n.id, i.type FROM nuevas n JOIN inventory_items i ON lower(i.brand) = lower(n.name)
+ON CONFLICT DO NOTHING;
 
 -- Mercancía de un pedido o factura: «pendiente» hasta que llega a la tienda.
 -- Al recibirla, lo recibido suma al stock; lo que no llega queda como «falta»

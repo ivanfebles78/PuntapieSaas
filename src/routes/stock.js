@@ -8,6 +8,10 @@ import { formatEuros } from '../services/money.js';
 import { todayInShop } from '../services/vacation-balance.js';
 import { confirmarAlta, etiquetaSku, resumenAlta, revisarAlta, revisionPublica } from '../stock/alta.js';
 import { leerExcelAlta, plantillaAlta } from '../stock/alta-excel.js';
+import {
+  borrarMarca, borrarSubtipo, borrarTipo, crearMarca, crearSubtipo, crearTipo,
+  editarMarca, editarSubtipo, editarTipo, leerCatalogo, listarMarcas, sugerencias,
+} from '../stock/catalogo.js';
 import { generarEtiquetasPdf } from '../stock/pdf/etiquetas.js';
 import {
   actualizarArticulo,
@@ -24,7 +28,7 @@ import {
 } from '../stock/repo.js';
 import { resolverProductos } from '../correo/repo.js';
 import { catalogoTipos, proponerTipos } from '../stock/propuesta.js';
-import { TIPOS } from '../stock/tipos.js';
+import { CLASES_TALLA, TIPOS } from '../stock/tipos.js';
 
 // Stock: inventario, recepción de mercancía y etiquetas con código de barras.
 
@@ -56,6 +60,95 @@ export function stockRouter({ pool, config, log = console }) {
   // Tipos de producto (con las tallas que admite cada uno) y sus subtipos.
   router.get('/tipos', handle(async (_req, res) => {
     res.json({ ok: true, data: await catalogoTipos(pool) });
+  }));
+
+  // Fabricantes con sus tipos (para filtrar el formulario de alta) y lo que
+  // ya hay en el inventario de ese fabricante (modelos, referencias…).
+  router.get('/marcas', handle(async (_req, res) => {
+    res.json({ ok: true, data: await listarMarcas(pool) });
+  }));
+  router.get('/sugerencias', handle(async (req, res) => {
+    res.json({ ok: true, data: await sugerencias(pool, req.query) });
+  }));
+
+  // Admin › Catálogo: lo ve quien ve el stock; solo administración lo cambia.
+  const soloAdmin = requireRole('admin');
+  const tiposTxt = (tallas) => tallas.map((c) => CLASES_TALLA[c] ?? c).join(', ');
+  const ambitosTxt = (ambitos, subtipos) => {
+    if (!ambitos.length) return 'Todos los tipos';
+    return ambitos.map((a) => `${TIPOS[a.tipo]?.nombre ?? a.tipo}${a.subtipo_id ? ` (${subtipos.get(a.subtipo_id) ?? a.subtipo_id})` : ''}`).join(', ');
+  };
+  const nombresSubtipos = async () => new Map((await listarSubtipos(pool)).map((x) => [x.id, x.nombre]));
+  const cat = (fn) => handle(async (req, res) => {
+    const r = await fn(req);
+    res.status(req.method === 'POST' ? 201 : 200).json({ ok: true, data: { resultado: r, catalogo: await leerCatalogo(pool) } });
+  });
+  const auditCat = (req, action, target, changes) => audit(req, { area: 'stock', action, target: `Catálogo · ${target}`, changes });
+
+  router.get('/catalogo', handle(async (_req, res) => {
+    res.json({ ok: true, data: await leerCatalogo(pool) });
+  }));
+
+  router.post('/catalogo/tipos', soloAdmin, cat(async (req) => {
+    const t = await crearTipo(pool, req.body);
+    await auditCat(req, 'crear', `tipo ${t.nombre}`, [{ field: 'Tallas', from: null, to: tiposTxt(t.tallas) }, { field: 'Color obligatorio', from: null, to: t.color ? 'Sí' : 'No' }]);
+    return t;
+  }));
+  router.put('/catalogo/tipos/:key', soloAdmin, cat(async (req) => {
+    const { antes, despues } = await editarTipo(pool, String(req.params.key), req.body);
+    const changes = [
+      ['Nombre', antes.nombre, despues.nombre],
+      ['Tallas', tiposTxt(antes.tallas), tiposTxt(despues.tallas)],
+      ['Color obligatorio', antes.color ? 'Sí' : 'No', despues.color ? 'Sí' : 'No'],
+    ].filter(([, a, b]) => a !== b).map(([field, from, to]) => ({ field, from, to }));
+    if (changes.length) await auditCat(req, 'editar', `tipo ${despues.nombre}`, changes);
+    return despues;
+  }));
+  router.delete('/catalogo/tipos/:key', soloAdmin, cat(async (req) => {
+    const t = await borrarTipo(pool, String(req.params.key));
+    await auditCat(req, 'borrar', `tipo ${t.nombre}`, [{ field: 'Tipo', from: t.nombre, to: null }]);
+    return t;
+  }));
+
+  router.post('/catalogo/subtipos', soloAdmin, cat(async (req) => {
+    const s = await crearSubtipo(pool, req.body);
+    await auditCat(req, 'crear', `subtipo ${s.nombre}`, [{ field: 'Subtipo', from: null, to: `${TIPOS[s.tipo].nombre}: ${s.nombre}` }]);
+    return s;
+  }));
+  router.put('/catalogo/subtipos/:id', soloAdmin, cat(async (req) => {
+    const s = await editarSubtipo(pool, req.params.id, req.body);
+    if (s.antes !== s.nombre) await auditCat(req, 'editar', `subtipo ${s.nombre}`, [{ field: 'Nombre', from: s.antes, to: s.nombre }]);
+    return s;
+  }));
+  router.delete('/catalogo/subtipos/:id', soloAdmin, cat(async (req) => {
+    const s = await borrarSubtipo(pool, req.params.id);
+    await auditCat(req, 'borrar', `subtipo ${s.nombre}`, [
+      { field: 'Subtipo', from: `${TIPOS[s.tipo]?.nombre ?? s.tipo}: ${s.nombre}`, to: null },
+      ...(s.productos ? [{ field: 'Productos que se quedan sin subtipo', from: null, to: String(s.productos) }] : []),
+    ]);
+    return s;
+  }));
+
+  router.post('/catalogo/marcas', soloAdmin, cat(async (req) => {
+    const b = await crearMarca(pool, req.body);
+    await auditCat(req, 'crear', `fabricante ${b.nombre}`, [{ field: 'Para', from: null, to: ambitosTxt(b.ambitos, await nombresSubtipos()) }]);
+    return b;
+  }));
+  router.put('/catalogo/marcas/:id', soloAdmin, cat(async (req) => {
+    const r = await editarMarca(pool, req.params.id, req.body);
+    const subtipos = await nombresSubtipos();
+    const changes = [
+      ['Nombre', r.antes.nombre, r.despues.nombre],
+      ['Para', ambitosTxt(r.antes.ambitos, subtipos), ambitosTxt(r.despues.ambitos, subtipos)],
+    ].filter(([, a, b]) => a !== b).map(([field, from, to]) => ({ field, from, to }));
+    if (r.renombrados) changes.push({ field: 'Productos renombrados', from: null, to: String(r.renombrados) });
+    if (changes.length) await auditCat(req, 'editar', `fabricante ${r.despues.nombre}`, changes);
+    return r;
+  }));
+  router.delete('/catalogo/marcas/:id', soloAdmin, cat(async (req) => {
+    const b = await borrarMarca(pool, req.params.id);
+    await auditCat(req, 'borrar', `fabricante ${b.nombre}`, [{ field: 'Fabricante', from: b.nombre, to: null }]);
+    return b;
   }));
 
   router.put('/articulos/:id', canWrite, handle(async (req, res) => {
@@ -145,10 +238,9 @@ export function stockRouter({ pool, config, log = console }) {
   /* ----- Alta de productos sin pedido: uno a uno o desde un Excel ----- */
 
   router.get('/alta/plantilla.xlsx', handle(async (_req, res) => {
-    const subtipos = (await pool.query('SELECT type, name FROM product_subtypes ORDER BY type, name')).rows;
     res.setHeader('Content-Type', XLSX);
     res.setHeader('Content-Disposition', 'attachment; filename="plantilla-inventario.xlsx"');
-    res.send(await plantillaAlta(subtipos));
+    res.send(await plantillaAlta(await leerCatalogo(pool)));
   }));
 
   // Sube el Excel: devuelve las filas leídas (para confirmarlas después) y qué pasará con cada una.

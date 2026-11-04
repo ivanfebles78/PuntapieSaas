@@ -5,6 +5,7 @@ import { HttpError } from '../http-error.js';
 import { withTransaction } from '../proveedores/repo.js';
 import { cerrarPorVenta, comprobarNoReservado, enlazarTicket, reservadoPorArticulo } from './reservas.js';
 import { cobrarConVales, formatoCodigo } from './vales.js';
+import { esTipo } from '../stock/tipos.js';
 
 export const METODOS = Object.freeze(['efectivo', 'tarjeta', 'bizum', 'bonos', 'vales']);
 const MAX_GRUPOS = 30;
@@ -80,7 +81,7 @@ export async function prepararVenta(db, venta) {
     const descripcion = texto(l.descripcion, 80);
     if (!descripcion) throw invalida(`falta el concepto del artículo libre de la línea ${i + 1}`);
     return {
-      articulo_id: null, descripcion, codigo: null, talla: null, tipo: l.tipo && ['calzado', 'ropa', 'accesorios', 'juguetes'].includes(l.tipo) ? l.tipo : null,
+      articulo_id: null, descripcion, codigo: null, talla: null, tipo: l.tipo && esTipo(String(l.tipo)) ? String(l.tipo) : null,
       coste_cent: null, precio_cent: Number(l.precio_cent), cantidad: Number(l.cantidad), descuento,
     };
   });

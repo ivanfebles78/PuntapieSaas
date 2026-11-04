@@ -27,6 +27,79 @@ function opcionesSubtipo(select, tipo, tipos, actual) {
     ...subtipos.map((s) => h('option', { value: s.nombre, text: s.nombre, selected: s.nombre === actual })));
 }
 
+const OTRA_MARCA = '__otra__';
+const igual = (a, b) => a.toLocaleLowerCase('es') === b.toLocaleLowerCase('es');
+
+/** Fabricantes del catálogo para ese tipo y subtipo (sin ámbitos = para todos). */
+export function marcasPara(marcas, tipo, subtipoId) {
+  return marcas.filter((m) => !m.ambitos.length
+    || m.ambitos.some((a) => a.tipo === tipo && (a.subtipo_id == null || subtipoId == null || a.subtipo_id === subtipoId)));
+}
+
+/**
+ * Fabricante: un desplegable con los del tipo y subtipo elegidos y «Otro…»
+ * para escribir uno nuevo (que entra en el catálogo al guardar).
+ */
+function campoMarca(marcas, previo) {
+  const select = h('select', { id: 'alta-marca' });
+  const otra = h('input', { id: 'alta-marca-otra', type: 'text', maxlength: '50', autocomplete: 'off', placeholder: 'Nombre del fabricante', 'aria-label': 'Nombre del fabricante nuevo', hidden: true });
+  const ayuda = h('small', { class: 'pmuted' });
+  const mostrarOtra = () => {
+    otra.hidden = select.value !== OTRA_MARCA;
+    if (!otra.hidden) otra.focus();
+  };
+  select.addEventListener('change', mostrarOtra);
+  const valor = () => (select.value === OTRA_MARCA ? otra.value.trim() : select.value);
+  function opciones(tipo, subtipoId, nombreTipo) {
+    const actual = valor() || previo || '';
+    const lista = marcasPara(marcas, tipo, subtipoId).map((m) => m.nombre);
+    // El que ya estaba elegido se queda aunque sea de otro tipo (o nuevo).
+    const conocida = actual && marcas.find((m) => igual(m.nombre, actual));
+    if (conocida && !lista.some((n) => igual(n, conocida.nombre))) lista.push(conocida.nombre);
+    lista.sort((a, b) => a.localeCompare(b, 'es'));
+    const elegida = conocida ? conocida.nombre : '';
+    select.replaceChildren(
+      h('option', { value: '', text: lista.length ? '— Elige el fabricante —' : '— Ninguno en el catálogo —' }),
+      ...lista.map((n) => h('option', { value: n, text: n, selected: n === elegida })),
+      h('option', { value: OTRA_MARCA, text: 'Otro fabricante…', selected: Boolean(actual && !conocida) }),
+    );
+    if (actual && !conocida) otra.value = actual;
+    otra.hidden = select.value !== OTRA_MARCA;
+    ayuda.textContent = `${lista.length ? `Los de ${nombreTipo.toLowerCase()}` : 'Aún no hay ninguno para este tipo'} (se cambian en Admin › Catálogo).`;
+  }
+  return { select, otra, ayuda, valor, opciones };
+}
+
+/** Propone lo que ya hay de ese fabricante (modelos, referencias, colores y tallas) sin impedir escribir otra cosa. */
+function sugeridor(entradas) {
+  const listas = Object.fromEntries(Object.entries(entradas).map(([k, input]) => {
+    const lista = h('datalist', { id: `alta-sug-${k}` });
+    input.setAttribute('list', lista.id);
+    return [k, lista];
+  }));
+  let vez = 0;
+  let espera = 0;
+  async function pedir(filtro) {
+    const esta = ++vez;
+    if (!filtro.marca) {
+      Object.values(listas).forEach((l) => l.replaceChildren());
+      return;
+    }
+    const qs = new URLSearchParams(Object.entries(filtro).filter(([, v]) => v)).toString();
+    const res = await api('GET', `/api/stock/sugerencias?${qs}`);
+    if (esta !== vez || !res.ok) return; // llegó tarde o falló: se queda lo que había
+    const valores = { modelo: res.data.modelos, referencia: res.data.referencias, color: res.data.colores, talla: res.data.tallas };
+    for (const [k, lista] of Object.entries(listas)) lista.replaceChildren(...(valores[k] ?? []).map((v) => h('option', { value: v })));
+  }
+  return {
+    listas: Object.values(listas),
+    actualizar(filtro) {
+      clearTimeout(espera);
+      espera = setTimeout(() => { pedir(filtro); }, 250);
+    },
+  };
+}
+
 function diferenciasEl(linea, nombre) {
   return h('div', { class: 'alta-dif', role: 'group', 'aria-label': 'Ya existe con otros datos' }, [
     h('p', { class: 'strong', text: `Ya existe (${uds(linea.stock_actual)} en tienda) con otros datos:` }),
@@ -40,13 +113,16 @@ function diferenciasEl(linea, nombre) {
 
 /* ---------- Uno a uno ---------- */
 
-function formularioProducto(tipos, previo) {
-  const tipo = h('select', { id: 'alta-tipo' }, tipos.map((t) => h('option', { value: t.id, text: t.nombre, selected: t.id === (previo.tipo ?? 'calzado') })));
+function formularioProducto(tipos, marcas, previo) {
+  const tipoInicial = tipos.some((t) => t.id === previo.tipo) ? previo.tipo : (tipos.find((t) => t.id === 'calzado') ?? tipos[0])?.id;
+  const tipo = h('select', { id: 'alta-tipo' }, tipos.map((t) => h('option', { value: t.id, text: t.nombre, selected: t.id === tipoInicial })));
   const subtipo = h('select', { id: 'alta-subtipo' });
+  const marca = campoMarca(marcas, previo.marca);
+  const subtipoId = () => tipos.find((t) => t.id === tipo.value)?.subtipos.find((s) => s.nombre === subtipo.value)?.id ?? null;
+  const nombreTipo = () => tipos.find((t) => t.id === tipo.value)?.nombre ?? '';
   opcionesSubtipo(subtipo, tipo.value, tipos, previo.subtipo);
-  tipo.addEventListener('change', () => opcionesSubtipo(subtipo, tipo.value, tipos, null));
+  marca.opciones(tipo.value, subtipoId(), nombreTipo());
   const f = {
-    marca: entrada('alta-marca', previo.marca, { maxlength: '50', required: true, autocomplete: 'off' }),
     modelo: entrada('alta-modelo', previo.modelo, { maxlength: '100', autocomplete: 'off' }),
     referencia: entrada('alta-ref', previo.referencia, { maxlength: '50', required: true, autocomplete: 'off' }),
     talla: entrada('alta-talla', previo.talla, { maxlength: '10', autocomplete: 'off' }),
@@ -61,8 +137,24 @@ function formularioProducto(tipos, previo) {
   const aviso = h('div', { 'aria-live': 'polite' });
   let pendiente = null; // fila revisada que ya existe con otros datos
 
+  // Lo que se ofrece depende de lo elegido: tipo → subtipos y fabricantes;
+  // fabricante, modelo y referencia → lo que ya hay de ellos en el inventario.
+  const sug = sugeridor({ modelo: f.modelo, referencia: f.referencia, color: f.color, talla: f.talla });
+  const pedirSugerencias = () => sug.actualizar({ marca: marca.valor(), tipo: tipo.value, modelo: f.modelo.value.trim(), referencia: f.referencia.value.trim() });
+  tipo.addEventListener('change', () => {
+    opcionesSubtipo(subtipo, tipo.value, tipos, null);
+    marca.opciones(tipo.value, subtipoId(), nombreTipo());
+    pedirSugerencias();
+  });
+  subtipo.addEventListener('change', () => marca.opciones(tipo.value, subtipoId(), nombreTipo()));
+  marca.select.addEventListener('change', pedirSugerencias);
+  marca.otra.addEventListener('input', pedirSugerencias);
+  f.modelo.addEventListener('change', pedirSugerencias);
+  f.referencia.addEventListener('change', pedirSugerencias);
+  pedirSugerencias();
+
   const leer = () => ({
-    tipo: tipo.value, subtipo: subtipo.value, ...Object.fromEntries(Object.entries(f).map(([k, el]) => [k, el.value.trim()])),
+    tipo: tipo.value, subtipo: subtipo.value, marca: marca.valor(), ...Object.fromEntries(Object.entries(f).map(([k, el]) => [k, el.value.trim()])),
   });
   return openDialog({
     eyebrow: 'Stock · Inventario',
@@ -72,7 +164,9 @@ function formularioProducto(tipos, previo) {
       h('div', { class: 'pform-grid' }, [
         campo('alta-tipo', 'Tipo de producto', tipo),
         campo('alta-subtipo', 'Subtipo', subtipo),
-        campo('alta-marca', 'Fabricante', f.marca),
+        h('div', { class: 'pfield' }, [
+          h('label', { for: 'alta-marca', text: 'Fabricante' }), marca.select, marca.otra, marca.ayuda,
+        ]),
         campo('alta-modelo', 'Modelo', f.modelo, 'Vacío = la referencia'),
         campo('alta-ref', 'Referencia', f.referencia),
         campo('alta-talla', 'Talla', f.talla, 'Vacía = talla única'),
@@ -85,10 +179,12 @@ function formularioProducto(tipos, previo) {
       ]),
       h('label', { class: 'alta-radio alta-otra' }, [otra, h('span', { text: 'Después, seguir con otra talla de este modelo' })]),
       aviso,
+      ...sug.listas,
     ]),
     submitLabel: 'Guardar',
     onSubmit: async (form) => {
       const fila = leer();
+      if (!fila.marca) return { error: marca.select.value === OTRA_MARCA ? 'Escribe el nombre del fabricante.' : 'Elige el fabricante.' };
       const clave = JSON.stringify(fila);
       let decisiones = {};
       if (pendiente?.json === clave) {
@@ -117,11 +213,16 @@ function formularioProducto(tipos, previo) {
 export async function nuevoProducto(tipos) {
   const hechos = [];
   let previo = {};
+  const res = await api('GET', '/api/stock/marcas');
+  let marcas = res.ok ? res.data : [];
+  if (!res.ok) showToast('No se pudo cargar la lista de fabricantes: elige «Otro» y escríbelo.');
   for (;;) {
-    const r = await formularioProducto(tipos, previo);
+    const r = await formularioProducto(tipos, marcas, previo);
     if (!r?.articulos) break;
     const [a] = r.articulos;
     hechos.push(...r.articulos);
+    // Un fabricante nuevo ya está en el catálogo: la próxima vez sale en la lista.
+    if (!marcas.some((m) => igual(m.nombre, r.fila.marca))) marcas = [...marcas, { id: 0, nombre: r.fila.marca, ambitos: [{ tipo: r.fila.tipo, subtipo_id: null }] }];
     showToast(a.accion === 'nuevo' ? `Producto creado con ${uds(a.unidades)}` : `Ya existía: +${uds(a.unidades)} (ahora ${a.stock}).`);
     if (!r.fila.otra) break;
     previo = { ...r.fila, talla: '', unidades: '1', codigo: '' };
