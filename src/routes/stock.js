@@ -131,7 +131,10 @@ export function stockRouter({ pool, config, log = console }) {
 
   router.post('/catalogo/marcas', soloAdmin, cat(async (req) => {
     const b = await crearMarca(pool, req.body);
-    await auditCat(req, 'crear', `fabricante ${b.nombre}`, [{ field: 'Para', from: null, to: ambitosTxt(b.ambitos, await nombresSubtipos()) }]);
+    await auditCat(req, 'crear', `fabricante ${b.nombre}`, [
+      { field: 'Para', from: null, to: ambitosTxt(b.ambitos, await nombresSubtipos()) },
+      ...(b.proveedor ? [{ field: 'Proveedor', from: null, to: b.proveedor.nombre }] : []),
+    ]);
     return b;
   }));
   router.put('/catalogo/marcas/:id', soloAdmin, cat(async (req) => {
@@ -140,6 +143,7 @@ export function stockRouter({ pool, config, log = console }) {
     const changes = [
       ['Nombre', r.antes.nombre, r.despues.nombre],
       ['Para', ambitosTxt(r.antes.ambitos, subtipos), ambitosTxt(r.despues.ambitos, subtipos)],
+      ['Proveedor', r.antes.proveedor?.nombre ?? null, r.despues.proveedor?.nombre ?? null],
     ].filter(([, a, b]) => a !== b).map(([field, from, to]) => ({ field, from, to }));
     if (r.renombrados) changes.push({ field: 'Productos renombrados', from: null, to: String(r.renombrados) });
     if (changes.length) await auditCat(req, 'editar', `fabricante ${r.despues.nombre}`, changes);

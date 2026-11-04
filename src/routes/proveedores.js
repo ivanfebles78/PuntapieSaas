@@ -14,6 +14,7 @@ import {
   adjuntarJustificantePago,
   asociarDocumentos,
   crearDocumento,
+  crearProveedor,
   desasociarDocumentos,
   docDePago,
   eliminarDocumento,
@@ -262,6 +263,16 @@ export function proveedoresRouter({ pool, config, log = console }) {
 
   router.get('/lista', handle(async (_req, res) => {
     res.json({ ok: true, data: await listarProveedores(pool) });
+  }));
+
+  // Proveedor nuevo sin documentos aún (p. ej. al asignarlo a un fabricante en el catálogo).
+  router.post('/lista', canWrite, handle(async (req, res) => {
+    const p = await crearProveedor(pool, req.body ?? {});
+    await audit(req, { area: 'proveedores', action: 'crear', target: `Proveedor ${p.nombre}`, changes: [
+      { field: 'Nombre', from: null, to: p.nombre },
+      ...(p.cif ? [{ field: 'CIF', from: null, to: p.cif }] : []),
+    ] });
+    res.status(201).json({ ok: true, data: p });
   }));
 
   router.put('/lista/:id', canWrite, handle(async (req, res) => {

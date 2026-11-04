@@ -67,16 +67,18 @@ const bloquear = (db) => db.query(`SELECT pg_advisory_xact_lock(${LOCK})`);
 
 /** Todo el catálogo, con cuántos productos del inventario usa cada cosa. */
 export async function leerCatalogo(db) {
-  const [tipos, subtipos, marcas, ambitos] = await Promise.all([
+  const [tipos, subtipos, marcas, ambitos, proveedores] = await Promise.all([
     db.query(`SELECT t.key, t.name, t.size_classes, t.color_required,
                      (SELECT count(*)::int FROM inventory_items i WHERE i.type = t.key) AS n
                 FROM product_types t ORDER BY t.position, t.name`),
     db.query(`SELECT s.id, s.type, s.name, (SELECT count(*)::int FROM inventory_items i WHERE i.subtype_id = s.id) AS n
                 FROM product_subtypes s ORDER BY s.type, s.name`),
-    db.query(`SELECT b.id, b.name, (SELECT count(*)::int FROM inventory_items i WHERE lower(i.brand) = lower(b.name)) AS n
+    db.query(`SELECT b.id, b.name, b.supplier_id, (SELECT count(*)::int FROM inventory_items i WHERE lower(i.brand) = lower(b.name)) AS n
                 FROM product_brands b ORDER BY lower(b.name)`),
     db.query('SELECT brand_id, type, subtype_id FROM product_brand_scopes ORDER BY brand_id, type, subtype_id NULLS FIRST'),
+    db.query('SELECT id, name, cif, notes, direct_debit FROM suppliers ORDER BY lower(name), id'),
   ]);
+  const nombreProveedor = new Map(proveedores.rows.map((p) => [p.id, p.name]));
   return {
     clases: Object.entries(CLASES_TALLA).map(([id, texto]) => ({ id, texto })),
     tipos: tipos.rows.map((t) => ({
@@ -85,8 +87,10 @@ export async function leerCatalogo(db) {
     })),
     marcas: marcas.rows.map((b) => ({
       id: b.id, nombre: b.name, productos: b.n,
+      proveedor: b.supplier_id ? { id: b.supplier_id, nombre: nombreProveedor.get(b.supplier_id) ?? '' } : null,
       ambitos: ambitos.rows.filter((a) => a.brand_id === b.id).map((a) => ({ tipo: a.type, subtipo_id: a.subtype_id })),
     })),
+    proveedores: proveedores.rows.map((p) => ({ id: p.id, nombre: p.name, cif: p.cif, notas: p.notes, domiciliado: p.direct_debit })),
   };
 }
 
@@ -258,6 +262,16 @@ async function leerAmbitos(db, valor) {
   ];
 }
 
+/** Proveedor de un fabricante: null (ninguno) o el id de uno que exista. */
+async function leerProveedor(db, valor) {
+  if (valor == null || valor === '') return null;
+  const id = Number(valor);
+  if (!idValido(id)) throw invalido('Proveedor no válido.');
+  const p = (await db.query('SELECT id, name FROM suppliers WHERE id = $1 FOR SHARE', [id])).rows[0];
+  if (!p) throw noExiste('Ese proveedor');
+  return { id: p.id, nombre: p.name };
+}
+
 async function guardarAmbitos(db, brandId, ambitos) {
   await db.query('DELETE FROM product_brand_scopes WHERE brand_id = $1', [brandId]);
   if (!ambitos.length) return;
@@ -271,15 +285,16 @@ export async function crearMarca(pool, body) {
   return sinCarreras(() => withTransaction(pool, async (db) => {
     await bloquear(db);
     const ambitos = await leerAmbitos(db, body?.ambitos);
+    const proveedor = await leerProveedor(db, body?.proveedor_id);
     let id;
     try {
-      id = (await db.query('INSERT INTO product_brands (name) VALUES ($1) RETURNING id', [n])).rows[0].id;
+      id = (await db.query('INSERT INTO product_brands (name, supplier_id) VALUES ($1, $2) RETURNING id', [n, proveedor?.id ?? null])).rows[0].id;
     } catch (e) {
       if (repetido(e)) throw conflicto(`Ya hay un fabricante «${n}».`, 'DUPLICATE');
       throw e;
     }
     await guardarAmbitos(db, id, ambitos);
-    return { id, nombre: n, ambitos };
+    return { id, nombre: n, ambitos, proveedor };
   }));
 }
 
@@ -289,13 +304,17 @@ export async function editarMarca(pool, idRaw, body) {
   const n = nombre(body?.nombre, MAX_NOMBRE, 'fabricante');
   return sinCarreras(() => withTransaction(pool, async (db) => {
     await bloquear(db);
-    const antes = (await db.query('SELECT name FROM product_brands WHERE id = $1 FOR UPDATE', [id])).rows[0];
+    const antes = (await db.query(`SELECT b.name, b.supplier_id, s.name AS supplier_name FROM product_brands b
+                                    LEFT JOIN suppliers s ON s.id = b.supplier_id WHERE b.id = $1 FOR UPDATE OF b`, [id])).rows[0];
     if (!antes) throw noExiste('Ese fabricante');
+    const proveedorAntes = antes.supplier_id ? { id: antes.supplier_id, nombre: antes.supplier_name } : null;
+    // Sin «proveedor_id» en la petición se deja el que tenía.
+    const proveedor = body && Object.hasOwn(body, 'proveedor_id') ? await leerProveedor(db, body.proveedor_id) : proveedorAntes;
     const ambitosAntes = (await db.query('SELECT type AS tipo, subtype_id FROM product_brand_scopes WHERE brand_id = $1 ORDER BY type, subtype_id NULLS FIRST', [id])).rows;
     const ambitos = await leerAmbitos(db, body?.ambitos);
     let renombrados = 0;
     try {
-      await db.query('UPDATE product_brands SET name = $2 WHERE id = $1', [id, n]);
+      await db.query('UPDATE product_brands SET name = $2, supplier_id = $3 WHERE id = $1', [id, n, proveedor?.id ?? null]);
       if (n !== antes.name) {
         renombrados = (await db.query('UPDATE inventory_items SET brand = $2, updated_at = NOW() WHERE lower(brand) = lower($1)', [antes.name, n])).rowCount;
       }
@@ -308,7 +327,12 @@ export async function editarMarca(pool, idRaw, body) {
       throw e;
     }
     await guardarAmbitos(db, id, ambitos);
-    return { id, antes: { nombre: antes.name, ambitos: ambitosAntes.map((a) => ({ tipo: a.tipo, subtipo_id: a.subtype_id })) }, despues: { nombre: n, ambitos }, renombrados };
+    return {
+      id,
+      antes: { nombre: antes.name, proveedor: proveedorAntes, ambitos: ambitosAntes.map((a) => ({ tipo: a.tipo, subtipo_id: a.subtype_id })) },
+      despues: { nombre: n, proveedor, ambitos },
+      renombrados,
+    };
   }));
 }
 
@@ -329,9 +353,12 @@ export async function borrarMarca(pool, idRaw) {
  * Los fabricantes usados en un alta entran en el catálogo si no estaban, y
  * se les añade el tipo si tenían ámbitos y no lo incluían (con «todos los
  * tipos» no hace falta). Va dentro de la transacción del alta.
+ * Si el alta viene de un pedido o factura, los fabricantes que aún no tienen
+ * proveedor quedan con el de ese documento.
  * @param {{ marca: string, tipo: string }[]} usos
+ * @param {{ proveedorId?: number|null }} [opciones]
  */
-export async function asegurarMarcas(db, usos) {
+export async function asegurarMarcas(db, usos, { proveedorId = null } = {}) {
   const pares = [...new Map(usos.map((u) => ({ ...u, marca: String(u.marca ?? '').trim() }))
     .filter((u) => u.marca && u.marca.length <= MAX_NOMBRE && Object.hasOwn(TIPOS, u.tipo))
     .map((u) => [`${u.marca.toLowerCase()}|${u.tipo}`, u])).values()];
@@ -350,6 +377,10 @@ export async function asegurarMarcas(db, usos) {
                      OR (EXISTS (SELECT 1 FROM product_brand_scopes s WHERE s.brand_id = b.id)
                          AND NOT EXISTS (SELECT 1 FROM product_brand_scopes s WHERE s.brand_id = b.id AND s.type = x.t))
                   ON CONFLICT DO NOTHING`, [nombres, tipos, nuevas]);
+  if (proveedorId) {
+    await db.query(`UPDATE product_brands SET supplier_id = $2
+                    WHERE supplier_id IS NULL AND lower(name) = ANY(SELECT lower(m) FROM unnest($1::text[]) AS m)`, [nombres, proveedorId]);
+  }
 }
 
 /* ---------- Sugerencias para el formulario de alta ---------- */

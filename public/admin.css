@@ -986,6 +986,12 @@
 .cat-amb-subs { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 0 0 26px; }
 .cat-amb-subs .cat-check { font-size: 13px; }
 .cat-borrar-sub { justify-self: start; color: var(--danger); }
+.cat-marca-prov { color: var(--espresso-soft); font-size: 13px; font-weight: 600; }
+.cat-marca-prov.is-sin { font-style: italic; font-weight: 500; opacity: 0.7; }
+.cat-prov select { width: 100%; }
+.cat-prov .btn-text { justify-self: start; }
+.cat-prov-panel { display: grid; gap: 10px; margin-top: 4px; padding: 12px; border-radius: var(--radius-field); background: var(--linen); }
+.cat-prov-panel[hidden] { display: none; }
 
 @media (max-width: 640px) {
   .cat-ctas { justify-content: flex-start; }

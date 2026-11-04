@@ -10,7 +10,9 @@ import { showToast } from './toast.js';
 // puede borrar; el servidor explica por qué.
 
 const API = '/api/stock/catalogo';
-const state = { catalogo: null, filtro: '', tipoFiltro: '', els: null };
+const API_PROVEEDORES = '/api/proveedores/lista';
+const PROV_NUEVO = '__nuevo__';
+const state = { catalogo: null, filtro: '', tipoFiltro: '', provFiltro: '', els: null };
 
 const n = (x, uno, varios) => `${x} ${x === 1 ? uno : varios}`;
 const productos = (x) => (x ? n(x, 'producto', 'productos') : 'Sin productos');
@@ -84,6 +86,7 @@ function filaMarca(m) {
   return h('li', { class: 'cat-marca', 'data-marca': String(m.id) }, [
     h('div', { class: 'cat-marca-main' }, [
       h('span', { class: 'cat-marca-nombre', text: m.nombre }),
+      h('span', { class: `cat-marca-prov${m.proveedor ? '' : ' is-sin'}`, text: m.proveedor ? `Proveedor: ${m.proveedor.nombre}` : 'Sin proveedor' }),
       h('ul', { class: 'cat-para' }, ambitosTxt(m.ambitos).map((t) => h('li', { class: m.ambitos.length ? '' : 'is-todos', text: t }))),
     ]),
     h('span', { class: `cat-cuenta${m.productos ? '' : ' is-cero'}`, text: productos(m.productos) }),
@@ -96,7 +99,8 @@ function filaMarca(m) {
 
 function marcasVisibles() {
   const q = sinTildes(state.filtro.trim());
-  return state.catalogo.marcas.filter((m) => (!q || sinTildes(m.nombre).includes(q))
+  return state.catalogo.marcas.filter((m) => (!q || sinTildes(m.nombre).includes(q) || sinTildes(m.proveedor?.nombre).includes(q))
+    && (!state.provFiltro || (state.provFiltro === 'sin' ? !m.proveedor : m.proveedor?.id === Number(state.provFiltro)))
     && (!state.tipoFiltro || !m.ambitos.length || m.ambitos.some((a) => a.tipo === state.tipoFiltro)));
 }
 
@@ -109,10 +113,16 @@ function pintarMarcas() {
 
 function pintar() {
   const c = state.catalogo;
-  const buscar = h('input', { class: 'pinput cat-buscar', type: 'search', placeholder: 'Buscar fabricante', 'aria-label': 'Buscar fabricante', value: state.filtro, 'data-buscar': '' });
+  const buscar = h('input', { class: 'pinput cat-buscar', type: 'search', placeholder: 'Buscar fabricante o proveedor', 'aria-label': 'Buscar fabricante o proveedor', value: state.filtro, 'data-buscar': '' });
   const tipo = h('select', { class: 'pinput', 'aria-label': 'Filtrar por tipo', 'data-tipo-filtro': '' }, [
     h('option', { value: '', text: 'Todos los tipos' }),
     ...c.tipos.map((t) => h('option', { value: t.id, text: t.nombre, selected: t.id === state.tipoFiltro })),
+  ]);
+  const usados = new Set(c.marcas.map((m) => m.proveedor?.id).filter(Boolean));
+  const prov = h('select', { class: 'pinput', 'aria-label': 'Filtrar por proveedor', 'data-prov-filtro': '' }, [
+    h('option', { value: '', text: 'Todos los proveedores' }),
+    h('option', { value: 'sin', text: 'Sin proveedor', selected: state.provFiltro === 'sin' }),
+    ...c.proveedores.filter((p) => usados.has(p.id)).map((p) => h('option', { value: String(p.id), text: p.nombre, selected: String(p.id) === state.provFiltro })),
   ]);
   state.els.marcas = h('div', {});
   state.els.body.replaceChildren(
@@ -123,7 +133,7 @@ function pintar() {
     h('section', { class: 'cat-seccion', 'aria-labelledby': 'cat-h-marcas' }, [
       h('div', { class: 'cat-marcas-head' }, [
         h('h2', { class: 'opening-heading', id: 'cat-h-marcas' }, ['Fabricantes', h('span', { class: 'opening-count', text: String(c.marcas.length) })]),
-        h('div', { class: 'cat-filtros' }, [buscar, tipo]),
+        h('div', { class: 'cat-filtros' }, [buscar, tipo, prov]),
       ]),
       state.els.marcas,
     ]),
@@ -276,19 +286,104 @@ function selectorAmbitos(ambitos) {
   return { el, leer, algunos: () => el.querySelector('input[name="cat-para"]:checked')?.value === 'algunos' };
 }
 
+/**
+ * Proveedor al que se compra el fabricante: uno de la lista, ninguno o uno
+ * nuevo. Sus datos (nombre, CIF, notas, cobro) se pueden corregir aquí mismo
+ * y se guardan en Proveedores al guardar el fabricante.
+ */
+function selectorProveedor(actual) {
+  const lista = state.catalogo.proveedores;
+  const select = h('select', { 'data-proveedor': '', 'aria-label': 'Proveedor' }, [
+    h('option', { value: '', text: '— Sin proveedor —' }),
+    ...lista.map((p) => h('option', { value: String(p.id), text: p.cif ? `${p.nombre} · ${p.cif}` : p.nombre, selected: p.id === actual?.id })),
+    h('option', { value: PROV_NUEVO, text: '+ Proveedor nuevo…' }),
+  ]);
+  const f = {
+    nombre: h('input', { type: 'text', maxlength: '120', autocomplete: 'off', 'data-prov-campo': 'nombre' }),
+    cif: h('input', { type: 'text', maxlength: '20', autocomplete: 'off', 'data-prov-campo': 'cif' }),
+    notas: h('textarea', { rows: '2', maxlength: '1000', 'data-prov-campo': 'notas' }),
+    domiciliado: h('input', { type: 'checkbox', 'data-prov-campo': 'domiciliado' }),
+  };
+  const editar = h('button', { class: 'btn-text', type: 'button', 'data-prov-editar': '', text: 'Editar datos del proveedor' });
+  const panel = h('div', { class: 'cat-prov-panel', hidden: true }, [
+    campo('Nombre del proveedor', f.nombre, 'Como sale en sus facturas (p. ej. «Calzados Pablo SLU»).'),
+    campo('CIF', f.cif),
+    campo('Notas', f.notas),
+    h('label', { class: 'cat-check' }, [f.domiciliado, h('span', { text: 'Cobra por domiciliación (si no, transferencia)' })]),
+  ]);
+  const elegido = () => lista.find((p) => String(p.id) === select.value) ?? null;
+  const rellenar = (p) => {
+    f.nombre.value = p?.nombre ?? '';
+    f.cif.value = p?.cif ?? '';
+    f.notas.value = p?.notas ?? '';
+    f.domiciliado.checked = Boolean(p?.domiciliado);
+  };
+  const mostrar = (abierto) => {
+    editar.hidden = !elegido();
+    panel.hidden = !abierto;
+    editar.textContent = abierto ? 'Ocultar datos del proveedor' : 'Editar datos del proveedor';
+  };
+  select.addEventListener('change', () => {
+    rellenar(elegido());
+    const nuevo = select.value === PROV_NUEVO;
+    mostrar(nuevo);
+    if (nuevo) f.nombre.focus();
+  });
+  editar.addEventListener('click', () => {
+    mostrar(panel.hidden);
+    if (!panel.hidden) f.nombre.focus();
+  });
+  rellenar(elegido());
+  mostrar(false);
+  const datos = () => ({ nombre: f.nombre.value.trim(), cif: f.cif.value.trim() || null, notas: f.notas.value.trim() || null, domiciliado: f.domiciliado.checked });
+  /** Crea o corrige el proveedor si hace falta y devuelve su id (o null). */
+  const guardar = async () => {
+    if (!select.value) return { id: null };
+    const d = datos();
+    if (select.value === PROV_NUEVO) {
+      if (!d.nombre) return { error: 'Escribe el nombre del proveedor nuevo.' };
+      const r = await api('POST', API_PROVEEDORES, d);
+      if (!r.ok) return { error: r.error };
+      // Si luego falla el fabricante, al reintentar ya se elige el creado.
+      lista.push(r.data);
+      select.insertBefore(h('option', { value: String(r.data.id), text: r.data.nombre }), select.lastElementChild);
+      select.value = String(r.data.id);
+      return { id: r.data.id };
+    }
+    const p = elegido();
+    const cambia = !panel.hidden && (d.nombre !== p.nombre || (d.cif ?? '') !== (p.cif ?? '') || (d.notas ?? '') !== (p.notas ?? '') || d.domiciliado !== Boolean(p.domiciliado));
+    if (!cambia) return { id: p.id };
+    if (!d.nombre) return { error: 'El proveedor necesita un nombre.' };
+    const r = await api('PUT', `${API_PROVEEDORES}/${p.id}`, d);
+    if (!r.ok) return { error: r.error };
+    Object.assign(p, r.data);
+    return { id: p.id };
+  };
+  const el = h('fieldset', { class: 'cat-fieldset cat-prov' }, [
+    h('legend', { text: 'Proveedor' }),
+    h('p', { class: 'pmuted', text: 'A quién se le compra (p. ej. Condor → Aretex). Sale de la lista de Proveedores.' }),
+    select, editar, panel,
+  ]);
+  return { el, guardar };
+}
+
 async function dialogoMarca(m) {
   const nombre = h('input', { type: 'text', maxlength: '50', value: m?.nombre ?? '', required: true, autocomplete: 'off' });
   const amb = selectorAmbitos(m?.ambitos ?? []);
+  const prov = selectorProveedor(m?.proveedor ?? null);
   const res = await openDialog({
     eyebrow: 'Catálogo',
     title: m ? `Editar ${m.nombre}` : 'Nuevo fabricante',
     lead: m?.productos ? `Tiene ${productos(m.productos)}: si le cambias el nombre, se cambia también en ellos.` : 'Elige para qué tipos se ofrece al dar de alta un producto.',
-    content: h('div', { class: 'pform' }, [campo('Nombre', nombre), amb.el]),
+    content: h('div', { class: 'pform' }, [campo('Nombre', nombre), prov.el, amb.el]),
     submitLabel: m ? 'Guardar' : 'Crear fabricante',
     onSubmit: async () => {
       const body = { nombre: nombre.value.trim(), ambitos: amb.leer() };
       if (!body.nombre) return { error: 'Escribe el nombre del fabricante.' };
       if (amb.algunos() && !body.ambitos.length) return { error: 'Marca al menos un tipo o subtipo (o elige «Todos los tipos»).' };
+      const p = await prov.guardar();
+      if (p.error) return { error: p.error };
+      body.proveedor_id = p.id;
       const r = m ? await api('PUT', `${API}/marcas/${m.id}`, body) : await api('POST', `${API}/marcas`, body);
       return r.ok ? r : { error: r.error };
     },
@@ -307,8 +402,9 @@ function bindEvents(root) {
     pintarMarcas();
   });
   root.addEventListener('change', (event) => {
-    if (!event.target.matches('[data-tipo-filtro]')) return;
-    state.tipoFiltro = event.target.value;
+    if (event.target.matches('[data-prov-filtro]')) state.provFiltro = event.target.value;
+    else if (event.target.matches('[data-tipo-filtro]')) state.tipoFiltro = event.target.value;
+    else return;
     pintarMarcas();
   });
   root.addEventListener('click', (event) => {

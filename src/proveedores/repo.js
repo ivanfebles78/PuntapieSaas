@@ -159,6 +159,27 @@ export async function listarProveedores(db) {
   }));
 }
 
+export async function crearProveedor(db, { nombre, cif, notas, domiciliado }) {
+  const n = String(nombre ?? '').trim().replace(/\s+/g, ' ').slice(0, 120);
+  if (!n) throw invalid(['el nombre del proveedor es obligatorio']);
+  if (domiciliado !== undefined && typeof domiciliado !== 'boolean') throw invalid(['la forma de cobro no es válida']);
+  const cifNorm = normalizarCif(cif) || null;
+  if (cifNorm && (await db.query('SELECT 1 FROM suppliers WHERE cif = $1', [cifNorm])).rowCount) {
+    throw new HttpError(409, 'Ya hay otro proveedor con ese CIF.', 'CIF_TAKEN');
+  }
+  if ((await db.query('SELECT 1 FROM suppliers WHERE lower(name) = lower($1)', [n])).rowCount) {
+    throw new HttpError(409, `Ya hay un proveedor «${n}».`, 'DUPLICATE');
+  }
+  try {
+    const r = (await db.query('INSERT INTO suppliers (name, cif, notes, direct_debit) VALUES ($1, $2, $3, $4) RETURNING id',
+      [n, cifNorm, limpiar(notas), domiciliado === true])).rows[0];
+    return { id: r.id, nombre: n, cif: cifNorm, notas: limpiar(notas), domiciliado: domiciliado === true };
+  } catch (e) {
+    if (e?.code === '23505') throw new HttpError(409, 'Ya hay otro proveedor con ese CIF.', 'CIF_TAKEN');
+    throw e;
+  }
+}
+
 export async function actualizarProveedor(db, id, { nombre, cif, notas, domiciliado }) {
   const row = (await db.query('SELECT * FROM suppliers WHERE id = $1', [id])).rows[0];
   if (!row) throw new HttpError(404, 'Proveedor no encontrado.', 'SUPPLIER_NOT_FOUND');
@@ -198,6 +219,8 @@ export async function fusionarProveedores(pool, origenId, destinoId) {
       WHERE d.supplier_id = $1 AND NOT EXISTS (
         SELECT 1 FROM supplier_docs x WHERE x.supplier_id = $2 AND x.kind = d.kind AND x.number = d.number)
       RETURNING kind, number`, [origenId, destinoId])).rows;
+    // Los fabricantes que se compraban al origen pasan al destino.
+    await client.query('UPDATE product_brands SET supplier_id = $2 WHERE supplier_id = $1', [origenId, destinoId]);
     const duplicados = (await client.query('SELECT kind, number FROM supplier_docs WHERE supplier_id = $1 ORDER BY number', [origenId])).rows;
     if (!duplicados.length) await client.query('DELETE FROM suppliers WHERE id = $1', [origenId]);
     return {

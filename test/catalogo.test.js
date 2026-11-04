@@ -179,6 +179,51 @@ describe('Catálogo de productos', { skip: !TEST_DATABASE_URL && 'Falta TEST_DAT
     assert.ok(marcas.some((m) => m.nombre === 'Sugiere'));
   });
 
+  test('proveedor del fabricante: se elige, se crea o se corrige, sobrevive a unir proveedores y lo pone solo un pedido', async () => {
+    // Uno nuevo desde el catálogo (sin documentos aún) y asignado al crear el fabricante.
+    const aretex = await admin('POST', '/api/proveedores/lista', { nombre: 'Aretex SL', cif: 'B-12.345.678' });
+    assert.equal(aretex.status, 201);
+    assert.equal(aretex.data.cif, 'B12345678');
+    assert.equal((await admin('POST', '/api/proveedores/lista', { nombre: 'aretex sl' })).code, 'DUPLICATE');
+    assert.equal((await admin('POST', '/api/proveedores/lista', { nombre: 'Otro', cif: 'B12345678' })).code, 'CIF_TAKEN');
+    assert.equal((await admin('POST', '/api/proveedores/lista', { nombre: '  ' })).status, 400);
+    const condor = await admin('POST', '/api/stock/catalogo/marcas', { nombre: 'Condor', proveedor_id: aretex.data.id });
+    assert.equal(condor.status, 201);
+    assert.deepEqual((await marca('Condor')).proveedor, { id: aretex.data.id, nombre: 'Aretex SL' });
+    assert.ok((await catalogo()).proveedores.some((p) => p.id === aretex.data.id && p.cif === 'B12345678'));
+    assert.equal((await admin('POST', '/api/stock/catalogo/marcas', { nombre: 'Fantasma', proveedor_id: 999999 })).status, 404);
+    assert.equal((await admin('POST', '/api/stock/catalogo/marcas', { nombre: 'Fantasma', proveedor_id: 'x' })).status, 400);
+
+    // Editar sin «proveedor_id» lo deja; con null se quita; con otro se cambia (y queda en el log).
+    const id = condor.data.resultado.id;
+    await admin('PUT', `/api/stock/catalogo/marcas/${id}`, { nombre: 'Condor', ambitos: [] });
+    assert.equal((await marca('Condor')).proveedor.id, aretex.data.id);
+    await admin('PUT', `/api/stock/catalogo/marcas/${id}`, { nombre: 'Condor', proveedor_id: null });
+    assert.equal((await marca('Condor')).proveedor, null);
+    const copia = await admin('POST', '/api/proveedores/lista', { nombre: 'ARETEX (copia)' });
+    await admin('PUT', `/api/stock/catalogo/marcas/${id}`, { nombre: 'Condor', proveedor_id: copia.data.id });
+    const log = JSON.stringify((await admin('GET', '/api/admin/log?area=stock')).data);
+    assert.match(log, /Proveedor/);
+
+    // Al unir la ficha repetida con la buena, el fabricante pasa a la buena.
+    assert.equal((await admin('POST', `/api/proveedores/lista/${copia.data.id}/fusionar`, { destino_id: aretex.data.id })).status, 200);
+    assert.equal((await marca('Condor')).proveedor.id, aretex.data.id);
+
+    // Un pedido con productos de un fabricante sin proveedor se lo asigna; uno que ya tenía, no se lo cambia.
+    await admin('POST', '/api/stock/catalogo/marcas', { nombre: 'Victoria' });
+    const doc = await admin('POST', '/api/proveedores/documentos', {
+      tipo: 'pedido', proveedor: { nombre: 'Calzados Nuevo Milenio SL', cif: 'B99999999' }, numero: 'P-V-1', fecha: '2026-10-01', total_cent: 1000,
+      marca: 'Victoria',
+      lineas: [
+        { marca: 'Victoria', referencia: 'V1', color: 'Blanco', talla: 30, cantidad: 1 },
+        { marca: 'Condor', referencia: 'C1', color: 'Azul', talla: 31, cantidad: 1 },
+      ],
+    });
+    assert.equal(doc.status, 201);
+    assert.equal((await marca('Victoria')).proveedor.nombre, 'Calzados Nuevo Milenio SL');
+    assert.equal((await marca('Condor')).proveedor.id, aretex.data.id, 'no se pisa el que ya tenía');
+  });
+
   test('solo administración cambia el catálogo; queda en el log', async () => {
     assert.equal((await empleado('GET', '/api/stock/catalogo')).status, 200);
     assert.equal((await empleado('POST', '/api/stock/catalogo/marcas', { nombre: 'X' })).status, 403);

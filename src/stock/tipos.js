@@ -28,7 +28,7 @@ export async function cargarTipos(db) {
 }
 
 export const CLASES_TALLA = Object.freeze({
-  numero: 'número de pie (27, 38,5)',
+  numero: 'número de pie (del 14 al 50, también medios: 38,5)',
   letra: 'letra (XS, S, M, L, XL)',
   edad: 'edad (18M, 4A)',
   rango: 'rango (19-22)',

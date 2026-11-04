@@ -498,6 +498,24 @@ CREATE INDEX IF NOT EXISTS inventory_incoming_doc_idx ON inventory_incoming(doc_
 CREATE INDEX IF NOT EXISTS inventory_incoming_item_idx ON inventory_incoming(item_id);
 CREATE INDEX IF NOT EXISTS inventory_incoming_state_idx ON inventory_incoming(state);
 
+-- Proveedor al que se compra cada fabricante (Condor → Aretex...). Al crear la
+-- columna, una sola vez, se rellena con el proveedor de sus pedidos y facturas
+-- cuando todos son del mismo; luego se cambia en Admin › Catálogo.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'product_brands' AND column_name = 'supplier_id') THEN
+    ALTER TABLE product_brands ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL;
+    UPDATE product_brands b SET supplier_id = x.supplier_id
+      FROM (SELECT lower(a.brand) AS marca, min(d.supplier_id) AS supplier_id
+              FROM inventory_incoming ii
+              JOIN inventory_items a ON a.id = ii.item_id
+              JOIN supplier_docs d ON d.id = ii.doc_id
+             GROUP BY lower(a.brand) HAVING count(DISTINCT d.supplier_id) = 1) x
+     WHERE lower(b.name) = x.marca;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS product_brands_supplier_idx ON product_brands(supplier_id);
+
 -- ===================== Correo =====================
 -- Revisión diaria del buzón: cada ejecución, los correos ya vistos (para no
 -- procesarlos dos veces) y sus PDF. Un PDF que no se registra solo queda
