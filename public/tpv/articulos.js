@@ -11,14 +11,20 @@ export function modelosDom(modelos) {
       h('strong', { text: `${m.marca} · ${m.modelo}` }),
       h('span', { text: [m.referencia, m.color, m.detalle].filter(Boolean).join(' · ') }),
     ]),
-    h('div', { class: 'vt-tallas' }, m.tallas.map((t, ti) => h('button', {
-      type: 'button', class: `vt-talla${t.stock > 0 ? '' : ' is-agotada'}`, 'data-g': String(gi), 'data-t': String(ti),
-      title: t.stock > 0 ? `${t.stock} en tienda` : 'Sin stock',
-    }, [
-      h('strong', { text: t.talla }),
-      h('span', { text: t.pvp_cent != null ? formatEuros(t.pvp_cent) : 'sin PVP' }),
-      h('small', { text: t.stock > 0 ? `${t.stock} ${t.stock === 1 ? 'ud.' : 'uds.'}` : 'agotada' }),
-    ]))),
+    h('div', { class: 'vt-tallas' }, m.tallas.map((t, ti) => {
+      // Lo reservado sigue en la tienda, pero no está libre para vender.
+      const reservado = t.reservado ?? 0;
+      const libres = t.stock - reservado;
+      const cls = libres > 0 ? '' : reservado ? ' is-reservada' : ' is-agotada';
+      return h('button', {
+        type: 'button', class: `vt-talla${cls}`, 'data-g': String(gi), 'data-t': String(ti),
+        title: [t.stock > 0 ? `${t.stock} en tienda` : 'Sin stock', reservado ? `${reservado} reservada${reservado === 1 ? '' : 's'}` : null].filter(Boolean).join(' · '),
+      }, [
+        h('strong', { text: t.talla }),
+        h('span', { text: t.pvp_cent != null ? formatEuros(t.pvp_cent) : 'sin PVP' }),
+        h('small', { text: reservado ? (libres > 0 ? `${libres} libre${libres === 1 ? '' : 's'} · ${reservado} reserv.` : 'reservada') : t.stock > 0 ? `${t.stock} ${t.stock === 1 ? 'ud.' : 'uds.'}` : 'agotada' }),
+      ]);
+    })),
   ]));
 }
 

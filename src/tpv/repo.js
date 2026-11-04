@@ -3,6 +3,7 @@
 import { calcularVenta } from '../../public/tpv/calculo.js';
 import { HttpError } from '../http-error.js';
 import { withTransaction } from '../proveedores/repo.js';
+import { cerrarPorVenta, comprobarNoReservado, enlazarTicket, reservadoPorArticulo } from './reservas.js';
 import { cobrarConVales, formatoCodigo } from './vales.js';
 
 export const METODOS = Object.freeze(['efectivo', 'tarjeta', 'bizum', 'bonos', 'vales']);
@@ -14,9 +15,9 @@ const TZ = 'Atlantic/Canary';
 const invalida = (msg) => new HttpError(400, `Venta no válida: ${msg}.`, 'INVALID_SALE');
 const texto = (v, max) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
 
-const articulo = (r) => ({
+const articulo = (r, reservado = new Map()) => ({
   id: r.id, tipo: r.type, marca: r.brand, modelo: r.model, referencia: r.reference, color: r.color, talla: r.size,
-  detalle: r.detail, codigo: r.barcode, stock: r.stock, pvp_cent: r.sale_price_cents,
+  detalle: r.detail, codigo: r.barcode, stock: r.stock, pvp_cent: r.sale_price_cents, reservado: reservado.get(r.id) ?? 0,
 });
 
 /**
@@ -29,7 +30,7 @@ export async function buscarArticulos(db, q) {
   if (!consulta) return { exacto: null, modelos: [] };
   if (/^\d{8,14}$/.test(consulta)) {
     const r = (await db.query('SELECT * FROM inventory_items WHERE barcode = $1 OR maker_barcode = $1 LIMIT 1', [consulta])).rows[0];
-    if (r) return { exacto: articulo(r), modelos: [] };
+    if (r) return { exacto: articulo(r, await reservadoPorArticulo(db, [r.id])), modelos: [] };
   }
   const palabras = consulta.split(' ').slice(0, 5).map((p) => `%${p.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
   // Cada palabra tiene que aparecer en algún campo («bota marino» encuentra la bota en color marino).
@@ -40,11 +41,12 @@ export async function buscarArticulos(db, q) {
       ORDER BY lower(a.brand), lower(a.model), a.reference, lower(a.color), a.size_order LIMIT 600`,
     [consulta, ...palabras],
   )).rows;
+  const reservado = await reservadoPorArticulo(db, rows.map((r) => r.id));
   const grupos = new Map();
   for (const r of rows) {
     const k = [r.brand, r.reference, r.model, r.color].join('|').toLowerCase();
     if (!grupos.has(k)) grupos.set(k, { marca: r.brand, referencia: r.reference, modelo: r.model, color: r.color, tipo: r.type, detalle: r.detail, tallas: [] });
-    grupos.get(k).tallas.push(articulo(r));
+    grupos.get(k).tallas.push(articulo(r, reservado));
   }
   return { exacto: null, modelos: [...grupos.values()].slice(0, MAX_GRUPOS) };
 }
@@ -138,6 +140,14 @@ export async function crearTicket(client, {
     [year, seq, numero, calculo?.subtotal_cent ?? totalCent ?? 0, calculo?.descuento_cent ?? 0, pagado, cambio, aprobacionId, vendedor.id, vendedor.name ?? '',
       sesion.id, tipo, creditoCent, serie, abonoDeId],
   )).rows[0];
+  // Los artículos se bloquean siempre en el mismo orden (dos ventas a la vez no se bloquean entre sí)
+  // y lo reservado para otro cliente no se vende.
+  const deStock = (calculo?.lineas ?? []).filter((l) => l.articulo_id);
+  const idsStock = [...new Set(deStock.map((l) => l.articulo_id))].sort((a, b) => a - b);
+  if (idsStock.length) {
+    const fisico = (await client.query('SELECT id, stock FROM inventory_items WHERE id = ANY($1) ORDER BY id FOR UPDATE', [idsStock])).rows;
+    await comprobarNoReservado(client, deStock, new Map(fisico.map((r) => [r.id, r.stock])));
+  }
   const sinStock = [];
   for (const [i, l] of (calculo?.lineas ?? []).entries()) {
     let falta = false;
@@ -165,10 +175,18 @@ export async function crearTicket(client, {
   return { id: ticket.id, numero, sin_stock: sinStock };
 }
 
-/** Registra una venta. `aprobacionId` = descuento aprobado (lo comprueba quien llama). */
-export async function registrarVenta(pool, { venta, calculo, vendedor, aprobacionId = null }) {
+/**
+ * Registra una venta. `aprobacionId` = descuento aprobado (lo comprueba quien llama).
+ * Con `reservaId`, es la compra de esa reserva: se cierra como «vendida» en la misma transacción.
+ */
+export async function registrarVenta(pool, { venta, calculo, vendedor, aprobacionId = null, reservaId = null }) {
   const pagos = leerPagos(venta.pagos, calculo.total_cent);
-  return withTransaction(pool, (client) => crearTicket(client, { calculo, pagos, vendedor, aprobacionId }));
+  return withTransaction(pool, async (client) => {
+    const reserva = reservaId ? await cerrarPorVenta(client, reservaId, vendedor, calculo.lineas) : null;
+    const t = await crearTicket(client, { calculo, pagos, vendedor, aprobacionId });
+    if (reserva) await enlazarTicket(client, reserva.id, t.id);
+    return { ...t, reserva: reserva ? { id: reserva.id, nombre: reserva.customer_name } : null };
+  });
 }
 
 /** Un ticket completo (venta o cambio), para la pantalla y para imprimirlo. */

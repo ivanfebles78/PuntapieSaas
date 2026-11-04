@@ -736,3 +736,38 @@ CREATE TABLE IF NOT EXISTS warranty_files (
   uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS warranty_files_case_idx ON warranty_files(case_id);
+
+-- ===================== TPV: reservas (apartados sin pagar) =====================
+-- Un cliente aparta uno o varios productos sin pagar, como mucho TPV_RESERVA_DIAS
+-- días. Lo reservado no sale del stock físico: resta de lo disponible para vender
+-- mientras la reserva está activa y no ha vencido. Al vencer se libera sola; la
+-- tarea de limpieza la marca «caducada». Del cliente solo se guarda un nombre y,
+-- si quiere, un teléfono para avisarle; se borran 30 días después de cerrarla.
+CREATE TABLE IF NOT EXISTS tpv_reservations (
+  id             SERIAL PRIMARY KEY,
+  customer_name  TEXT NOT NULL,
+  phone          TEXT,
+  notes          TEXT NOT NULL DEFAULT '',
+  status         TEXT NOT NULL DEFAULT 'activa' CHECK (status IN ('activa', 'vendida', 'cancelada', 'caducada')),
+  expires_at     TIMESTAMPTZ NOT NULL,
+  extensions     SMALLINT NOT NULL DEFAULT 0,
+  ticket_id      INTEGER REFERENCES tpv_tickets(id) ON DELETE SET NULL,
+  cancel_reason  TEXT,
+  created_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  closed_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  closed_at      TIMESTAMPTZ,
+  contact_erased BOOLEAN NOT NULL DEFAULT FALSE,
+  CHECK ((status = 'activa') = (closed_at IS NULL))
+);
+
+CREATE TABLE IF NOT EXISTS tpv_reservation_lines (
+  id              SERIAL PRIMARY KEY,
+  reservation_id  INTEGER NOT NULL REFERENCES tpv_reservations(id) ON DELETE CASCADE,
+  item_id         INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+  quantity        INTEGER NOT NULL CHECK (quantity > 0),
+  UNIQUE (reservation_id, item_id)
+);
+
+CREATE INDEX IF NOT EXISTS tpv_reservations_status_idx ON tpv_reservations(status, expires_at);
+CREATE INDEX IF NOT EXISTS tpv_reservation_lines_item_idx ON tpv_reservation_lines(item_id);

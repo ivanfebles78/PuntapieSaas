@@ -5,6 +5,7 @@ import { applySchema, seedAdmin } from './db/migrate.js';
 import { seedTeam } from './db/seed-team.js';
 import { iniciarRevisionDiaria } from './correo/programador.js';
 import { limpiarTemporales } from './proveedores/analisis.js';
+import { caducarReservas } from './tpv/reservas.js';
 
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -13,6 +14,8 @@ async function cleanupExpired(pool) {
   await pool.query("DELETE FROM password_resets WHERE expires_at < NOW() - INTERVAL '1 day'");
   // PDF analizados en «Importar PDF» y nunca guardados (24 h).
   await limpiarTemporales(pool);
+  // Reservas vencidas (su stock ya estaba libre) y contacto de las cerradas hace 30 días.
+  await caducarReservas(pool);
 }
 
 async function main() {
@@ -22,6 +25,7 @@ async function main() {
   await applySchema(pool);
   await seedAdmin(pool, config);
   await seedTeam(pool);
+  await cleanupExpired(pool).catch((error) => console.error('[limpieza] Al arrancar:', error.message));
 
   const cleanup = setInterval(() => {
     cleanupExpired(pool).catch((error) => {

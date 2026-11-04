@@ -168,6 +168,11 @@ export async function registrarCambio(pool, { cambio, vendedor, comprobarAprobac
     const rect = await crearTicket(client, {
       calculo: null, pagos: [], vendedor, aprobacionId, tipo: 'rectificativa', serie: 'R', totalCent: dev.credito, creditoCent: dev.credito,
     });
+    // Todos los artículos del cambio (devueltos y nuevos) se bloquean de una vez y en orden,
+    // como las ventas y las reservas: así no se bloquean entre sí.
+    const idsCambio = [...new Set([...dev.lineas.map((l) => l.item_id), ...(nuevos?.lineas ?? []).map((l) => l.articulo_id)].filter(Boolean))]
+      .sort((a, b) => a - b);
+    if (idsCambio.length) await client.query('SELECT id FROM inventory_items WHERE id = ANY($1) ORDER BY id FOR UPDATE', [idsCambio]);
     if (r.reembolso) await client.query('UPDATE tpv_tickets SET refund_cents = $2, refund_method = $3 WHERE id = $1', [rect.id, r.reembolso, r.metodo]);
     const defectuosas = [];
     for (const l of dev.lineas) {

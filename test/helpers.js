@@ -27,7 +27,7 @@ export const testConfig = Object.freeze({
   businessStart: '2026-04-16',
   correo: { user: '', pass: '', hora: 8 },
   tienda: { nombre: 'Puntapié', razonSocial: 'Calzando Sueños, S.L.', cif: 'B76766294', direccion: 'Calle Viera y Clavijo, 1', telefono: '922 124 962', igic: 7 },
-  tpv: { valeMeses: 12 },
+  tpv: { valeMeses: 12, reservaDias: 7 },
   whatsapp: { token: '', phoneId: '', plantilla: 'aprobacion_tpv', idioma: 'es', aprobadores: ['34600111222'] },
 });
 
@@ -39,7 +39,7 @@ const silentLog = { info() {}, warn() {}, error() {} };
  */
 export async function startTestServer() {
   const pool = createPool(TEST_DATABASE_URL);
-  await pool.query('DROP TABLE IF EXISTS warranty_files, warranty_cases, tpv_return_lines, tpv_voucher_uses, tpv_vouchers, tpv_cash_moves, tpv_cash_sessions, tpv_ticket_payments, tpv_ticket_lines, tpv_tickets, tpv_discount_requests, mail_attachments, mail_messages, mail_runs, inventory_incoming, inventory_items, product_subtypes, daily_sales, sales_days, supplier_uploads, supplier_payments, supplier_dues, supplier_docs, suppliers, supplier_files, audit_log, free_shifts, special_opening_staff, special_openings, work_schedules, settings, sales, expense_files, recurring_entries, recurring_amounts, recurring_expenses, vacations, password_resets, sessions, users CASCADE');
+  await pool.query('DROP TABLE IF EXISTS tpv_reservation_lines, tpv_reservations, warranty_files, warranty_cases, tpv_return_lines, tpv_voucher_uses, tpv_vouchers, tpv_cash_moves, tpv_cash_sessions, tpv_ticket_payments, tpv_ticket_lines, tpv_tickets, tpv_discount_requests, mail_attachments, mail_messages, mail_runs, inventory_incoming, inventory_items, product_subtypes, daily_sales, sales_days, supplier_uploads, supplier_payments, supplier_dues, supplier_docs, suppliers, supplier_files, audit_log, free_shifts, special_opening_staff, special_openings, work_schedules, settings, sales, expense_files, recurring_entries, recurring_amounts, recurring_expenses, vacations, password_resets, sessions, users CASCADE');
   await applySchema(pool);
   await seedAdmin(pool, testConfig, silentLog);
   await seedTeam(pool, undefined, silentLog);

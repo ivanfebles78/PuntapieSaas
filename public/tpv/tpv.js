@@ -6,6 +6,7 @@ import { renderAprobar } from './aprobar.js';
 import { cajaAbierta, renderCaja } from './caja.js';
 import { renderCambio } from './cambio.js';
 import { renderGarantias } from './garantias.js';
+import { renderReservas } from './reservas.js';
 import { renderVenta } from './venta.js';
 
 // Ventas › TPV: pantalla de inicio a pantalla completa, pensada para la
@@ -55,7 +56,7 @@ const SECCIONES = Object.freeze([
   { id: 'clientes', nombre: 'Clientes', detalle: 'Fidelización y vales', icono: 'users', tono: 'blue' },
   { id: 'informes', nombre: 'Informes', detalle: 'Ventas, productos y rentabilidad', icono: 'chart', tono: 'violet' },
   { id: 'gastos', nombre: 'Gastos', detalle: 'Control de costes', icono: 'coins', tono: 'peach' },
-  { id: 'reservas', nombre: 'Reservas', detalle: 'Apartados y encargos', icono: 'calendar', tono: 'stone' },
+  { id: 'reservas', nombre: 'Reservas', detalle: 'Apartar sin pagar', icono: 'calendar', tono: 'stone' },
 ]);
 
 const NAV = Object.freeze([['inicio', 'Inicio', 'home'], ['caja', 'Caja', 'register'], ['consultas', 'Consultas', 'search'], ['ajustes', 'Ajustes', 'settings']]);
@@ -92,7 +93,7 @@ function boton(s) {
   return h('button', { class: `tpv-tile tone-${s.tono}`, type: 'button', 'data-seccion': s.id }, [
     ico(s.icono, 'tpv-ico tpv-ico-tile'),
     h('span', { class: 'tpv-tile-name', text: s.nombre }),
-    s.detalle ? h('span', { class: 'tpv-tile-detail', text: s.detalle }) : null,
+    s.detalle ? h('span', { class: 'tpv-tile-detail', 'data-detalle': s.id, text: s.detalle }) : null,
   ]);
 }
 
@@ -143,6 +144,12 @@ async function cargarHoy(root) {
   texto.textContent = d.caja.abierta
     ? `Caja abierta · ${new Intl.DateTimeFormat('es-ES', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }).format(new Date(d.caja.desde))}`
     : 'Caja cerrada';
+  const reservas = root.querySelector('[data-detalle=reservas]');
+  if (reservas && d.reservas?.activas) {
+    const { activas, vencen_hoy: hoy } = d.reservas;
+    reservas.textContent = `${activas} ${activas === 1 ? 'activa' : 'activas'}${hoy ? ` · ${hoy} ${hoy === 1 ? 'vence' : 'vencen'} hoy` : ''}`;
+    reservas.closest('[data-seccion]').classList.toggle('is-aviso', hoy > 0);
+  }
   const ventas = root.querySelector('[data-resumen=ventas]');
   if (!ventas) return; // ya se ha salido del inicio (p. ej. a la venta)
   ventas.textContent = formatEuros(d.ventas_cent);
@@ -168,10 +175,11 @@ export function renderTpv({ main, user, params }) {
   }
   const salir = () => inicio({ push: true });
   // Para vender, la caja tiene que estar abierta: si no, primero se abre (con el recuento).
-  async function abrirVenta({ push = false } = {}) {
+  // Con `reserva`, la venta empieza con sus productos y al cobrarla queda vendida.
+  async function abrirVenta({ push = false, reserva = null } = {}) {
     if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=venta`);
     cuerpo.classList.add('is-venta');
-    const vender = () => renderVenta(cuerpo, { user, salir });
+    const vender = () => renderVenta(cuerpo, { user, salir, reserva });
     if (await cajaAbierta()) return void vender();
     return void renderCaja(cuerpo, { user, salir, irVenta: vender, alAbrir: vender });
   }
@@ -188,6 +196,12 @@ export function renderTpv({ main, user, params }) {
     cuerpo.classList.add('is-venta');
     renderGarantias(cuerpo, { user, salir, volverCambios: () => abrirCambios({ push: true }) });
   }
+  // Reservas: apartar productos sin pagar (no hace falta la caja abierta; para venderlas, sí).
+  function abrirReservas({ push = false } = {}) {
+    if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=reservas`);
+    cuerpo.classList.add('is-venta');
+    renderReservas(cuerpo, { user, salir, vender: (reserva) => abrirVenta({ push: true, reserva }) });
+  }
   function abrirCaja({ push = false, modo = 'resumen' } = {}) {
     if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=caja`);
     cuerpo.classList.add('is-venta');
@@ -198,6 +212,7 @@ export function renderTpv({ main, user, params }) {
     const s = e.target.closest('[data-seccion]');
     if (s?.dataset.seccion === 'venta') return void abrirVenta({ push: true });
     if (s?.dataset.seccion === 'cambios') return void abrirCambios({ push: true });
+    if (s?.dataset.seccion === 'reservas') return void abrirReservas({ push: true });
     if (s) return void proximamente(SECCIONES.find((x) => x.id === s.dataset.seccion).nombre);
     const n = e.target.closest('[data-nav-tpv]');
     if (n?.dataset.navTpv === 'inicio') return void inicio({ push: true });
@@ -218,6 +233,7 @@ export function renderTpv({ main, user, params }) {
   else if (params?.get('seccion') === 'caja') abrirCaja();
   else if (params?.get('seccion') === 'cambios') abrirCambios();
   else if (params?.get('seccion') === 'garantias') abrirGarantias();
+  else if (params?.get('seccion') === 'reservas') abrirReservas();
   else inicio();
   if (aprobar || params?.get('seccion')) cargarHoy(root);
   // El reloj se actualiza mientras la pantalla siga abierta.

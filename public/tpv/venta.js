@@ -16,13 +16,16 @@ import { imprimirTicket, ticketDom } from './ticket.js';
 const BUSCAR_TRAS_MS = 300;
 
 function estadoInicial() {
-  return { lineas: [], descuento: null, aprobacion: null };
+  return { lineas: [], descuento: null, aprobacion: null, reserva: null };
 }
 
 const clave = (l) => (l.articulo_id ? `a${l.articulo_id}` : null);
 
-/** Pinta la pantalla de venta dentro de `zona`. `salir()` vuelve al inicio del TPV. */
-export function renderVenta(zona, { user, salir }) {
+/**
+ * Pinta la pantalla de venta dentro de `zona`. `salir()` vuelve al inicio del TPV.
+ * Con `reserva`, empieza con sus productos y, al cobrar, la reserva queda vendida.
+ */
+export function renderVenta(zona, { user, salir, reserva = null }) {
   let venta = estadoInicial();
   let temporizador = null;
 
@@ -35,6 +38,7 @@ export function renderVenta(zona, { user, salir }) {
   const totalesEl = h('div', { class: 'vt-totales' });
   const aviso = h('div', { class: 'vt-aviso', hidden: true });
   const cobrarBtn = h('button', { class: 'vt-cobrar', type: 'button', 'data-cobrar': '', disabled: true, text: 'Cobrar' });
+  const reservaEl = h('div', { class: 'vt-reserva', hidden: true });
 
   const raiz = h('div', { class: 'vt' }, [
     h('section', { class: 'vt-izq' }, [
@@ -47,6 +51,7 @@ export function renderVenta(zona, { user, salir }) {
     ]),
     h('section', { class: 'vt-ticket', 'aria-label': 'Ticket en curso' }, [
       h('div', { class: 'vt-ticket-cab' }, [h('h2', { text: 'Venta' }), h('span', { class: 'vt-vendedor', text: user.name }), h('button', { class: 'vt-vaciar', type: 'button', 'data-vaciar': '', text: 'Vaciar' })]),
+      reservaEl,
       lineasEl,
       totalesEl,
       aviso,
@@ -67,6 +72,7 @@ export function renderVenta(zona, { user, salir }) {
   const ventaApi = () => ({
     lineas: venta.lineas.map((l) => ({ articulo_id: l.articulo_id, descripcion: l.descripcion, precio_cent: l.precio_cent, cantidad: l.cantidad, tipo: l.tipo, descuento: l.descuento })),
     descuento: venta.descuento,
+    reserva_id: venta.reserva?.id ?? null,
   });
 
   function calcular() {
@@ -87,6 +93,11 @@ export function renderVenta(zona, { user, salir }) {
 
   function pintar() {
     const c = calcular();
+    reservaEl.hidden = !venta.reserva;
+    reservaEl.replaceChildren(...(venta.reserva ? [
+      h('span', { text: `Reserva ${venta.reserva.id} de ${venta.reserva.nombre}: al cobrar queda vendida.` }),
+      h('button', { type: 'button', 'data-sin-reserva': '', text: 'Quitar reserva' }),
+    ] : []));
     lineasEl.replaceChildren(...(venta.lineas.length ? venta.lineas.map((l, i) => {
       const r = c?.lineas[i];
       return h('li', { class: 'vt-linea' }, [
@@ -126,6 +137,13 @@ export function renderVenta(zona, { user, salir }) {
   }
 
   async function anadir(art) {
+    // Lo reservado para otro cliente no se vende (el servidor tampoco lo deja).
+    const propia = venta.reserva?.lineas.some((l) => l.articulo_id === art.id);
+    const enVenta = venta.lineas.find((l) => clave(l) === `a${art.id}`)?.cantidad ?? 0;
+    if (!propia && art.reservado > 0 && enVenta + 1 > art.stock - art.reservado) {
+      showToast('Esa talla está reservada para un cliente. Si es suya, véndela desde Reservas.', { tone: 'error' });
+      return enfocar();
+    }
     let precio = art.pvp_cent;
     if (precio == null) {
       precio = await pedirPrecio(`${art.marca} ${art.referencia}${art.talla && art.talla !== 'Única' ? ` · T. ${art.talla}` : ''}`);
@@ -273,7 +291,10 @@ export function renderVenta(zona, { user, salir }) {
     else if (t.closest('[data-aprobar]')) return void aprobar();
     else if (t.closest('[data-cobrar]')) return void cobro();
     else if (t.closest('[data-libre]')) return void libre(/^\d+$/.test(buscador.value.trim()) ? '' : buscador.value.trim());
-    else if (t.closest('[data-vaciar]')) {
+    else if (t.closest('[data-sin-reserva]')) {
+      venta = { ...venta, reserva: null };
+      pintar();
+    } else if (t.closest('[data-vaciar]')) {
       if (venta.lineas.length && window.confirm('¿Vaciar la venta?')) { venta = estadoInicial(); pintar(); }
     } else if (t.closest('[data-reimprimir]')) imprimirTicket(JSON.parse(resultados.dataset.ultimo));
     else if (t.closest('[data-salir]')) {
@@ -283,8 +304,18 @@ export function renderVenta(zona, { user, salir }) {
     return enfocar();
   });
 
+  // La venta de una reserva: sus productos ya puestos (con su precio actual).
+  async function cargarReserva() {
+    venta = { ...venta, reserva };
+    for (const l of reserva.lineas) {
+      for (let i = 0; i < l.cantidad; i += 1) await anadir({ ...l, id: l.articulo_id, reservado: 0 });
+    }
+    resultados.replaceChildren(ayuda(`Reserva de ${reserva.nombre}: revisa los productos y cobra`));
+  }
+
   pintar();
   zona.replaceChildren(raiz);
+  if (reserva) cargarReserva();
   enfocar();
   return raiz;
 }

@@ -18,6 +18,12 @@ function readEnv(name, fallback) {
   return value === undefined || value === '' ? fallback : value;
 }
 
+function leerDiasReserva(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 30) throw new Error(`TPV_RESERVA_DIAS debe ser un número de días entre 1 y 30 (es «${value}»).`);
+  return n;
+}
+
 function leerMeses(value) {
   const n = Number(value);
   if (!Number.isInteger(n) || n < 1 || n > 60) throw new Error(`TPV_VALE_MESES debe ser un número de meses entre 1 y 60 (es «${value}»).`);
@@ -67,6 +73,8 @@ export const config = Object.freeze({
   // TPV: meses que vale un vale desde que se emite (provisional: pendiente de revisión jurídica).
   tpv: Object.freeze({
     valeMeses: leerMeses(readEnv('TPV_VALE_MESES', '12')),
+    // Días como máximo que se aparta un producto reservado (sin pagar). Por defecto 7.
+    reservaDias: leerDiasReserva(readEnv('TPV_RESERVA_DIAS', '7')),
   }),
   // Aprobaciones a distancia (descuentos de más del 15 % y cierres de caja que no
   // cuadran): WhatsApp Cloud API de Meta, plantilla con 2 variables ({{1}} qué se

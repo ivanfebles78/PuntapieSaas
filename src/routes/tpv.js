@@ -14,6 +14,7 @@ import {
   abrirCaja, cajaDiariaHoy, cerrarCaja, DENOMINACIONES, leerRecuento, movimiento, resumenSesion, sesionAbierta, ultimoCierre,
 } from '../tpv/caja.js';
 import { buscarArticulos, obtenerTicket, prepararVenta, registrarVenta, resumenHoy } from '../tpv/repo.js';
+import { resumenReservas } from '../tpv/reservas.js';
 import { enlaceManual, enviarAviso, textoSolicitud, whatsappAutomatico } from '../tpv/whatsapp.js';
 
 // TPV: venta (buscar, cobrar con varios métodos, tickets), caja (apertura,
@@ -88,7 +89,11 @@ export function tpvRouter({ pool, config, log = console, enviar = fetch }) {
     if (calculo.requiere_aprobacion && vendedor.role !== 'admin') {
       aprobacionId = await comprobarAprobacion(pool, req.body.aprobacion_id, { calculo, vendedor });
     }
-    const r = await registrarVenta(pool, { venta: req.body, calculo, vendedor, aprobacionId });
+    const reservaId = req.body?.reserva_id == null || req.body.reserva_id === '' ? null : readId(req.body.reserva_id, 'Esa reserva');
+    const r = await registrarVenta(pool, { venta: req.body, calculo, vendedor, aprobacionId, reservaId });
+    if (r.reserva) {
+      await audit(req, { area: 'reservas', action: 'editar', target: `Reserva ${r.reserva.id}`, changes: [{ field: 'Estado', from: 'Activa', to: `Vendida (ticket ${r.numero})` }] });
+    }
     if (calculo.descuento_cent > 0 && calculo.requiere_aprobacion) {
       await audit(req, {
         area: 'ventas', action: 'crear', target: `Ticket ${r.numero}`,
@@ -105,7 +110,7 @@ export function tpvRouter({ pool, config, log = console, enviar = fetch }) {
   // Lo vendido hoy en el TPV y el estado de la caja (para la pantalla de inicio).
   router.get('/hoy', handle(async (_req, res) => {
     const s = await sesionAbierta(pool);
-    res.json({ ok: true, data: { ...(await resumenHoy(pool)), caja: s ? { abierta: true, desde: s.opened_at } : { abierta: false } } });
+    res.json({ ok: true, data: { ...(await resumenHoy(pool)), reservas: await resumenReservas(pool), caja: s ? { abierta: true, desde: s.opened_at } : { abierta: false } } });
   }));
 
   /* ---------- Descuentos de más del 15 % ---------- */
