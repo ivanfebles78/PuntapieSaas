@@ -256,3 +256,56 @@
   body > *:not(.tk-print) { display: none !important; }
   .tk-print { display: block !important; padding: 2mm 4mm; }
 }
+
+/* ---------- Devolución: buen estado o defectuoso; dinero por lo defectuoso ---------- */
+
+.cb-extra { display: flex; flex-wrap: wrap; gap: 8px; }
+.cb-estado { display: inline-flex; gap: 4px; margin-top: 6px; padding: 3px; border-radius: 12px; background: #e3e7ed; justify-self: start; }
+.cb-estado button { min-height: 40px; padding: 0 12px; border: 0; border-radius: 9px; background: transparent; color: var(--tpv-ink); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.cb-estado button[aria-pressed='true'] { background: #1d7a4c; color: #fff; }
+.cb-estado button.is-def[aria-pressed='true'] { background: #a93a2f; }
+.cb-estado button:focus-visible, .cb-dinero button:focus-visible { outline: 3px solid rgb(124 196 255 / 0.9); outline-offset: 1px; }
+.vt-totales .cb-dinero { display: grid; gap: 6px; padding: 10px 12px; border-radius: 14px; background: #fdf0d8; color: #6b3d06; }
+.cb-dinero span { font-size: 14px; font-weight: 600; }
+.cb-dinero-op { display: flex; flex-wrap: wrap; gap: 6px; }
+.cb-dinero-op button { min-height: 44px; padding: 0 14px; border: 2px solid #e4c48f; border-radius: 12px; background: #fff; color: var(--tpv-ink); font: inherit; font-weight: 700; cursor: pointer; }
+.cb-dinero-op button[aria-pressed='true'] { border-color: var(--tpv-navy); background: var(--tpv-navy); color: #fff; }
+
+/* ---------- Garantías (cuarentena) ---------- */
+
+.gr { display: grid; grid-template-rows: auto auto auto 1fr; gap: 12px; height: 100%; min-height: 0; max-width: 1100px; margin: 0 auto; }
+.gr-titulo { margin: 0 auto 0 6px; font-family: var(--font-display); font-size: 30px; }
+.gr-titulo:focus { outline: none; }
+.gr-resumen { display: flex; flex-wrap: wrap; gap: 8px; }
+.gr-resumen span { padding: 8px 14px; border-radius: 999px; background: var(--tpv-card); color: var(--tpv-muted); font-size: 14px; box-shadow: 0 2px 8px rgb(23 32 44 / 0.06); }
+.gr-resumen strong { color: var(--tpv-ink); font-size: 18px; }
+.gr-lista { overflow: auto; display: grid; gap: 10px; align-content: start; padding-right: 4px; }
+.gr-inc { border-radius: 18px; background: var(--tpv-card); border-left: 6px solid #a93a2f; box-shadow: 0 6px 18px rgb(23 32 44 / 0.06); }
+.gr-inc.is-reclamada { border-left-color: #c47a12; }
+.gr-inc.is-resuelta { border-left-color: #1d7a4c; opacity: 0.92; }
+.gr-inc-cab {
+  display: grid; gap: 4px; width: 100%; padding: 14px 16px; border: 0; border-radius: 18px; background: none;
+  color: var(--tpv-ink); font: inherit; text-align: left; cursor: pointer;
+}
+.gr-inc-cab:hover { background: #f8f9fb; }
+.gr-inc-cab:focus-visible { outline: 3px solid rgb(124 196 255 / 0.9); outline-offset: -3px; }
+.gr-inc-cab strong { font-size: 17px; }
+.gr-badge { justify-self: start; padding: 3px 10px; border-radius: 999px; background: #fbe1dd; color: #8c2a20; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.is-reclamada .gr-badge { background: #fde6c4; color: #8a4b05; }
+.is-resuelta .gr-badge { background: #d3f0e2; color: #14553a; }
+.gr-def { color: var(--tpv-ink); }
+.gr-meta { color: var(--tpv-muted); font-size: 13px; }
+.gr-det { display: grid; gap: 12px; padding: 0 16px 16px; }
+.gr-dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }
+.gr-dl dt { color: var(--tpv-muted); font-weight: 700; }
+.gr-dl dd { margin: 0; overflow-wrap: anywhere; }
+.gr-archivos { display: flex; flex-wrap: wrap; gap: 10px; }
+.gr-archivo { display: grid; gap: 4px; width: 104px; color: var(--tpv-ink); text-decoration: none; }
+.gr-archivo img, .gr-pdf { width: 104px; height: 104px; border-radius: 12px; object-fit: cover; background: #eef1f5; }
+.gr-pdf { display: grid; place-items: center; font-weight: 800; color: #a93a2f; }
+.gr-archivo small { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gr-archivo:focus-visible { outline: 3px solid rgb(124 196 255 / 0.9); border-radius: 12px; }
+@media (max-width: 700px) { .gr-dl { grid-template-columns: 1fr; } }
+/* En Cambios hay dos listas: scroll de las dos juntas (no una dentro de otra) y la barra de modos arriba. */
+.cb-lista .vt-lineas { overflow: visible; }
+.vt-izq:has(.cb-barra2) { grid-template-rows: auto auto minmax(0, 1fr); }

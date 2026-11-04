@@ -6,6 +6,7 @@ import { adminRouter } from './routes/admin.js';
 import { authRouter } from './routes/auth.js';
 import { correoRouter } from './routes/correo.js';
 import { estadisticasRouter } from './routes/estadisticas.js';
+import { garantiasRouter } from './routes/garantias.js';
 import { gastosRouter } from './routes/gastos.js';
 import { proveedoresRouter } from './routes/proveedores.js';
 import { stockRouter } from './routes/stock.js';
@@ -65,6 +66,8 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
   app.use('/api/stock', ...guard, requireRole('admin', 'asesor', 'empleado'), stockRouter({ pool, config, log }));
   // TPV: venta en la caja. Lo usan quienes venden (el Asesor solo podría consultar tickets).
   app.use('/api/tpv', ...guard, requireRole('admin', 'asesor', 'empleado'), tpvRouter({ pool, config, log }));
+  // Garantías: productos devueltos como defectuosos (cuarentena, reclamación al proveedor y resolución).
+  app.use('/api/garantias', ...guard, requireRole('admin', 'asesor', 'empleado'), garantiasRouter({ pool, log }));
   // Correo: revisión diaria del buzón (facturas, pedidos y gastos) y lo que queda para revisar.
   app.use('/api/correo', ...guard, requireRole('admin', 'asesor', 'empleado'), correoRouter({ pool, config, log }));
 

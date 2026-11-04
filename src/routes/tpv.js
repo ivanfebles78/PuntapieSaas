@@ -166,25 +166,27 @@ export function tpvRouter({ pool, config, log = console, enviar = fetch }) {
       cambio: req.body,
       vendedor,
       valeMeses: config.tpv.valeMeses,
-      comprobarAprobacion: (client, credito) => comprobarAprobacionCambio(client, req.body?.aprobacion_id, { credito, vendedor }),
+      comprobarAprobacion: (client, dev) => comprobarAprobacionCambio(client, req.body?.aprobacion_id, { credito: dev.credito, huella: dev.huella, vendedor }),
     });
     await audit(req, {
       area: 'ventas', action: 'crear', target: `Devolución ${r.rectificativa.numero}${r.venta ? ` y venta ${r.venta.numero}` : ''}`,
       changes: [
         { field: 'Devuelto', from: null, to: formatEuros(r.credito) },
         ...(r.vale ? [{ field: 'Vale emitido', from: null, to: r.vale.codigo }] : []),
+        ...(r.reembolso ? [{ field: `Dinero devuelto (${r.reembolso.metodo})`, from: null, to: formatEuros(r.reembolso.importe) }] : []),
+        ...(r.incidencias.length ? [{ field: 'Defectuosos a garantía', from: null, to: r.incidencias.map((i) => `incidencia ${i}`).join(', ') }] : []),
         ...(r.motivos.length ? [{ field: 'Con aprobación', from: null, to: r.motivos.join(', ') }] : []),
       ],
     });
     const rectificativa = await obtenerTicket(pool, r.rectificativa.id, config.tienda);
     const venta = r.venta ? await obtenerTicket(pool, r.venta.id, config.tienda) : null;
     const vale = r.vale ? await obtenerVale(pool, r.vale.codigo, { conQr: true }) : null;
-    res.status(201).json({ ok: true, data: { rectificativa, venta, vale, tienda: config.tienda, sin_stock: r.sin_stock } });
+    res.status(201).json({ ok: true, data: { rectificativa, venta, vale, tienda: config.tienda, sin_stock: r.sin_stock, incidencias: r.incidencias } });
   }));
 
   router.post('/cambios/aprobaciones/presencial', vende, limitePresencial, handle(async (req, res) => {
     const admin = await adminPresente(req.body);
-    const dev = await valorarDevueltos(pool, req.body?.devueltos);
+    const dev = await valorarDevueltos(pool, req.body?.devueltos, { reembolso: req.body?.reembolso });
     if (!dev.requiere_aprobacion) throw new HttpError(400, 'Este cambio no necesita aprobación.', 'NO_APPROVAL_NEEDED');
     const s = await crearSolicitud(pool, { cambio: dev, solicitante: req.user, canal: 'presencial', estado: 'aprobado', decididoPor: admin.id });
     await audit(req, { area: 'ventas', action: 'editar', target: `Cambio por ${formatEuros(dev.credito)} (${dev.motivos.join(', ')})`, changes: [{ field: 'Aprobado en la caja por', from: null, to: admin.name }] });
@@ -192,7 +194,7 @@ export function tpvRouter({ pool, config, log = console, enviar = fetch }) {
   }));
 
   router.post('/cambios/aprobaciones', vende, handle(async (req, res) => {
-    const dev = await valorarDevueltos(pool, req.body?.devueltos);
+    const dev = await valorarDevueltos(pool, req.body?.devueltos, { reembolso: req.body?.reembolso });
     if (!dev.requiere_aprobacion) throw new HttpError(400, 'Este cambio no necesita aprobación.', 'NO_APPROVAL_NEEDED');
     const s = await crearSolicitud(pool, { cambio: dev, solicitante: req.user, canal: 'whatsapp' });
     await avisar(req, res, s, { tipo: 'cambio', total: dev.credito, motivos: dev.motivos });

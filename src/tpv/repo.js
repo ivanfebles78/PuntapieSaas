@@ -204,7 +204,8 @@ export async function obtenerTicket(db, id, tienda) {
       descripcion: l.description, talla: l.size, codigo: l.barcode, cantidad: l.quantity, precio_cent: l.unit_cents,
       descuento_cent: l.discount_cents, total_cent: l.total_cents, sin_stock: l.without_stock,
     })),
-    devueltos: devueltos.map((d) => ({ descripcion: d.description, talla: d.size, cantidad: d.quantity, credito_cent: d.credit_cents })),
+    devueltos: devueltos.map((d) => ({ descripcion: d.description, talla: d.size, cantidad: d.quantity, credito_cent: d.credit_cents, estado: d.condition })),
+    reembolso: t.refund_cents ? { metodo: t.refund_method, importe_cent: t.refund_cents } : null,
     vale_emitido: valeEmitido ? { codigo: formatoCodigo(valeEmitido.code), importe_cent: valeEmitido.amount_cents } : null,
     pagos: pagos.map((p) => ({ metodo: p.method, importe_cent: p.amount_cents, entregado_cent: p.tendered_cents, vale: p.vale ? formatoCodigo(p.vale) : null })),
     igic: { pct: tienda.igic, base_cent: base, cuota_cent: total - base },
@@ -221,5 +222,9 @@ export async function resumenHoy(db) {
        FROM tpv_tickets t LEFT JOIN tpv_ticket_payments p ON p.ticket_id = t.id
       WHERE (t.sold_at AT TIME ZONE $1)::date = (NOW() AT TIME ZONE $1)::date`, [TZ],
   )).rows[0];
-  return { tickets: r.tickets, ventas_cent: r.ventas, vales_cent: r.vales };
+  // Lo devuelto en dinero por defectuosos resta de lo vendido hoy.
+  const reembolsos = (await db.query(
+    `SELECT COALESCE(sum(refund_cents), 0)::int AS n FROM tpv_tickets WHERE (sold_at AT TIME ZONE $1)::date = (NOW() AT TIME ZONE $1)::date`, [TZ],
+  )).rows[0].n;
+  return { tickets: r.tickets, ventas_cent: r.ventas - reembolsos, vales_cent: r.vales };
 }

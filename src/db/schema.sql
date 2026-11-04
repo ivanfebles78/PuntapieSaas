@@ -589,7 +589,7 @@ ALTER TABLE tpv_tickets ADD COLUMN IF NOT EXISTS session_id INTEGER REFERENCES t
 -- Las aprobaciones sirven para descuentos y para cierres de caja que no cuadran.
 ALTER TABLE tpv_discount_requests ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'descuento';
 ALTER TABLE tpv_discount_requests DROP CONSTRAINT IF EXISTS tpv_discount_requests_kind_check;
-ALTER TABLE tpv_discount_requests ADD CONSTRAINT tpv_discount_requests_kind_check CHECK (kind IN ('descuento', 'cierre'));
+ALTER TABLE tpv_discount_requests ADD CONSTRAINT tpv_discount_requests_kind_check CHECK (kind IN ('descuento', 'cierre', 'cambio'));
 ALTER TABLE tpv_discount_requests ADD COLUMN IF NOT EXISTS session_id INTEGER REFERENCES tpv_cash_sessions(id) ON DELETE CASCADE;
 ALTER TABLE tpv_discount_requests DROP CONSTRAINT IF EXISTS tpv_discount_requests_percent_check;
 ALTER TABLE tpv_discount_requests ADD CONSTRAINT tpv_discount_requests_percent_check CHECK (percent >= 0 AND percent <= 100);
@@ -601,7 +601,7 @@ ALTER TABLE tpv_discount_requests ADD CONSTRAINT tpv_discount_requests_percent_c
 -- No se devuelve dinero.
 ALTER TABLE tpv_tickets ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'venta';
 ALTER TABLE tpv_tickets DROP CONSTRAINT IF EXISTS tpv_tickets_kind_check;
-ALTER TABLE tpv_tickets ADD CONSTRAINT tpv_tickets_kind_check CHECK (kind IN ('venta', 'cambio'));
+ALTER TABLE tpv_tickets ADD CONSTRAINT tpv_tickets_kind_check CHECK (kind IN ('venta', 'cambio', 'rectificativa'));
 ALTER TABLE tpv_tickets ADD COLUMN IF NOT EXISTS credit_cents INTEGER NOT NULL DEFAULT 0;
 
 -- Vale: un código (va en el QR), importe, saldo y caducidad (1 año). Se puede
@@ -672,3 +672,67 @@ ALTER TABLE tpv_ticket_payments DROP CONSTRAINT IF EXISTS tpv_ticket_payments_me
 ALTER TABLE tpv_ticket_payments ADD CONSTRAINT tpv_ticket_payments_method_check
   CHECK (method IN ('efectivo', 'tarjeta', 'bizum', 'bonos', 'vales', 'abono'));
 ALTER TABLE tpv_ticket_payments ADD COLUMN IF NOT EXISTS credit_ticket_id INTEGER REFERENCES tpv_tickets(id) ON DELETE SET NULL;
+
+-- ===================== TPV: defectuosos, cuarentena y garantías =====================
+-- Al devolver, cada producto vuelve al stock («stock», en buen estado) o es
+-- «defectuoso»: no vuelve a la venta, queda en cuarentena y abre una
+-- incidencia de garantía con fotos y su proveedor. La garantía legal no se
+-- limita a los 30 días de la política de cambios y, en un defectuoso, el
+-- cliente puede elegir que se le devuelva el dinero en vez de un vale.
+ALTER TABLE tpv_return_lines ADD COLUMN IF NOT EXISTS condition TEXT NOT NULL DEFAULT 'stock';
+ALTER TABLE tpv_return_lines DROP CONSTRAINT IF EXISTS tpv_return_lines_condition_check;
+ALTER TABLE tpv_return_lines ADD CONSTRAINT tpv_return_lines_condition_check CHECK (condition IN ('stock', 'defectuoso'));
+-- Dinero devuelto al cliente en una rectificativa (solo por defectuosos).
+ALTER TABLE tpv_tickets ADD COLUMN IF NOT EXISTS refund_cents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tpv_tickets ADD COLUMN IF NOT EXISTS refund_method TEXT;
+ALTER TABLE tpv_tickets DROP CONSTRAINT IF EXISTS tpv_tickets_refund_check;
+ALTER TABLE tpv_tickets ADD CONSTRAINT tpv_tickets_refund_check CHECK (
+  refund_cents >= 0 AND ((refund_cents = 0 AND refund_method IS NULL) OR (refund_cents > 0 AND refund_method IN ('efectivo', 'tarjeta', 'bizum'))));
+
+-- Incidencia de garantía: abierta (en cuarentena) → reclamada al proveedor →
+-- resuelta. Lo que pasa con el cliente ya quedó en la rectificativa; aquí va
+-- la respuesta del proveedor: abono, sustitución (vuelve al stock), reembolso,
+-- rechazo, o «a_stock» si al final el producto se puede vender.
+CREATE TABLE IF NOT EXISTS warranty_cases (
+  id                SERIAL PRIMARY KEY,
+  return_line_id    INTEGER UNIQUE REFERENCES tpv_return_lines(id) ON DELETE SET NULL,
+  ticket_id         INTEGER REFERENCES tpv_tickets(id) ON DELETE SET NULL,
+  item_id           INTEGER REFERENCES inventory_items(id) ON DELETE SET NULL,
+  supplier_id       INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+  description       TEXT NOT NULL,
+  size              TEXT,
+  quantity          INTEGER NOT NULL CHECK (quantity > 0),
+  credit_cents      INTEGER NOT NULL DEFAULT 0 CHECK (credit_cents >= 0),
+  defect            TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'abierta' CHECK (status IN ('abierta', 'reclamada', 'resuelta')),
+  claim_ref         TEXT,
+  claim_notes       TEXT,
+  claimed_at        TIMESTAMPTZ,
+  claimed_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  resolution        TEXT CHECK (resolution IN ('abono', 'sustitucion', 'reembolso', 'rechazada', 'a_stock')),
+  resolution_cents  INTEGER CHECK (resolution_cents >= 0),
+  resolution_notes  TEXT,
+  resolved_at       TIMESTAMPTZ,
+  resolved_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK ((status = 'resuelta') = (resolution IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS warranty_cases_status_idx ON warranty_cases(status);
+CREATE INDEX IF NOT EXISTS warranty_cases_item_idx ON warranty_cases(item_id);
+
+-- Una aprobación de cambio vale solo para lo que se aprobó (líneas, estado y dinero devuelto).
+ALTER TABLE tpv_discount_requests ADD COLUMN IF NOT EXISTS fingerprint TEXT;
+
+-- Fotos y documentos de la incidencia (la del defecto, la respuesta del proveedor…).
+CREATE TABLE IF NOT EXISTS warranty_files (
+  id          SERIAL PRIMARY KEY,
+  case_id     INTEGER NOT NULL REFERENCES warranty_cases(id) ON DELETE CASCADE,
+  filename    TEXT NOT NULL,
+  mime        TEXT NOT NULL,
+  size_bytes  INTEGER NOT NULL,
+  data        BYTEA NOT NULL,
+  uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS warranty_files_case_idx ON warranty_files(case_id);

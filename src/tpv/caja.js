@@ -93,7 +93,12 @@ export async function resumenSesion(db, id) {
     `SELECT m.id, m.kind, m.amount_cents, m.concept, u.name AS quien, to_char(m.created_at AT TIME ZONE $2, 'HH24:MI') AS hora
        FROM tpv_cash_moves m LEFT JOIN users u ON u.id = m.created_by WHERE m.session_id = $1 ORDER BY m.created_at`, [id, TZ],
   )).rows;
+  // Dinero devuelto al cliente por defectuosos: sale de su método (el efectivo, de la caja).
+  const reembolsos = (await db.query(
+    'SELECT refund_method AS method, sum(refund_cents)::int AS cents FROM tpv_tickets WHERE session_id = $1 AND refund_cents > 0 GROUP BY refund_method', [id],
+  )).rows;
   const porMetodo = Object.fromEntries(metodos.map((m) => [m.method, m.cents]));
+  for (const r of reembolsos) porMetodo[r.method] = (porMetodo[r.method] ?? 0) - r.cents;
   const entradas = movimientos.filter((m) => m.kind === 'entrada').reduce((a, m) => a + m.amount_cents, 0);
   const salidas = movimientos.filter((m) => m.kind === 'salida').reduce((a, m) => a + m.amount_cents, 0);
   const efectivo = porMetodo.efectivo ?? 0;
@@ -103,6 +108,7 @@ export async function resumenSesion(db, id) {
     ventas_efectivo_cent: efectivo, entradas_cent: entradas, salidas_cent: salidas,
     esperado_cent: s.opening_cents + efectivo + entradas - salidas,
     por_metodo: porMetodo, tickets: tickets.n, total_ventas_cent: tickets.total,
+    reembolsos_cent: reembolsos.reduce((a, r) => a + r.cents, 0),
     movimientos: movimientos.map((m) => ({ id: m.id, tipo: m.kind, importe_cent: m.amount_cents, concepto: m.concept, quien: m.quien, hora: m.hora })),
     contado_cent: s.closing_cents, recuento_final: s.closing_counts, diferencia_cent: s.difference_cents,
   };

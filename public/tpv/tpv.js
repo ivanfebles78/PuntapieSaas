@@ -5,6 +5,7 @@ import { showToast } from '../toast.js';
 import { renderAprobar } from './aprobar.js';
 import { cajaAbierta, renderCaja } from './caja.js';
 import { renderCambio } from './cambio.js';
+import { renderGarantias } from './garantias.js';
 import { renderVenta } from './venta.js';
 
 // Ventas › TPV: pantalla de inicio a pantalla completa, pensada para la
@@ -177,9 +178,15 @@ export function renderTpv({ main, user, params }) {
   async function abrirCambios({ push = false } = {}) {
     if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=cambios`);
     cuerpo.classList.add('is-venta');
-    const cambiar = () => renderCambio(cuerpo, { user, salir });
+    const cambiar = () => renderCambio(cuerpo, { user, salir, irGarantias: () => abrirGarantias({ push: true }) });
     if (await cajaAbierta()) return void cambiar();
     return void renderCaja(cuerpo, { user, salir, irVenta: cambiar, alAbrir: cambiar });
+  }
+  // Garantías: lo devuelto como defectuoso (no hace falta la caja abierta).
+  function abrirGarantias({ push = false } = {}) {
+    if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=garantias`);
+    cuerpo.classList.add('is-venta');
+    renderGarantias(cuerpo, { user, salir, volverCambios: () => abrirCambios({ push: true }) });
   }
   function abrirCaja({ push = false, modo = 'resumen' } = {}) {
     if (push) history.pushState({ app: true }, '', `${TPV_PATH}?seccion=caja`);
@@ -210,6 +217,7 @@ export function renderTpv({ main, user, params }) {
   } else if (params?.get('seccion') === 'venta') abrirVenta();
   else if (params?.get('seccion') === 'caja') abrirCaja();
   else if (params?.get('seccion') === 'cambios') abrirCambios();
+  else if (params?.get('seccion') === 'garantias') abrirGarantias();
   else inicio();
   if (aprobar || params?.get('seccion')) cargarHoy(root);
   // El reloj se actualiza mientras la pantalla siga abierta.

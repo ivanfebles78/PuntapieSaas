@@ -40,12 +40,15 @@ function rectificativaDom(t) {
     t.rectifica.length ? fila(`Rectifica: ${t.rectifica.join(', ')}`, '') : null,
     fila('Motivo: devolución del cliente', ''),
     h('div', { class: 'tk-sep' }),
-    ...t.devueltos.map((d) => fila(`${d.cantidad} × ${d.descripcion}${talla(d)}`, formatEuros(-d.credito_cent))),
+    ...t.devueltos.map((d) => fila(`${d.cantidad} × ${d.descripcion}${talla(d)}${d.estado === 'defectuoso' ? ' (defectuoso)' : ''}`, formatEuros(-d.credito_cent))),
     h('div', { class: 'tk-sep' }),
     fila('TOTAL', formatEuros(-t.total_cent), 'tk-total'),
     t.vinculado ? fila(`Abonado en la venta ${t.vinculado}`, '') : null,
+    t.reembolso ? fila(`Devuelto en ${(METODO[t.reembolso.metodo] ?? t.reembolso.metodo).toLowerCase()}`, formatEuros(t.reembolso.importe_cent), 'tk-total') : null,
     t.vale_emitido ? fila(`Vale ${t.vale_emitido.codigo}`, formatEuros(t.vale_emitido.importe_cent), 'tk-total') : null,
-    ...pieIgic(t, 'No se devuelve dinero: el importe se abona en una compra o en un vale.'),
+    ...pieIgic(t, t.reembolso
+      ? 'Se devuelve el importe de lo defectuoso; el resto, si lo hay, se abona en una compra o en un vale.'
+      : 'No se devuelve dinero: el importe se abona en una compra o en un vale.'),
   ]);
 }
 
