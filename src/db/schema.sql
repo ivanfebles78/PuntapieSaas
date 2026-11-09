@@ -569,6 +569,12 @@ CREATE INDEX IF NOT EXISTS mail_attachments_sha_idx ON mail_attachments(sha256);
 ALTER TABLE mail_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
 UPDATE mail_messages SET read_at = created_at WHERE marked_read AND read_at IS NULL;
 CREATE INDEX IF NOT EXISTS mail_messages_sent_idx ON mail_messages(sent_at DESC);
+-- Los extractos del datáfono (resumen@…) no son facturas: lo que quedó para
+-- revisar antes de ignorarlos pasa a descartado.
+UPDATE mail_attachments a
+   SET state = 'descartado', reason = 'Extracto del datáfono (no es una factura): se ignora', resolved_at = NOW(), data = NULL
+  FROM mail_messages m
+ WHERE a.message_ref = m.id AND a.state IN ('revisar', 'productos') AND m.from_addr ILIKE 'resumen@%';
 
 -- ===================== TPV: ventas =====================
 -- Un ticket por venta, con sus líneas (artículo del stock o libre) y sus

@@ -15,6 +15,11 @@ const DIAS_ATRAS = 30;
 const ACTOR = Object.freeze({ id: null, name: 'Correo' });
 const RESUELTO = new Set(['creado', 'productos', 'ignorado', 'hecho', 'descartado']);
 const hash = (data) => crypto.createHash('sha256').update(data).digest('hex');
+// Remitentes cuyos PDF no son facturas: se apuntan como descartados sin leerlos
+// y el correo se queda sin marcar como leído. resumen@… = extractos del datáfono.
+const IGNORAR_REMITENTE = /^resumen@/i;
+export const MOTIVO_DATAFONO = 'Extracto del datáfono (no es una factura): se ignora';
+export const esRemitenteIgnorado = (from) => IGNORAR_REMITENTE.test(String(from ?? '').trim());
 
 /** Qué hacer con un PDF. Nunca lanza: un fallo deja el PDF para revisar. */
 async function procesarPdf(pool, adjunto, { mesCorreo, inicio, log }) {
@@ -59,7 +64,12 @@ async function procesarMensaje(pool, m, { runId, inicio, log }) {
   )).rows[0];
   if (!ref) return null;
   const resultados = [];
-  for (const a of m.adjuntos) resultados.push(await procesarPdf(pool, a, { mesCorreo, inicio, log }));
+  const ignorado = esRemitenteIgnorado(m.from);
+  for (const a of m.adjuntos) {
+    resultados.push(ignorado
+      ? { filename: cleanFilename(a.filename), sha256: hash(a.data), kind: 'desconocido', state: 'descartado', reason: MOTIVO_DATAFONO }
+      : await procesarPdf(pool, a, { mesCorreo, inicio, log }));
+  }
   const registrado = resultados.some((r) => r.state === 'creado' || r.state === 'productos');
   // Una factura original de agua o luz que llega sola (sin la refactura) sí hay que mirarla.
   const finales = resultados.map((r) => (r.original && !registrado ? { ...r, state: 'revisar', reason: 'Factura de agua o luz sin la refactura de la casera' } : r));

@@ -2,7 +2,8 @@ import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mesDelTexto, reconocerGasto } from '../src/correo/gastos.js';
 import { tocaHoy } from '../src/correo/programador.js';
-import { revisarCorreo } from '../src/correo/procesar.js';
+import { esRemitenteIgnorado, revisarCorreo } from '../src/correo/procesar.js';
+import { applySchema } from '../src/db/migrate.js';
 import { faltaParaRegistrar } from '../src/correo/proveedor.js';
 import { DocumentoPdf } from '../src/proveedores/pdf/documento.js';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, TEST_DATABASE_URL, startTestServer } from './helpers.js';
@@ -193,6 +194,33 @@ describe('revisión del correo', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
     assert.deepEqual((await admin('GET', '/api/correo/historial?q=movistar')).data.items.map((i) => i.asunto), ['Correo 2']);
     assert.equal((await admin('GET', '/api/correo/historial?resultado=raro')).status, 400);
     assert.equal((await admin('GET', '/api/correo/historial?desde=ayer')).status, 400);
+  });
+
+  test('los extractos del datáfono (resumen@) se descartan sin leerlos y no quedan para revisar', async () => {
+    assert.ok(esRemitenteIgnorado('resumen@redsys.es'));
+    assert.ok(esRemitenteIgnorado(' Resumen@banco.example '));
+    assert.ok(!esRemitenteIgnorado('facturas-resumen@proveedor.example'));
+
+    const buzon = buzonFalso([correo(40, [{ filename: 'extracto.pdf', data: MOVISTAR() }], { from: 'resumen@datafono.example' })]);
+    const antes = (await item(ids.movistar, '2026-10')).amountCents;
+    const r = await revisarCorreo(ctx.pool, { abrirBuzon: buzon.abrir, origen: 'manual', inicio: '2026-04', log: { error() {} } });
+    assert.deepEqual([r.correos, r.gastos, r.revisar], [1, 0, 0]);
+    assert.deepEqual(buzon.leidos, [], 'el correo se queda sin leer');
+    assert.equal((await item(ids.movistar, '2026-10')).amountCents, antes, 'el PDF no se ha leído como factura');
+    const pend = (await admin('GET', '/api/correo/pendientes')).data;
+    assert.ok(!pend.some((p) => p.archivo === 'extracto.pdf'));
+    const guardado = (await ctx.pool.query(
+      `SELECT a.state, a.data FROM mail_attachments a JOIN mail_messages m ON m.id = a.message_ref WHERE m.message_id = '<m40@test>'`)).rows;
+    assert.deepEqual(guardado, [{ state: 'descartado', data: null }]);
+
+    // Lo que quedó para revisar antes de ignorarlos se descarta al arrancar.
+    const msg = (await ctx.pool.query(
+      `INSERT INTO mail_messages (message_id, uid, from_addr, subject) VALUES ('<viejo@test>', 41, 'resumen@datafono.example', 'Resumen') RETURNING id`)).rows[0];
+    await ctx.pool.query(
+      `INSERT INTO mail_attachments (message_ref, filename, sha256, kind, state, reason, data) VALUES ($1, 'viejo.pdf', 'x', 'desconocido', 'revisar', 'dudoso', decode('00', 'hex'))`, [msg.id]);
+    await applySchema(ctx.pool);
+    const viejo = (await ctx.pool.query('SELECT state, data FROM mail_attachments WHERE message_ref = $1', [msg.id])).rows;
+    assert.deepEqual(viejo, [{ state: 'descartado', data: null }]);
   });
 
   test('estado, permisos y sin correo conectado', async () => {
