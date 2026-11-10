@@ -805,3 +805,94 @@
   .podiums { grid-template-columns: 1fr; }
   .log-filters select { flex: 1 1 45%; }
 }
+
+/* ---------- Admin › Sistema antiguo ---------- */
+.ant-estado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 24px;
+  margin-bottom: 14px;
+}
+
+.ant-estado-main { margin: 0; font-weight: 700; }
+.ant-estado-last { margin: 4px 0 0; color: var(--espresso-soft); font-size: 13.5px; }
+.ant-estado.is-error .ant-estado-last { color: #9c3f2b; }
+
+.ant-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.ant-sync[disabled] { opacity: 0.55; cursor: not-allowed; }
+.ant-sync[aria-busy='true'] .ico { animation: ant-spin 1s linear infinite; }
+
+@keyframes ant-spin { to { transform: rotate(360deg); } }
+
+.ant-tabs { flex-wrap: wrap; margin-bottom: 14px; border-radius: 22px; }
+
+.ant-items { display: grid; margin: 0; padding: 0; list-style: none; }
+
+.ant-item {
+  display: grid;
+  gap: 8px;
+  padding: 14px 4px;
+  border-top: 1px solid rgb(30 26 22 / 0.08);
+}
+
+.ant-item:first-child { border-top: 0; }
+
+.ant-item-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+
+.ant-kind {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgb(30 26 22 / 0.07);
+  color: var(--espresso-soft);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ant-item.is-cambio .ant-kind,
+.ant-item.is-revisar .ant-kind { background: #fdf0d2; color: #85590c; }
+.ant-item.is-importado .ant-kind { background: var(--mint-wash); color: #1d735f; }
+
+.ant-title { overflow-wrap: anywhere; }
+.ant-detail { color: var(--espresso-soft); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.ant-reason { margin: 0; color: var(--espresso-soft); font-size: 13.5px; }
+
+.ant-diffs {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--linen);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  list-style: none;
+}
+
+.ant-actions,
+.ant-assign { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+
+.ant-assign select {
+  min-height: 40px;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid rgb(30 26 22 / 0.18);
+  border-radius: 12px;
+  background: var(--paper-hi);
+  font: inherit;
+  font-size: 14px;
+}
+
+.ant-assign-go { min-height: 40px; }
+.ant-act.is-strong { color: var(--espresso); font-weight: 700; }
+.ant-act.is-danger { color: #9c3f2b; }
+.ant-act[disabled] { opacity: 0.5; cursor: wait; }

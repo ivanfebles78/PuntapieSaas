@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { attachUser, forbidReadOnlyWrites, requireAuth, requirePasswordChanged, requireRole } from './auth/middleware.js';
 import { READ_ONLY_ROLES } from './roles.js';
 import { adminRouter } from './routes/admin.js';
+import { antiguoRouter } from './routes/antiguo.js';
 import { authRouter } from './routes/auth.js';
 import { correoRouter } from './routes/correo.js';
 import { estadisticasRouter } from './routes/estadisticas.js';
@@ -76,6 +77,9 @@ export function createApp({ pool, config, log = console, mailer = createMailer(c
   app.use('/api/reservas', ...guard, requireRole('admin', 'asesor', 'empleado'), reservasRouter({ pool, config, log }));
   // Correo: revisión diaria del buzón (facturas, pedidos y gastos) y lo que queda para revisar.
   app.use('/api/correo', ...guard, requireRole('admin', 'asesor', 'empleado'), correoRouter({ pool, config, log }));
+
+  // Sistema antiguo (gestiondegastos): sincronización de ventas y gastos mientras se siga usando.
+  app.use('/api/antiguo', ...guard, requireRole('admin', 'asesor'), antiguoRouter({ pool, config, log }));
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ ok: false, error: 'Ruta no encontrada.' });

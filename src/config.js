@@ -93,6 +93,14 @@ export const config = Object.freeze({
     pass: readEnv('GMAIL_APP_PASSWORD', '').replace(/\s+/g, ''),
     hora: Number(readEnv('CORREO_HORA', '8')),
   }),
+  // Sincronización con la app antigua (gestiondegastos) mientras se siga usando:
+  // cada día, a partir de la hora fijada, se trae lo que falte de ventas y gastos.
+  antiguo: Object.freeze({
+    url: readEnv('GESTIONGASTOS_URL', 'https://zapateriapuntapie.com/gestiondegastos-api').replace(/\/+$/, ''),
+    usuario: readEnv('GESTIONGASTOS_USUARIO', '').trim(),
+    clave: readEnv('GESTIONGASTOS_CLAVE', ''),
+    hora: Number(readEnv('GESTIONGASTOS_HORA', '8')),
+  }),
   proveedores: Object.freeze({
     // CIF/NIF propios (Calzando Sueños): se ignoran al buscar el proveedor en un PDF.
     cifsPropios: readEnv('CIFS_PROPIOS', 'B76766294').split(',').map((s) => s.trim()).filter(Boolean),

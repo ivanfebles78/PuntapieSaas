@@ -74,7 +74,7 @@ export const MODULES = Object.freeze([
     icon: 'shield',
     tone: 'admin',
     roles: ['admin', 'asesor'],
-    summary: 'Equipo, turnos, accesos, vacaciones, catálogo de productos, log de acciones y asistente de correo.',
+    summary: 'Equipo, turnos, accesos, vacaciones, catálogo de productos, log de acciones, asistente de correo y sistema antiguo.',
     // `to` enlaza con una pantalla ya construida. Cada persona se gestiona
     // desde Usuarios: altas, bajas, roles, contraseñas, turno y vacaciones.
     submodules: [
@@ -112,6 +112,13 @@ export const MODULES = Object.freeze([
         icon: 'sms',
         summary: 'Lo que hizo solo con el correo: facturas y gastos que registró, correos que marcó como leídos y qué quedó por revisar.',
         to: 'asistente',
+      },
+      {
+        slug: 'antiguo',
+        name: 'Sistema antiguo',
+        icon: 'repeat',
+        summary: 'Lo que se apunta en gestiondegastos llega solo cada día: caja, gastos y sus PDF. Aquí se decide lo que cambió o no está claro.',
+        to: 'antiguo',
       },
     ],
   },

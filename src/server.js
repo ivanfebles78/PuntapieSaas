@@ -3,6 +3,7 @@ import { createApp } from './app.js';
 import { createPool } from './db/pool.js';
 import { applySchema, seedAdmin } from './db/migrate.js';
 import { seedTeam } from './db/seed-team.js';
+import { iniciarSincronizacionDiaria } from './antiguo/programador.js';
 import { iniciarRevisionDiaria } from './correo/programador.js';
 import { limpiarTemporales } from './proveedores/analisis.js';
 import { caducarReservas } from './tpv/reservas.js';
@@ -36,6 +37,8 @@ async function main() {
 
   // Cada día, a partir de las 8:00, mira el correo y registra facturas, pedidos y gastos.
   iniciarRevisionDiaria({ pool, config });
+  // Y se trae de gestiondegastos (app antigua) las ventas y gastos que falten.
+  iniciarSincronizacionDiaria({ pool, config });
 
   const app = createApp({ pool, config });
   const server = app.listen(config.port, () => {

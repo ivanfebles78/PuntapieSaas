@@ -13,7 +13,7 @@ const MAX_JSON_BYTES = 20 * 1024 * 1024;
 // Pagos a proveedores apuntados como gasto diario: ya cuentan en el gestor de
 // pagos a proveedores, así que no se importan («Pago Proveedor - Lejan»,
 // «Pago Factura Lejan…», «Pedido a Garvalin · venc. 1/3»…).
-const SUPPLIER_PAYMENT = /^\s*(pago\b|pedido a\b)/i;
+export const SUPPLIER_PAYMENT = /^\s*(pago\b|pedido a\b)/i;
 // «tarde/efectivo: 30 clientes para 58,42 € (probable error de tecleo, ¿3?)»
 const TYPO = /^(manana|tarde)\/(efectivo|tarjeta|bizum|bonos): (\d+) clientes .*¿(\d+)\?/;
 

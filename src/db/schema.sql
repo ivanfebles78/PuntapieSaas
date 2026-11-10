@@ -865,3 +865,40 @@ CREATE TABLE IF NOT EXISTS tpv_reservation_lines (
 
 CREATE INDEX IF NOT EXISTS tpv_reservations_status_idx ON tpv_reservations(status, expires_at);
 CREATE INDEX IF NOT EXISTS tpv_reservation_lines_item_idx ON tpv_reservation_lines(item_id);
+
+-- ===================== Sincronización con gestiondegastos =====================
+-- Mientras se apunten ventas y gastos en la app antigua, el programa se trae lo
+-- que falte. Cada registro del antiguo se recuerda aquí (una fila por origen e
+-- id): lo traído no se vuelve a traer aunque se borre, lo ignorado no vuelve, y
+-- `fingerprint` guarda cómo estaba en el antiguo la última vez que se decidió,
+-- para avisar solo cuando allí cambie de verdad.
+CREATE TABLE IF NOT EXISTS legacy_runs (
+  id          SERIAL PRIMARY KEY,
+  origin      TEXT NOT NULL CHECK (origin IN ('auto', 'manual')),
+  user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  finished_at TIMESTAMPTZ,
+  summary     JSONB,
+  error       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS legacy_items (
+  id          SERIAL PRIMARY KEY,
+  source      TEXT NOT NULL CHECK (source IN ('dia', 'gasto', 'mensual', 'adjunto')),
+  legacy_id   INTEGER NOT NULL,
+  state       TEXT NOT NULL CHECK (state IN ('importado', 'cambio', 'revisar', 'ignorado', 'hecho')),
+  day         DATE,
+  fingerprint TEXT,
+  data        JSONB NOT NULL,
+  expense_id  INTEGER REFERENCES recurring_expenses(id) ON DELETE SET NULL,
+  file_id     INTEGER REFERENCES expense_files(id) ON DELETE SET NULL,
+  reason      TEXT,
+  run_id      INTEGER REFERENCES legacy_runs(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE (source, legacy_id)
+);
+
+CREATE INDEX IF NOT EXISTS legacy_items_state_idx ON legacy_items(state, day);
+CREATE INDEX IF NOT EXISTS legacy_runs_started_idx ON legacy_runs(started_at DESC);
