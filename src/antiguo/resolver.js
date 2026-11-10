@@ -1,5 +1,7 @@
 import { HttpError } from '../http-error.js';
 import { addFile, deleteFile, readFileKind, validateUpload } from '../services/expense-files.js';
+import { createExpense, readName } from '../services/expenses.js';
+import { readCents } from '../services/money.js';
 import {
   actualizarGasto, actualizarMensual, crearGasto, crearMensual, escribirDia, gastoActual, gastoDelAntiguo,
   huellaDia, huellaGasto, huellaMensual, mensualDelAntiguo,
@@ -61,10 +63,21 @@ async function traer(db, item, userId) {
   return { state: 'cambio', fingerprint: null, reason: 'Vuelve a comparar con la próxima sincronización' };
 }
 
-async function asignar(db, item, { gastoId, tipo, fuente, userId }) {
+/**
+ * «Otros»: factura de un comercio que no está como gasto. Se crea un gasto
+ * esporádico del día del archivo con el comercio y el importe que se escriban.
+ */
+async function gastoNuevo(db, item, { concepto, importe }, userId) {
+  const name = readName(concepto);
+  const amountCents = readCents(importe);
+  const date = String(item.data.sale_date).slice(0, 10);
+  return createExpense(db, { name, category: 'esporadico', kind: 'unico', amountCents, date, userId });
+}
+
+async function asignar(db, item, { gastoId, tipo, nuevo, fuente, userId }) {
   exigir(item.source === 'adjunto' && item.state === 'revisar', 'Este archivo ya está resuelto.');
   const kind = readFileKind(tipo);
-  const id = Number(gastoId);
+  const id = gastoId === 'nuevo' ? await gastoNuevo(db, item, nuevo ?? {}, userId) : Number(gastoId);
   if (!Number.isInteger(id) || id <= 0 || id > 2_147_483_647) throw new HttpError(400, 'Elige a qué gasto va el archivo.', 'INVALID_EXPENSE');
   const gasto = await gastoActual(db, id);
   if (!gasto || gasto.category === 'proveedor') throw new HttpError(404, 'Ese gasto no existe.', 'EXPENSE_NOT_FOUND');
@@ -80,7 +93,7 @@ async function asignar(db, item, { gastoId, tipo, fuente, userId }) {
  * Aplica `accion` a un registro y devuelve { antes, despues } para el log.
  * `fuente` es una función que conecta con el antiguo (solo para «asignar»).
  */
-export async function resolverItem(pool, id, { accion, gastoId, tipo, userId, fuente }) {
+export async function resolverItem(pool, id, { accion, gastoId, tipo, nuevo, userId, fuente }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -95,7 +108,7 @@ export async function resolverItem(pool, id, { accion, gastoId, tipo, userId, fu
       cambios = { state: 'ignorado', fingerprint: HUELLA[item.source](item.data), reason: 'Ignorado a mano' };
     } else if (accion === 'quitar') cambios = await quitar(client, item);
     else if (accion === 'traer') cambios = await traer(client, item, userId);
-    else if (accion === 'asignar') cambios = await asignar(client, item, { gastoId, tipo, fuente, userId });
+    else if (accion === 'asignar') cambios = await asignar(client, item, { gastoId, tipo, nuevo, fuente, userId });
     else throw new HttpError(400, 'Acción no válida.', 'INVALID_ACTION');
     await guardarItem(client, item, { ...cambios, resolved_by: userId });
     await client.query('COMMIT');

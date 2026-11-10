@@ -186,8 +186,19 @@ describe('Sincronización con gestiondegastos', { skip: !TEST_DATABASE_URL && 'F
     assert.equal(gasto.status, 'pagado');
     assert.equal((await admin('POST', `/api/antiguo/items/${archivo.id}`, { accion: 'asignar', gasto_id: correos.id, tipo: 'factura' })).status, 409);
 
+    // «Otros»: factura de otro comercio → gasto esporádico nuevo de ese día, con el PDF.
     const [otro] = await items('revisar');
-    assert.equal((await admin('POST', `/api/antiguo/items/${otro.id}`, { accion: 'ignorar' })).status, 200);
+    const sinImporte = await admin('POST', `/api/antiguo/items/${otro.id}`, { accion: 'asignar', gasto_id: 'nuevo', concepto: 'Bazar Chino', tipo: 'factura' });
+    assert.equal(sinImporte.status, 400);
+    const nuevo = await admin('POST', `/api/antiguo/items/${otro.id}`, {
+      accion: 'asignar', gasto_id: 'nuevo', concepto: 'Bazar Chino', importe: '8,40', tipo: 'factura',
+    });
+    assert.equal(nuevo.status, 200, nuevo.error);
+    const bazar = (await admin('GET', '/api/gastos?mes=2026-10')).data.items.find((i) => i.name === 'Bazar Chino');
+    assert.equal(bazar.category, 'esporadico');
+    assert.equal(bazar.date, '2026-10-07');
+    assert.equal(bazar.amountCents, 840);
+    assert.equal(bazar.invoices.length, 1);
     assert.equal((await items('revisar')).length, 0);
   });
 

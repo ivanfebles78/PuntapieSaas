@@ -896,3 +896,17 @@
 .ant-act.is-strong { color: var(--espresso); font-weight: 700; }
 .ant-act.is-danger { color: #9c3f2b; }
 .ant-act[disabled] { opacity: 0.5; cursor: wait; }
+
+.ant-new { display: flex; flex: 1 1 320px; flex-wrap: wrap; gap: 6px; }
+.ant-new[hidden] { display: none; }
+.ant-new input {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid rgb(30 26 22 / 0.18);
+  border-radius: 12px;
+  background: var(--paper-hi);
+  font: inherit;
+  font-size: 14px;
+}
+.ant-new [data-concepto] { flex: 1 1 160px; min-width: 0; }
+.ant-new [data-importe] { width: 110px; }

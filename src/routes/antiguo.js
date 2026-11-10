@@ -142,6 +142,7 @@ export function antiguoRouter({ pool, config, log = console, fetchImpl = fetch }
     try {
       resultado = await resolverItem(pool, readId(req.params.id), {
         accion, gastoId: req.body?.gasto_id, tipo: req.body?.tipo, userId: req.user.id, fuente: conectar,
+        nuevo: { concepto: req.body?.concepto, importe: req.body?.importe },
       });
     } catch (error) {
       if (error instanceof ErrorAntiguo) throw new HttpError(502, error.message, 'LEGACY_ERROR');

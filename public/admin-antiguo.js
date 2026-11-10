@@ -95,10 +95,16 @@ const accion = (id, nombre, label, extra = '') => h('button', {
 
 function asignador(item) {
   const gasto = h('select', { 'data-gasto': '', 'aria-label': `Gasto al que va ${item.titulo}` }, [
-    h('option', { value: '', text: item.gastos.length ? 'Elige el gasto…' : 'No hay gastos ese mes' }),
+    h('option', { value: '', text: 'Elige el gasto…' }),
     ...item.gastos.map((g) => h('option', {
       value: String(g.id), text: `${g.mismo_dia ? '● ' : ''}${g.nombre} · ${g.importe}${g.fecha ? ` · ${fechaEs(g.fecha)}` : ''}`,
     })),
+    h('option', { value: 'nuevo', text: 'Otros: factura de otro comercio (gasto nuevo)' }),
+  ]);
+  // «Otros»: se crea un gasto esporádico de ese día con el comercio y el importe.
+  const nuevo = h('div', { class: 'ant-new', 'data-nuevo': '', hidden: true }, [
+    h('input', { type: 'text', 'data-concepto': '', maxlength: '80', placeholder: 'Comercio o concepto', 'aria-label': 'Comercio o concepto del gasto nuevo' }),
+    h('input', { type: 'text', 'data-importe': '', inputmode: 'decimal', placeholder: 'Importe €', 'aria-label': 'Importe del gasto nuevo' }),
   ]);
   const tipo = h('select', { 'data-tipo': '', 'aria-label': 'Qué es el archivo' }, [
     h('option', { value: 'factura', text: 'Factura' }),
@@ -106,7 +112,7 @@ function asignador(item) {
   ]);
   return h('div', { class: 'ant-assign', 'data-write': '' }, [
     h('a', { class: 'btn-text', href: `/api/antiguo/items/${item.id}/archivo`, target: '_blank', rel: 'noopener', text: 'Ver PDF' }),
-    gasto, tipo,
+    gasto, nuevo, tipo,
     h('button', { class: 'btn-chip ant-assign-go', type: 'button', 'data-item': String(item.id), 'data-accion': 'asignar', text: 'Asignar' }),
     accion(item.id, 'ignorar', 'Ignorar'),
   ]);
@@ -192,11 +198,22 @@ async function resolver(boton) {
   const body = { accion: boton.dataset.accion };
   if (body.accion === 'asignar') {
     const caja = boton.closest('.ant-assign');
-    body.gasto_id = Number(caja.querySelector('[data-gasto]').value);
+    const elegido = caja.querySelector('[data-gasto]').value;
     body.tipo = caja.querySelector('[data-tipo]').value;
-    if (!body.gasto_id) {
+    if (!elegido) {
       showToast('Elige a qué gasto va el archivo.', { tone: 'error' });
       return;
+    }
+    if (elegido === 'nuevo') {
+      body.gasto_id = 'nuevo';
+      body.concepto = caja.querySelector('[data-concepto]').value.trim();
+      body.importe = caja.querySelector('[data-importe]').value.trim();
+      if (!body.concepto || !body.importe) {
+        showToast('Escribe el comercio y el importe de la factura.', { tone: 'error' });
+        return;
+      }
+    } else {
+      body.gasto_id = Number(elegido);
     }
   }
   boton.disabled = true;
@@ -214,6 +231,14 @@ async function resolver(boton) {
 }
 
 function bindEvents(root) {
+  // Al elegir «Otros» aparecen los campos del gasto nuevo.
+  root.addEventListener('change', (event) => {
+    const select = event.target.closest('[data-gasto]');
+    if (!select) return;
+    const campos = select.closest('.ant-assign').querySelector('[data-nuevo]');
+    campos.hidden = select.value !== 'nuevo';
+    if (!campos.hidden) campos.querySelector('[data-concepto]').focus();
+  });
   root.addEventListener('click', (event) => {
     const tab = event.target.closest('[data-vista]');
     if (tab) {
