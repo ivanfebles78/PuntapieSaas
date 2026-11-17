@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { monthLabel } from '../format.js';
 import { h } from '../dom.js';
 import { API, badge, claseVto, cobroTag, DIAS_URGENTE, esUrgente, esVencido, etiquetaVto, eur, fecha, fileLink, hoy, normalizarRef } from './util.js';
 import { ordenarFacturas } from './orden.js';
@@ -86,6 +87,8 @@ function totales(docs) {
 
 export async function renderFacturas(ctx, params = {}) {
   const filtros = { estado: params.estado ?? '', q: params.q ?? '', proveedor_id: params.proveedor_id ?? '' };
+  // Mes de la fecha de factura («AAAA-MM»); vacío = todas.
+  let mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(params.mes ?? '') ? params.mes : '';
   const orden = ORDENES.some(([v]) => v === params.orden) ? params.orden : 'vencimiento';
   const [resumen, proveedores, prevision] = await Promise.all([
     api('GET', `${API}/resumen`), api('GET', `${API}/lista`), api('GET', `${API}/prevision?meses=1`),
@@ -102,6 +105,7 @@ export async function renderFacturas(ctx, params = {}) {
   const chips = h('div', { class: 'pchips', role: 'group', 'aria-label': 'Estado' }, ESTADOS.map(([v, t]) => h('button', {
     type: 'button', class: 'pchip', 'aria-pressed': String(filtros.estado === v), 'data-estado': v, text: t,
   })));
+  const mesSel = h('select', { class: 'pinput', 'aria-label': 'Mes de la factura' }, h('option', { value: '', text: 'Todos los meses' }));
   const tablaBox = h('div', {}, h('p', { class: 'mgr-loading', text: 'Cargando…' }));
   const totalesBox = h('div');
 
@@ -115,15 +119,17 @@ export async function renderFacturas(ctx, params = {}) {
       ]),
     ]),
     stats(resumen.data, prevision.data),
-    h('div', { class: 'ptoolbar' }, [search, select, ordenSel, chips]),
+    h('div', { class: 'ptoolbar' }, [search, select, mesSel, ordenSel, chips]),
     tablaBox,
     totalesBox,
   );
 
-  const reload = () => ctx.go('facturas', { ...filtros, orden });
+  const conMes = (p) => (mes ? { ...p, mes } : p);
+  const reload = () => ctx.go('facturas', conMes({ ...filtros, orden }));
   search.addEventListener('change', () => { filtros.q = search.value.trim(); reload(); });
   select.addEventListener('change', () => { filtros.proveedor_id = select.value; reload(); });
-  ordenSel.addEventListener('change', () => ctx.go('facturas', { ...filtros, orden: ordenSel.value }));
+  ordenSel.addEventListener('change', () => ctx.go('facturas', conMes({ ...filtros, orden: ordenSel.value })));
+  mesSel.addEventListener('change', () => { mes = mesSel.value; reload(); });
   ctx.body.querySelector('.phead').addEventListener('click', (e) => {
     const go = e.target.closest('[data-go]');
     if (go) ctx.go(go.dataset.go);
@@ -136,9 +142,13 @@ export async function renderFacturas(ctx, params = {}) {
   const query = new URLSearchParams(Object.entries({ tipo: 'factura', ...filtros }).filter(([, v]) => v));
   const docs = await api('GET', `${API}/documentos?${query}`);
   if (!docs.ok) return void tablaBox.replaceChildren(h('p', { class: 'notice', text: docs.error }));
-  tablaBox.replaceChildren(tabla(ordenarFacturas(docs.data, orden), ctx));
-  totalesBox.replaceChildren(totales(docs.data) ?? '');
-  const params2 = { ...filtros, orden };
+  // Meses con facturas (los más recientes primero) y, si hay uno elegido, solo las suyas.
+  const meses = [...new Set([...docs.data.map((d) => d.fecha?.slice(0, 7)).filter(Boolean), ...(mes ? [mes] : [])])].sort().reverse();
+  mesSel.append(...meses.map((m) => h('option', { value: m, text: monthLabel(m), selected: m === mes })));
+  const lista = mes ? docs.data.filter((d) => d.fecha?.startsWith(mes)) : docs.data;
+  tablaBox.replaceChildren(tabla(ordenarFacturas(lista, orden), ctx));
+  totalesBox.replaceChildren(totales(lista) ?? '');
+  const params2 = conMes({ ...filtros, orden });
   tablaBox.addEventListener('click', (e) => {
     if (e.target.closest('a')) return;
     const ref = e.target.closest('[data-open]');
