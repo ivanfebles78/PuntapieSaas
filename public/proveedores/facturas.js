@@ -87,7 +87,7 @@ function totales(docs) {
 
 export async function renderFacturas(ctx, params = {}) {
   const filtros = { estado: params.estado ?? '', q: params.q ?? '', proveedor_id: params.proveedor_id ?? '' };
-  // Mes de la fecha de factura («AAAA-MM»); vacío = todas.
+  // Mes de vencimiento («AAAA-MM»): facturas con algún vencimiento ese mes; vacío = todas.
   let mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(params.mes ?? '') ? params.mes : '';
   const orden = ORDENES.some(([v]) => v === params.orden) ? params.orden : 'vencimiento';
   const [resumen, proveedores, prevision] = await Promise.all([
@@ -105,7 +105,7 @@ export async function renderFacturas(ctx, params = {}) {
   const chips = h('div', { class: 'pchips', role: 'group', 'aria-label': 'Estado' }, ESTADOS.map(([v, t]) => h('button', {
     type: 'button', class: 'pchip', 'aria-pressed': String(filtros.estado === v), 'data-estado': v, text: t,
   })));
-  const mesSel = h('select', { class: 'pinput', 'aria-label': 'Mes de la factura' }, h('option', { value: '', text: 'Todos los meses' }));
+  const mesSel = h('select', { class: 'pinput', 'aria-label': 'Mes de vencimiento' }, h('option', { value: '', text: 'Vencen: todos los meses' }));
   const tablaBox = h('div', {}, h('p', { class: 'mgr-loading', text: 'Cargando…' }));
   const totalesBox = h('div');
 
@@ -142,10 +142,12 @@ export async function renderFacturas(ctx, params = {}) {
   const query = new URLSearchParams(Object.entries({ tipo: 'factura', ...filtros }).filter(([, v]) => v));
   const docs = await api('GET', `${API}/documentos?${query}`);
   if (!docs.ok) return void tablaBox.replaceChildren(h('p', { class: 'notice', text: docs.error }));
-  // Meses con facturas (los más recientes primero) y, si hay uno elegido, solo las suyas.
-  const meses = [...new Set([...docs.data.map((d) => d.fecha?.slice(0, 7)).filter(Boolean), ...(mes ? [mes] : [])])].sort().reverse();
+  // Meses con algún vencimiento (los más recientes primero) y, si hay uno
+  // elegido, las facturas que tienen un vencimiento ese mes.
+  const mesesDe = (d) => (d.vencimientos ?? []).map((v) => v.fecha?.slice(0, 7)).filter(Boolean);
+  const meses = [...new Set([...docs.data.flatMap(mesesDe), ...(mes ? [mes] : [])])].sort().reverse();
   mesSel.append(...meses.map((m) => h('option', { value: m, text: monthLabel(m), selected: m === mes })));
-  const lista = mes ? docs.data.filter((d) => d.fecha?.startsWith(mes)) : docs.data;
+  const lista = mes ? docs.data.filter((d) => mesesDe(d).includes(mes)) : docs.data;
   tablaBox.replaceChildren(tabla(ordenarFacturas(lista, orden), ctx));
   totalesBox.replaceChildren(totales(lista) ?? '');
   const params2 = conMes({ ...filtros, orden });
