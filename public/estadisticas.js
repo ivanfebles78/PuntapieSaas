@@ -117,12 +117,26 @@ function kpiTile(label, value, target) {
   ]);
 }
 
+/** El año en curso frente a su objetivo anual y a lo que tocaría llevar hoy. */
+function yearTile(y) {
+  const diff = y.cents - y.expectedCents;
+  return h('div', { class: 'kpi kpi-year' }, [
+    h('span', { class: 'kpi-label', text: `Este año · objetivo ${eurosShort(y.targetCents)}` }),
+    h('span', { class: 'kpi-value', text: formatEuros(y.cents) }),
+    meter(y.cents, y.targetCents),
+    h('span', { class: 'kpi-detail', text: `${pct.format(y.targetCents ? y.cents / y.targetCents : 0)} del objetivo anual` }),
+    h('span', { class: `kpi-detail${diff >= 0 ? ' is-met' : ''}` },
+      `A hoy tocaría llevar ${eurosShort(y.expectedCents)}: ${diff >= 0 ? 'vas' : 'faltan'} ${eurosShort(Math.abs(diff))}${diff >= 0 ? ' por encima' : ''}`),
+  ]);
+}
+
 function kpis() {
   const { kpis: k } = state.data;
   return h('div', { class: 'kpis' }, [
     kpiTile('Hoy', k.today.cents, k.today.targetCents),
     kpiTile('Esta semana', k.week.cents, k.week.targetCents),
     kpiTile('Este mes', k.month.cents, k.month.targetCents),
+    state.data.year ? yearTile(state.data.year) : null,
     h('div', { class: 'kpi kpi-total' }, [
       h('span', { class: 'kpi-label', text: `Total · ${periodLabel()}` }),
       h('span', { class: 'kpi-value', text: formatEuros(k.total.cents) }),
@@ -390,9 +404,10 @@ function render() {
     methods: methods.donut,
   };
   state.els.charts = charts;
+  // replaceChildren escribiría «null» como texto: los avisos que no tocan van vacíos.
   state.els.body.replaceChildren(
-    notice(),
-    startNote(),
+    notice() ?? '',
+    startNote() ?? '',
     kpis(),
     goals(),
     h('div', { class: 'stat-grid' }, [
@@ -484,6 +499,7 @@ async function editTargets() {
       ? 'Valen para todos los meses que no tengan objetivos propios.'
       : own ? 'Este mes tiene sus propios objetivos.' : 'Este mes usa los de por defecto: si guardas, tendrá los suyos.';
     resetBtn.hidden = !own;
+    fillOverview();
   };
   // Escribir uno calcula los otros dos (sin tocar el que se está escribiendo).
   for (const [k, input] of Object.entries(inputs)) {
@@ -496,14 +512,55 @@ async function editTargets() {
       }
     });
   }
-  yearSel.addEventListener('change', () => { fillMonths(monthSel.value); fill(); });
+  // Resumen del año elegido: los 12 meses (propios o por defecto) y el total anual.
+  // Los meses antes de que la tienda fuera vuestra no cuentan en el total.
+  const startMonth = (state.data.businessStart ?? '').slice(0, 7);
+  const overview = h('div', { class: 'targets-year-table' });
+  const fillOverview = () => {
+    let total = 0;
+    const rows = MONTH_NAMES.map((name, i) => {
+      const value = String(i + 1).padStart(2, '0');
+      const month = `${yearSel.value}-${value}`;
+      const own = t.byMonth[month];
+      const m = own ?? t;
+      const before = startMonth && month < startMonth;
+      if (!before) total += m.monthlyCents;
+      return h('tr', { class: `${monthSel.value === value ? 'is-selected' : ''}${before ? ' is-before' : ''}` }, [
+        h('th', { scope: 'row' }, h('button', { type: 'button', class: 'btn-text', 'data-pick-month': value, text: name })),
+        h('td', { class: 'num', text: eurosShort(m.dailyCents) }),
+        h('td', { class: 'num', text: eurosShort(m.weeklyCents) }),
+        h('td', { class: 'num', text: eurosShort(m.monthlyCents) }),
+        h('td', {}, h('span', { class: `targets-tag${own ? ' is-own' : ''}`, text: before ? 'Antes de la tienda' : own ? 'Propio' : 'Por defecto' })),
+      ]);
+    });
+    overview.replaceChildren(h('table', {}, [
+      h('caption', { text: `Objetivos de ${yearSel.value}` }),
+      h('thead', {}, h('tr', {}, ['Mes', 'Diario', 'Semanal', 'Mensual', ''].map((x, i) => h('th', { scope: 'col', class: i && i < 4 ? 'num' : null, text: x })))),
+      h('tbody', {}, rows),
+      h('tfoot', {}, h('tr', {}, [
+        h('th', { scope: 'row', text: 'Total del año' }), h('td'), h('td'),
+        h('td', { class: 'num', text: eurosShort(total) }), h('td'),
+      ])),
+    ]));
+  };
+  overview.addEventListener('click', (event) => {
+    const pick = event.target.closest('[data-pick-month]');
+    if (!pick) return;
+    monthSel.value = pick.dataset.pickMonth;
+    fill();
+    inputs.monthly.focus();
+  });
+  const refresh = () => { fillMonths(monthSel.value); fill(); };
+  let changed = false;
+
+  yearSel.addEventListener('change', refresh);
   monthSel.addEventListener('change', fill);
   resetBtn.addEventListener('click', async () => {
     const res = await api('DELETE', `/api/estadisticas/objetivos/mes/${key()}`);
     if (!res.ok) return void showToast(res.error, { tone: 'error' });
     t.byMonth = res.data.byMonth;
-    fillMonths(monthSel.value);
-    fill();
+    changed = true;
+    refresh();
     showToast('Ese mes vuelve a usar los objetivos por defecto.');
   });
   fillMonths(String(now.getMonth() + 1).padStart(2, '0'));
@@ -517,25 +574,32 @@ async function editTargets() {
   const saved = await openDialog({
     eyebrow: 'Objetivos de venta',
     title: 'Cambiar los objetivos',
-    lead: 'Elige el mes y escribe el objetivo diario, semanal o mensual: los otros dos se calculan solos (un mes = 24 días, una semana = 6). Solo cambia el mes elegido.',
+    lead: 'Elige el mes (o pulsa uno en la tabla) y escribe el objetivo diario, semanal o mensual: los otros dos se calculan solos (un mes = 24 días, una semana = 6). Solo cambia el mes elegido.',
     content: h('div', { class: 'targets-form' }, [
       h('div', { class: 'targets-when' }, [label('Año', yearSel), label('Mes', monthSel)]),
       label('Diario (€)', inputs.daily),
       label('Semanal (€)', inputs.weekly),
       label('Mensual (€)', inputs.monthly),
       h('div', { class: 'targets-foot' }, [status, resetBtn]),
+      overview,
     ]),
-    submitLabel: 'Guardar objetivos',
+    submitLabel: 'Guardar este mes',
+    cancelLabel: 'Cerrar',
+    // Guardar no cierra: se ve el resumen del año actualizado y se puede seguir con otro mes.
     onSubmit: async () => {
       const body = Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value]));
-      const path = key() === GENERAL ? '/api/estadisticas/objetivos' : `/api/estadisticas/objetivos/mes/${key()}`;
-      const res = await api('PUT', path, body);
-      return res.ok ? true : { error: res.error };
+      const general = key() === GENERAL;
+      const res = await api('PUT', general ? '/api/estadisticas/objetivos' : `/api/estadisticas/objetivos/mes/${key()}`, body);
+      if (!res.ok) return { error: res.error };
+      if (general) Object.assign(t, res.data);
+      else t.byMonth = res.data.byMonth;
+      changed = true;
+      refresh();
+      showToast(general ? 'Objetivos por defecto guardados.' : `Objetivos de ${monthSel.selectedOptions[0].text.split(' ·')[0].toLowerCase()} ${yearSel.value} guardados.`);
+      return { stay: true };
     },
   });
-  if (!saved) return;
-  showToast('Objetivos guardados.');
-  await load();
+  if (saved || changed) await load();
 }
 
 function bindEvents(root) {

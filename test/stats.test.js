@@ -1,7 +1,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, TEST_DATABASE_URL, startTestServer } from './helpers.js';
-import { computeStats, targetsForMonth, weekStart, weekday } from '../src/services/stats.js';
+import { computeStats, targetsForMonth, weekStart, weekday, yearProgress } from '../src/services/stats.js';
 import { simulateSales } from '../src/services/stats-sim.js';
 import { nowInShop, periodStart, statsStart } from '../src/services/sales-stats.js';
 
@@ -31,6 +31,17 @@ test('cada mes usa sus propios objetivos; los meses sin ellos, los de por defect
   assert.equal(s.monthly[0].targetCents, 600000);
   assert.deepEqual(s.daily.find((d) => d.day === '2026-10-06'), { day: '2026-10-06', cents: 20000, tickets: 1, targetCents: 25000 });
   assert.deepEqual(s.goals.days, { met: 2, total: 3 });
+});
+
+test('objetivo anual: suma de los meses desde el inicio y lo que tocaría llevar a hoy', () => {
+  const targets = { ...TARGETS, byMonth: { '2026-12': { dailyCents: 75000, weeklyCents: 450000, monthlyCents: 1800000 } } };
+  // Desde el 16/04: abril–noviembre a 12.000 € (8 meses) + diciembre 18.000 € = 114.000 €.
+  const y = yearProgress({ sales: SALES, targets, from: '2026-04-16', today: '2026-10-13' });
+  assert.equal(y.year, 2026);
+  assert.equal(y.targetCents, 11400000);
+  // A hoy: abril–septiembre enteros (6 × 12.000) + 13/31 de octubre.
+  assert.equal(y.expectedCents, 7200000 + Math.round((1200000 * 13) / 31));
+  assert.equal(y.cents, 215000, 'sin los vales');
 });
 
 test('el domingo (solo en campañas) va aparte: no cuenta para el mejor ni el más flojo', () => {

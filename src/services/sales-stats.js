@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import { HttpError } from '../http-error.js';
 import { listExpenses } from './expenses.js';
 import { readCents } from './money.js';
-import { computeStats } from './stats.js';
+import { computeStats, yearProgress } from './stats.js';
 import { simulateExpenses, simulateSales } from './stats-sim.js';
 import { allSchedules } from './schedules.js';
 import { buildStaffing, computeStaffStats, simulatedSchedules } from './staff-stats.js';
@@ -169,7 +169,17 @@ export async function salesStats(pool, { period = 'anio', simulate = false, now 
   const expensesByMonth = simulate
     ? simulateExpenses(monthsList(from, today))
     : await realExpensesByMonth(pool, from, today);
-  return { simulated: simulate, period, businessStart: config.businessStart, hasRealSales: simulate ? null : sales.length > 0, ...computeStats({ sales, expensesByMonth, targets, from, today }) };
+  // El año en curso, aunque el periodo elegido sea más corto.
+  const yearFrom = statsStart('anio', today);
+  const yearSales = from <= yearFrom ? sales : await loadSales(pool, { from: yearFrom, today, time, simulate });
+  return {
+    simulated: simulate,
+    period,
+    businessStart: config.businessStart,
+    hasRealSales: simulate ? null : sales.length > 0,
+    ...computeStats({ sales, expensesByMonth, targets, from, today }),
+    year: yearProgress({ sales: yearSales, targets, from: yearFrom, today }),
+  };
 }
 
 function monthsList(from, to) {

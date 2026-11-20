@@ -153,6 +153,32 @@ export function targetsForMonth(targets, month) {
   return { dailyCents: targets.dailyCents, weeklyCents: targets.weeklyCents, monthlyCents: targets.monthlyCents };
 }
 
+/**
+ * El año en curso: ventas (sin vales) desde `from` (1 de enero o el día en que
+ * la tienda pasó a ser nuestra) hasta hoy, frente a su objetivo anual (la suma
+ * de los objetivos mensuales de sus meses) y a lo que tocaría llevar hoy
+ * (meses ya cerrados enteros + la parte del mes en curso).
+ */
+export function yearProgress({ sales, targets, from, today }) {
+  const year = today.slice(0, 4);
+  const firstMonth = Number(from.slice(5, 7));
+  const thisMonth = Number(today.slice(5, 7));
+  let targetCents = 0;
+  let expectedCents = 0;
+  for (let m = firstMonth; m <= 12; m += 1) {
+    const month = `${year}-${String(m).padStart(2, '0')}`;
+    const monthTarget = targetsForMonth(targets, month).monthlyCents;
+    targetCents += monthTarget;
+    if (m < thisMonth) expectedCents += monthTarget;
+    if (m === thisMonth) {
+      const daysInMonth = new Date(Date.UTC(Number(year), m, 0)).getUTCDate();
+      expectedCents += Math.round((monthTarget * Number(today.slice(8, 10))) / daysInMonth);
+    }
+  }
+  const cents = sales.filter((s) => isRevenue(s) && s.at.slice(0, 10) >= from && s.at.slice(0, 10) <= today).reduce((t, s) => t + s.cents, 0);
+  return { year: Number(year), from, cents, targetCents, expectedCents };
+}
+
 /** Solo cuentan los periodos ya cerrados (antes de hoy) y con la tienda abierta. */
 function goals({ days, byDay, today, targets }) {
   const closedDays = days.filter((d) => d < today && byDay.has(d));
