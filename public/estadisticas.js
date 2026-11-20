@@ -74,12 +74,14 @@ function syncControls() {
   root.querySelectorAll('[data-period]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.period === state.period)));
   root.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === state.view)));
   root.querySelector('[data-simulate]').checked = state.simulate;
-  const t = state.data?.targets;
+  // Los del mes en curso (si tiene objetivo propio, ya ajustados).
+  const t = state.data?.currentTargets ?? state.data?.targets;
   if (t) {
+    const propio = t.monthlyCents !== state.data.targets?.monthlyCents;
     root.querySelector('[data-targets]').replaceChildren(
       icon('chart', 'ico ico-sm'),
       h('span', {}, [
-        h('strong', { text: 'Objetivo: ' }),
+        h('strong', { text: propio ? 'Objetivo de este mes: ' : 'Objetivo: ' }),
         h('span', { text: `${eurosShort(t.dailyCents)} / día · ${eurosShort(t.weeklyCents)} / semana · ${eurosShort(t.monthlyCents)} / mes` }),
       ]),
     );
@@ -235,7 +237,8 @@ function profitSummary() {
 function drawCharts() {
   const d = state.data;
   const c = state.els.charts;
-  const t = d.targets;
+  // La línea es el objetivo de este mes; cada barra se compara con el de su mes.
+  const t = d.currentTargets ?? d.targets;
   barChart(c.daily, {
     title: 'Ventas diarias',
     format: axisEuros,
@@ -243,7 +246,7 @@ function drawCharts() {
     bars: d.daily.map((x) => ({
       label: dayLabel(x.day),
       value: x.cents,
-      tone: x.cents >= t.dailyCents ? null : 'soft',
+      tone: x.cents >= (x.targetCents ?? t.dailyCents) ? null : 'soft',
       tooltip: [`${WEEKDAYS[(new Date(`${x.day}T00:00:00Z`).getUTCDay() + 6) % 7]} ${dayLabel(x.day)}`, formatEuros(x.cents), x.tickets ? `${x.tickets} ventas` : 'Cerrado o sin ventas'],
     })),
   });
@@ -254,7 +257,7 @@ function drawCharts() {
     bars: d.weekly.map((w) => ({
       label: dayLabel(w.weekStart),
       value: w.cents,
-      tone: w.cents >= t.weeklyCents ? null : 'soft',
+      tone: w.cents >= (w.targetCents ?? t.weeklyCents) ? null : 'soft',
       tooltip: [`Semana del ${dayLabel(w.weekStart)}`, formatEuros(w.cents), `${count.format(w.tickets)} ventas`],
     })),
   });
@@ -415,22 +418,69 @@ async function load() {
   return void render();
 }
 
+const MONTH_NAMES = Object.freeze(['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']);
+const FIRST_TARGET_YEAR = 2026;
+const YEARS_AHEAD = 2;
+
+/**
+ * Objetivo mensual propio de cada mes de un año (vacío = el general). Lo
+ * escrito se recuerda por año aunque se cambie de año antes de guardar.
+ */
+function monthTargetsSection(t) {
+  const thisYear = new Date().getFullYear();
+  const years = [];
+  for (let y = FIRST_TARGET_YEAR; y <= thisYear + YEARS_AHEAD; y += 1) years.push(y);
+  const draft = {}; // año → { mes: texto }
+  const valueOf = (year, m) => {
+    if (draft[year]?.[m] !== undefined) return draft[year][m];
+    const cents = t.byMonth?.[`${year}-${String(m).padStart(2, '0')}`];
+    return cents ? centsToInput(cents) : '';
+  };
+  const yearSel = h('select', { 'data-target-year': '', 'aria-label': 'Año' },
+    years.map((y) => h('option', { value: String(y), text: String(y), selected: y === thisYear })));
+  const inputs = MONTH_NAMES.map((name, i) => h('input', {
+    type: 'text', inputmode: 'decimal', 'data-target-month': String(i + 1), placeholder: centsToInput(t.monthlyCents), 'aria-label': `Objetivo de ${name.toLowerCase()} (€)`,
+  }));
+  const fill = () => inputs.forEach((input, i) => { input.value = valueOf(yearSel.value, i + 1); });
+  fill();
+  yearSel.addEventListener('change', fill);
+  inputs.forEach((input, i) => input.addEventListener('input', () => {
+    draft[yearSel.value] = { ...(draft[yearSel.value] ?? {}), [i + 1]: input.value };
+  }));
+  const section = h('fieldset', { class: 'targets-months' }, [
+    h('legend', { text: 'Objetivo mensual por mes' }),
+    h('p', { class: 'targets-hint', text: 'Para meses flojos o fuertes. Vacío = el general. El diario y el semanal de ese mes se ajustan en la misma proporción. Cada año va aparte: cambiar 2027 no toca 2026.' }),
+    h('label', { class: 'targets-year' }, [h('span', { text: 'Año' }), yearSel]),
+    h('div', { class: 'targets-grid' }, MONTH_NAMES.map((name, i) => h('label', {}, [h('span', { text: name }), inputs[i]]))),
+  ]);
+  // Años con algo escrito: { año: { mes: texto } } con los 12 meses (los no tocados, como estaban).
+  const changedYears = () => Object.keys(draft).map((year) => [year, Object.fromEntries(MONTH_NAMES.map((_, i) => [i + 1, valueOf(year, i + 1)]))]);
+  return { section, changedYears };
+}
+
 async function editTargets() {
   const t = state.data.targets;
+  const months = monthTargetsSection(t);
   const saved = await openDialog({
     eyebrow: 'Objetivos de venta',
     title: 'Cambiar los objetivos',
-    lead: 'Se aplican a todas las estadísticas, también a los periodos anteriores.',
+    lead: 'Los generales valen para todos los meses que no tengan uno propio.',
     content: h('div', { class: 'targets-form' }, [
       field({ label: 'Diario (€)', name: 'daily', inputmode: 'decimal', value: centsToInput(t.dailyCents) }),
       field({ label: 'Semanal (€)', name: 'weekly', inputmode: 'decimal', value: centsToInput(t.weeklyCents) }),
       field({ label: 'Mensual (€)', name: 'monthly', inputmode: 'decimal', value: centsToInput(t.monthlyCents) }),
+      months.section,
     ]),
     submitLabel: 'Guardar objetivos',
     onSubmit: async (form) => {
       const value = (n) => form.elements.namedItem(n).value;
       const res = await api('PUT', '/api/estadisticas/objetivos', { daily: value('daily'), weekly: value('weekly'), monthly: value('monthly') });
-      return res.ok ? true : { error: res.error };
+      if (!res.ok) return { error: res.error };
+      for (const [year, meses] of months.changedYears()) {
+        const r = await api('PUT', `/api/estadisticas/objetivos/anio/${year}`, { meses });
+        if (!r.ok) return { error: r.error };
+      }
+      return true;
     },
   });
   if (!saved) return;

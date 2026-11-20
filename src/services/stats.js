@@ -141,18 +141,32 @@ function hours(allSales, openDays) {
 
 /* ---------- Objetivos ---------- */
 
+/**
+ * Objetivos de un mes («YYYY-MM»). Si ese mes tiene su propio objetivo
+ * mensual (`byMonth`), el diario y el semanal se ajustan en la misma
+ * proporción que el mensual respecto al general.
+ */
+export function targetsForMonth(targets, month) {
+  const base = { dailyCents: targets.dailyCents, weeklyCents: targets.weeklyCents, monthlyCents: targets.monthlyCents };
+  const custom = targets.byMonth?.[month];
+  if (!custom || !targets.monthlyCents) return base;
+  const factor = custom / targets.monthlyCents;
+  return { dailyCents: Math.round(base.dailyCents * factor), weeklyCents: Math.round(base.weeklyCents * factor), monthlyCents: custom };
+}
+
 /** Solo cuentan los periodos ya cerrados (antes de hoy) y con la tienda abierta. */
 function goals({ days, byDay, today, targets }) {
   const closedDays = days.filter((d) => d < today && byDay.has(d));
-  const dayGoal = { met: closedDays.filter((d) => byDay.get(d).cents >= targets.dailyCents).length, total: closedDays.length };
+  const of = (month) => targetsForMonth(targets, month);
+  const dayGoal = { met: closedDays.filter((d) => byDay.get(d).cents >= of(monthOf(d)).dailyCents).length, total: closedDays.length };
 
   const weeks = sumBy(days.filter((d) => weekStart(d) < weekStart(today)), byDay, weekStart);
   const fullWeeks = [...weeks.entries()].filter(([start]) => start >= days[0]);
-  const weekGoal = { met: fullWeeks.filter(([, b]) => b.cents >= targets.weeklyCents).length, total: fullWeeks.length };
+  const weekGoal = { met: fullWeeks.filter(([start, b]) => b.cents >= of(monthOf(start)).weeklyCents).length, total: fullWeeks.length };
 
   const months = sumBy(days.filter((d) => monthOf(d) < monthOf(today)), byDay, monthOf);
   const fullMonths = [...months.entries()].filter(([month]) => `${month}-01` >= days[0]);
-  const monthGoal = { met: fullMonths.filter(([, b]) => b.cents >= targets.monthlyCents).length, total: fullMonths.length };
+  const monthGoal = { met: fullMonths.filter(([month, b]) => b.cents >= of(month).monthlyCents).length, total: fullMonths.length };
 
   return { days: dayGoal, weeks: weekGoal, months: monthGoal };
 }
@@ -180,7 +194,9 @@ export function computeStats({ sales: allSales, expensesByMonth = {}, targets, f
   const totalCents = sum(days);
   const tickets = sales.reduce((t, s) => t + countOf(s), 0);
 
-  const weekly = [...sumBy(days, byDay, weekStart).entries()].map(([start, b]) => ({ weekStart: start, ...b }));
+  // Una semana usa los objetivos del mes en que empieza.
+  const of = (month) => targetsForMonth(targets, month);
+  const weekly = [...sumBy(days, byDay, weekStart).entries()].map(([start, b]) => ({ weekStart: start, ...b, targetCents: of(monthOf(start)).weeklyCents }));
   const monthly = [...sumBy(days, byDay, monthOf).entries()].map(([month, b]) => {
     const expensesCents = expensesByMonth[month] ?? 0;
     return {
@@ -189,7 +205,8 @@ export function computeStats({ sales: allSales, expensesByMonth = {}, targets, f
       tickets: b.tickets,
       expensesCents,
       profitCents: b.cents - expensesCents,
-      targetMet: b.cents >= targets.monthlyCents,
+      targetCents: of(month).monthlyCents,
+      targetMet: b.cents >= of(month).monthlyCents,
       complete: month < monthOf(today),
     };
   });
@@ -197,15 +214,19 @@ export function computeStats({ sales: allSales, expensesByMonth = {}, targets, f
   return {
     period: { from, to: today },
     targets,
+    // Los del mes en curso (los generales, o los de ese mes si tiene los suyos).
+    currentTargets: of(monthOf(today)),
     kpis: {
-      today: { cents: byDay.get(today)?.cents ?? 0, targetCents: targets.dailyCents },
-      week: { cents: sum(thisWeek), targetCents: targets.weeklyCents },
-      month: { cents: sum(thisMonth), targetCents: targets.monthlyCents },
+      today: { cents: byDay.get(today)?.cents ?? 0, targetCents: of(monthOf(today)).dailyCents },
+      week: { cents: sum(thisWeek), targetCents: of(monthOf(weekStart(today))).weeklyCents },
+      month: { cents: sum(thisMonth), targetCents: of(monthOf(today)).monthlyCents },
       total: { cents: totalCents, tickets, openDays, avgTicketCents: tickets ? Math.round(totalCents / tickets) : 0 },
       vouchers: { cents: vouchers.reduce((t, s) => t + s.cents, 0), count: vouchers.reduce((t, s) => t + countOf(s), 0) },
     },
     goals: goals({ days, byDay, today, targets }),
-    daily: days.slice(-DAILY_CHART_DAYS).map((day) => ({ day, cents: byDay.get(day)?.cents ?? 0, tickets: byDay.get(day)?.tickets ?? 0 })),
+    daily: days.slice(-DAILY_CHART_DAYS).map((day) => ({
+      day, cents: byDay.get(day)?.cents ?? 0, tickets: byDay.get(day)?.tickets ?? 0, targetCents: of(monthOf(day)).dailyCents,
+    })),
     weekly,
     monthly,
     weekdays: weekdayAverages(days, byDay),

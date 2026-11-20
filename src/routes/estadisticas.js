@@ -4,12 +4,15 @@ import { httpErrorHandler } from '../http-error.js';
 import { auditFrom, diffFields } from '../services/audit.js';
 import { formatEuros } from '../services/money.js';
 import { buildSalesWorkbook, writeZip } from '../services/exports.js';
-import { getTargets, readTargets, salesExportData, salesStats, saveTargets, staffStats } from '../services/sales-stats.js';
+import {
+  getTargets, readTargets, readYearTargets, salesExportData, salesStats, saveTargets, saveYearTargets, staffStats,
+} from '../services/sales-stats.js';
 
 const handle = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 
 const TARGET_LABELS = Object.freeze({ dailyCents: 'Objetivo diario', weeklyCents: 'Objetivo semanal', monthlyCents: 'Objetivo mensual' });
-const asEuros = (t) => Object.fromEntries(Object.entries(t).map(([k, v]) => [k, formatEuros(v)]));
+const asEuros = (t) => Object.fromEntries(Object.keys(TARGET_LABELS).map((k) => [k, formatEuros(t[k])]));
+const MONTHS_ES = Object.freeze(['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']);
 
 export function estadisticasRouter({ pool, log = console }) {
   const router = Router();
@@ -69,6 +72,21 @@ export function estadisticasRouter({ pool, log = console }) {
     const changes = diffFields(asEuros(before), asEuros(saved), TARGET_LABELS);
     if (changes.length) await audit(req, { area: 'objetivos', action: 'editar', target: 'Objetivos de venta', changes });
     res.json({ ok: true, data: saved });
+  }));
+
+  // Objetivo mensual propio de cada mes de un año: { meses: { 1: '6.000', 8: '', … } }.
+  // Vacío = el general. Solo cambia ese año: los demás se quedan como estaban.
+  router.put('/objetivos/anio/:anio', requireRole('admin'), handle(async (req, res) => {
+    const year = String(req.params.anio);
+    const { before, after } = await saveYearTargets(pool, year, readYearTargets(year, req.body?.meses), req.user.id);
+    const changes = MONTHS_ES.map((name, i) => {
+      const key = `${year}-${String(i + 1).padStart(2, '0')}`;
+      const from = before[key] ? formatEuros(before[key]) : 'general';
+      const to = after[key] ? formatEuros(after[key]) : 'general';
+      return from === to ? null : { field: `Objetivo de ${name} ${year}`, from, to };
+    }).filter(Boolean);
+    if (changes.length) await audit(req, { area: 'objetivos', action: 'editar', target: `Objetivos por mes ${year}`, changes });
+    res.json({ ok: true, data: await getTargets(pool) });
   }));
 
   router.use(httpErrorHandler);

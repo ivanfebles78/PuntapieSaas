@@ -1,7 +1,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ADMIN_EMAIL, ADMIN_PASSWORD, TEST_DATABASE_URL, startTestServer } from './helpers.js';
-import { computeStats, weekStart, weekday } from '../src/services/stats.js';
+import { computeStats, targetsForMonth, weekStart, weekday } from '../src/services/stats.js';
 import { simulateSales } from '../src/services/stats-sim.js';
 import { nowInShop, periodStart, statsStart } from '../src/services/sales-stats.js';
 
@@ -16,6 +16,22 @@ const SALES = [
   { at: '2026-10-12T10:30', cents: 10000, method: 'vales' }, // lunes 12: 100 € en vales (no suma)
   { at: '2026-10-13T11:00', cents: 55000, method: 'tarjeta' }, // hoy: 550 €
 ];
+
+test('objetivo propio de un mes: el diario y el semanal bajan o suben en la misma proporción', () => {
+  const targets = { ...TARGETS, byMonth: { '2026-07': 600000, '2026-12': 1800000 } };
+  assert.deepEqual(targetsForMonth(targets, '2026-07'), { dailyCents: 25000, weeklyCents: 150000, monthlyCents: 600000 });
+  assert.deepEqual(targetsForMonth(targets, '2026-12'), { dailyCents: 75000, weeklyCents: 450000, monthlyCents: 1800000 });
+  assert.deepEqual(targetsForMonth(targets, '2027-07'), TARGETS, 'otro año: el general');
+
+  // Octubre con objetivo propio de 6.000 €: el día de 200 € ya no cumple (diario 250 €), el de 600 € sí.
+  const s = computeStats({ sales: SALES, targets: { ...TARGETS, byMonth: { '2026-10': 600000 } }, from: '2026-10-01', today: '2026-10-13' });
+  assert.equal(s.kpis.today.targetCents, 25000);
+  assert.equal(s.kpis.month.targetCents, 600000);
+  assert.equal(s.currentTargets.weeklyCents, 150000);
+  assert.equal(s.monthly[0].targetCents, 600000);
+  assert.deepEqual(s.daily.find((d) => d.day === '2026-10-06'), { day: '2026-10-06', cents: 20000, tickets: 1, targetCents: 25000 });
+  assert.deepEqual(s.goals.days, { met: 2, total: 3 });
+});
 
 describe('cálculo de estadísticas', () => {
   const stats = computeStats({ sales: SALES, expensesByMonth: { '2026-10': 90000 }, targets: TARGETS, from: '2026-10-01', today: '2026-10-13' });
@@ -143,7 +159,7 @@ describe('API de estadísticas', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
 
   test('objetivos: por defecto 500/3.000/12.000 €, los cambia solo el Administrador', async () => {
     const current = await admin('GET', '/api/estadisticas/objetivos');
-    assert.deepEqual(current.data, TARGETS);
+    assert.deepEqual(current.data, { ...TARGETS, byMonth: {} });
     const saved = await admin('PUT', '/api/estadisticas/objetivos', { daily: '550', weekly: '3.300', monthly: '13.000' });
     assert.deepEqual(saved.data, { dailyCents: 55000, weeklyCents: 330000, monthlyCents: 1300000 });
     const stats = await admin('GET', '/api/estadisticas?periodo=3m');
@@ -154,6 +170,27 @@ describe('API de estadísticas', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
     await elena('POST', '/api/auth/change-password', { newPassword: 'Elena2026x', confirmPassword: 'Elena2026x' });
     assert.equal((await elena('GET', '/api/estadisticas?periodo=3m')).status, 200);
     assert.equal((await elena('PUT', '/api/estadisticas/objetivos', { daily: 1, weekly: 1, monthly: 1 })).status, 403);
+  });
+
+  test('objetivo por mes y año: cambiar 2027 no toca 2026; vacío = el general', async () => {
+    const r2026 = await admin('PUT', '/api/estadisticas/objetivos/anio/2026', { meses: { 8: '7.000', 12: '20.000' } });
+    assert.equal(r2026.status, 200, r2026.error);
+    const r2027 = await admin('PUT', '/api/estadisticas/objetivos/anio/2027', { meses: { 8: '6.500' } });
+    assert.deepEqual(r2027.data.byMonth, { '2026-08': 700000, '2026-12': 2000000, '2027-08': 650000 });
+    // Volver a guardar 2027 sin agosto lo deja en el general; 2026 sigue igual.
+    const otraVez = await admin('PUT', '/api/estadisticas/objetivos/anio/2027', { meses: { 2: '9.000', 8: '' } });
+    assert.deepEqual(otraVez.data.byMonth, { '2026-08': 700000, '2026-12': 2000000, '2027-02': 900000 });
+    // Cambiar los generales no borra los de cada mes.
+    await admin('PUT', '/api/estadisticas/objetivos', { daily: '550', weekly: '3.300', monthly: '13.000' });
+    assert.deepEqual((await admin('GET', '/api/estadisticas/objetivos')).data.byMonth, otraVez.data.byMonth);
+
+    assert.equal((await admin('PUT', '/api/estadisticas/objetivos/anio/27', { meses: {} })).status, 400);
+    assert.equal((await admin('PUT', '/api/estadisticas/objetivos/anio/2027', { meses: { 3: '-5' } })).status, 400);
+    const log = await ctx.pool.query("SELECT field, old_value, new_value FROM audit_log WHERE target = 'Objetivos por mes 2027' ORDER BY id");
+    const ultimo = log.rows.at(-1);
+    assert.equal(ultimo.field, 'Objetivo de agosto 2027');
+    assert.match(ultimo.old_value, /^6\.500,00\s€$/);
+    assert.equal(ultimo.new_value, 'general');
   });
 
   test('periodo no válido', async () => {

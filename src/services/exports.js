@@ -2,7 +2,7 @@ import archiver from 'archiver';
 import ExcelJS from 'exceljs';
 import { listExpenses } from './expenses.js';
 import { shiftLabel, shiftOfTime, WEEKDAY_NAMES } from './shop-hours.js';
-import { isRevenue, weekday } from './stats.js';
+import { isRevenue, targetsForMonth, weekday } from './stats.js';
 
 // Exportaciones en ZIP: un Excel con todos los movimientos y, en Gastos,
 // también las facturas y justificantes tal como se subieron.
@@ -237,8 +237,8 @@ export function buildSalesWorkbook({ sales, staffing, team, targets, staff, simu
       tickets: b.tickets,
       vales: b.vales / 100,
       avg: b.tickets ? b.cents / b.tickets / 100 : 0,
-      target: targets.dailyCents / 100,
-      met: b.cents >= targets.dailyCents ? 'Sí' : 'No',
+      target: targetsForMonth(targets, day.slice(0, 7)).dailyCents / 100,
+      met: b.cents >= targetsForMonth(targets, day.slice(0, 7)).dailyCents ? 'Sí' : 'No',
     });
   }
 
@@ -269,7 +269,7 @@ export function buildSalesWorkbook({ sales, staffing, team, targets, staff, simu
   info.addRows([
     { k: 'Periodo', v: `Del ${esDate(from)} al ${esDate(to)}` },
     { k: 'Datos', v: simulated ? 'SIMULADOS (de ejemplo, no son ventas reales)' : 'Ventas reales registradas' },
-    { k: 'Objetivo diario', v: `${(targets.dailyCents / 100).toFixed(2).replace('.', ',')} €` },
+    { k: 'Objetivo diario', v: `${(targets.dailyCents / 100).toFixed(2).replace('.', ',')} € (general; los meses con objetivo propio lo ajustan en proporción)` },
     { k: 'Por empleado', v: 'Cada persona suma el total de los turnos en los que estaba; «frente a la tienda» compara con la media de la tienda en los mismos turnos (100 % = lo normal).' },
   ]);
   info.getColumn('k').font = { bold: true };
