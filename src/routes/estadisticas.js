@@ -5,13 +5,13 @@ import { auditFrom, diffFields } from '../services/audit.js';
 import { formatEuros } from '../services/money.js';
 import { buildSalesWorkbook, writeZip } from '../services/exports.js';
 import {
-  getTargets, readTargets, readYearTargets, salesExportData, salesStats, saveTargets, saveYearTargets, staffStats,
+  getTargets, readTargetMonth, readTargets, salesExportData, salesStats, saveMonthTargets, saveTargets, staffStats,
 } from '../services/sales-stats.js';
 
 const handle = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 
 const TARGET_LABELS = Object.freeze({ dailyCents: 'Objetivo diario', weeklyCents: 'Objetivo semanal', monthlyCents: 'Objetivo mensual' });
-const asEuros = (t) => Object.fromEntries(Object.keys(TARGET_LABELS).map((k) => [k, formatEuros(t[k])]));
+const asEuros = (t) => Object.fromEntries(Object.keys(TARGET_LABELS).map((k) => [k, t ? formatEuros(t[k]) : 'general']));
 const MONTHS_ES = Object.freeze(['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']);
 
 export function estadisticasRouter({ pool, log = console }) {
@@ -74,20 +74,19 @@ export function estadisticasRouter({ pool, log = console }) {
     res.json({ ok: true, data: saved });
   }));
 
-  // Objetivo mensual propio de cada mes de un año: { meses: { 1: '6.000', 8: '', … } }.
-  // Vacío = el general. Solo cambia ese año: los demás se quedan como estaban.
-  router.put('/objetivos/anio/:anio', requireRole('admin'), handle(async (req, res) => {
-    const year = String(req.params.anio);
-    const { before, after } = await saveYearTargets(pool, year, readYearTargets(year, req.body?.meses), req.user.id);
-    const changes = MONTHS_ES.map((name, i) => {
-      const key = `${year}-${String(i + 1).padStart(2, '0')}`;
-      const from = before[key] ? formatEuros(before[key]) : 'general';
-      const to = after[key] ? formatEuros(after[key]) : 'general';
-      return from === to ? null : { field: `Objetivo de ${name} ${year}`, from, to };
-    }).filter(Boolean);
-    if (changes.length) await audit(req, { area: 'objetivos', action: 'editar', target: `Objetivos por mes ${year}`, changes });
+  // Objetivos propios de un mes concreto (AAAA-MM): { daily, weekly, monthly }.
+  // Solo cambia ese mes; los demás (pasados o futuros) se quedan como estaban.
+  const monthName = (month) => `${MONTHS_ES[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}`;
+  const saveMonth = async (req, res, targets) => {
+    const month = readTargetMonth(req.params.mes);
+    const { before, after } = await saveMonthTargets(pool, month, targets, req.user.id);
+    const changes = diffFields(asEuros(before), asEuros(after), TARGET_LABELS);
+    if (changes.length) await audit(req, { area: 'objetivos', action: 'editar', target: `Objetivos de ${monthName(month)}`, changes });
     res.json({ ok: true, data: await getTargets(pool) });
-  }));
+  };
+  router.put('/objetivos/mes/:mes', requireRole('admin'), handle((req, res) => saveMonth(req, res, readTargets(req.body))));
+  // Quitar los de un mes: vuelve a usar los generales.
+  router.delete('/objetivos/mes/:mes', requireRole('admin'), handle((req, res) => saveMonth(req, res, null)));
 
   router.use(httpErrorHandler);
   return router;

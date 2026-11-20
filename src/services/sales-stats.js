@@ -9,9 +9,9 @@ import { buildStaffing, computeStaffStats, simulatedSchedules } from './staff-st
 
 const SHOP_TIME_ZONE = 'Atlantic/Canary';
 const TARGETS_KEY = 'sales_targets';
-// Objetivo mensual propio de algunos meses: { 'YYYY-MM': céntimos }.
+// Objetivos propios de algunos meses: { 'YYYY-MM': { dailyCents, weeklyCents, monthlyCents } }.
 const MONTH_TARGETS_KEY = 'sales_targets_by_month';
-const YEAR_PATTERN = /^20\d{2}$/;
+const MONTH_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])$/;
 export const DEFAULT_TARGETS = Object.freeze({ dailyCents: 50000, weeklyCents: 300000, monthlyCents: 1200000 });
 export const PERIODS = Object.freeze({ '3m': 3, '6m': 6, '12m': 12, anio: null });
 
@@ -43,47 +43,51 @@ export function statsStart(period, today, businessStart = config.businessStart) 
 
 /* ---------- Objetivos ---------- */
 
-/** Objetivos generales y, en `byMonth`, los meses con objetivo mensual propio. */
+// Un mes de objetivo son 24 días de tienda y una semana, 6 (500 €/día = 3.000 €/semana = 12.000 €/mes).
+export const DAYS_PER_MONTH = 24;
+export const DAYS_PER_WEEK = 6;
+
+/** Guardado antiguo (solo el mensual, en céntimos) → los tres objetivos del mes. */
+function monthEntry(value) {
+  if (typeof value === 'number') {
+    return { dailyCents: Math.round(value / DAYS_PER_MONTH), weeklyCents: Math.round((value * DAYS_PER_WEEK) / DAYS_PER_MONTH), monthlyCents: value };
+  }
+  return value;
+}
+
+/** Objetivos generales y, en `byMonth`, los de los meses que tienen los suyos. */
 export async function getTargets(pool) {
   const rows = (await pool.query('SELECT key, value FROM settings WHERE key = ANY($1)', [[TARGETS_KEY, MONTH_TARGETS_KEY]])).rows;
   const value = (key) => rows.find((r) => r.key === key)?.value ?? {};
   const { dailyCents, weeklyCents, monthlyCents } = { ...DEFAULT_TARGETS, ...value(TARGETS_KEY) };
-  return { dailyCents, weeklyCents, monthlyCents, byMonth: value(MONTH_TARGETS_KEY) };
+  const byMonth = Object.fromEntries(Object.entries(value(MONTH_TARGETS_KEY)).map(([month, v]) => [month, monthEntry(v)]));
+  return { dailyCents, weeklyCents, monthlyCents, byMonth };
+}
+
+export function readTargetMonth(value) {
+  const month = String(value ?? '');
+  if (!MONTH_PATTERN.test(month)) throw new HttpError(400, 'El mes no es válido (AAAA-MM).', 'INVALID_MONTH');
+  return month;
 }
 
 /**
- * Objetivos mensuales de un año: { '1': '6.000', '7': '' … } (vacío = el
- * general). Devuelve { 'YYYY-MM': céntimos } solo de los meses con uno propio.
+ * Pone (o, con `targets` null, quita) los objetivos propios de un mes.
+ * Los demás meses no se tocan. Devuelve { before, after } de ese mes.
  */
-export function readYearTargets(year, months) {
-  const y = String(year ?? '');
-  if (!YEAR_PATTERN.test(y)) throw new HttpError(400, 'El año no es válido.', 'INVALID_YEAR');
-  if (!months || typeof months !== 'object' || Array.isArray(months)) throw new HttpError(400, 'Faltan los meses.', 'INVALID_TARGET');
-  const result = {};
-  for (let m = 1; m <= 12; m += 1) {
-    const raw = months[m] ?? months[String(m).padStart(2, '0')];
-    if (raw === undefined || raw === null || String(raw).trim() === '') continue;
-    const cents = readCents(raw, `El objetivo de ${m}/${y}`);
-    if (cents <= 0) throw new HttpError(400, 'Los objetivos deben ser mayores que 0.', 'INVALID_TARGET');
-    result[`${y}-${String(m).padStart(2, '0')}`] = cents;
-  }
-  return result;
-}
-
-/** Sustituye los objetivos por mes de `year`; los de los demás años no se tocan. */
-export async function saveYearTargets(pool, year, monthTargets, userId) {
+export async function saveMonthTargets(pool, month, targets, userId) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const current = (await client.query('SELECT value FROM settings WHERE key = $1 FOR UPDATE', [MONTH_TARGETS_KEY])).rows[0]?.value ?? {};
-    const others = Object.fromEntries(Object.entries(current).filter(([month]) => !month.startsWith(`${year}-`)));
+    const next = Object.fromEntries(Object.entries(current).filter(([m]) => m !== month));
+    if (targets) next[month] = { dailyCents: targets.dailyCents, weeklyCents: targets.weeklyCents, monthlyCents: targets.monthlyCents };
     await client.query(
       `INSERT INTO settings (key, value, updated_by) VALUES ($1, $2, $3)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-      [MONTH_TARGETS_KEY, JSON.stringify({ ...others, ...monthTargets }), userId],
+      [MONTH_TARGETS_KEY, JSON.stringify(next), userId],
     );
     await client.query('COMMIT');
-    return { before: Object.fromEntries(Object.entries(current).filter(([m]) => m.startsWith(`${year}-`))), after: monthTargets };
+    return { before: current[month] ? monthEntry(current[month]) : null, after: next[month] ?? null };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

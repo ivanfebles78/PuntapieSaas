@@ -269,7 +269,7 @@ export function buildSalesWorkbook({ sales, staffing, team, targets, staff, simu
   info.addRows([
     { k: 'Periodo', v: `Del ${esDate(from)} al ${esDate(to)}` },
     { k: 'Datos', v: simulated ? 'SIMULADOS (de ejemplo, no son ventas reales)' : 'Ventas reales registradas' },
-    { k: 'Objetivo diario', v: `${(targets.dailyCents / 100).toFixed(2).replace('.', ',')} € (general; los meses con objetivo propio lo ajustan en proporción)` },
+    { k: 'Objetivo diario', v: `${(targets.dailyCents / 100).toFixed(2).replace('.', ',')} € (general; los meses con objetivos propios usan los suyos)` },
     { k: 'Por empleado', v: 'Cada persona suma el total de los turnos en los que estaba; «frente a la tienda» compara con la media de la tienda en los mismos turnos (100 % = lo normal).' },
   ]);
   info.getColumn('k').font = { bold: true };

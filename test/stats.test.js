@@ -17,14 +17,14 @@ const SALES = [
   { at: '2026-10-13T11:00', cents: 55000, method: 'tarjeta' }, // hoy: 550 €
 ];
 
-test('objetivo propio de un mes: el diario y el semanal bajan o suben en la misma proporción', () => {
-  const targets = { ...TARGETS, byMonth: { '2026-07': 600000, '2026-12': 1800000 } };
-  assert.deepEqual(targetsForMonth(targets, '2026-07'), { dailyCents: 25000, weeklyCents: 150000, monthlyCents: 600000 });
-  assert.deepEqual(targetsForMonth(targets, '2026-12'), { dailyCents: 75000, weeklyCents: 450000, monthlyCents: 1800000 });
-  assert.deepEqual(targetsForMonth(targets, '2027-07'), TARGETS, 'otro año: el general');
+test('cada mes usa sus propios objetivos; los meses sin ellos, los de por defecto', () => {
+  const julio = { dailyCents: 25000, weeklyCents: 150000, monthlyCents: 600000 };
+  const targets = { ...TARGETS, byMonth: { '2026-07': julio } };
+  assert.deepEqual(targetsForMonth(targets, '2026-07'), julio);
+  assert.deepEqual(targetsForMonth(targets, '2027-07'), TARGETS, 'otro año: los de por defecto');
 
-  // Octubre con objetivo propio de 6.000 €: el día de 200 € ya no cumple (diario 250 €), el de 600 € sí.
-  const s = computeStats({ sales: SALES, targets: { ...TARGETS, byMonth: { '2026-10': 600000 } }, from: '2026-10-01', today: '2026-10-13' });
+  // Octubre con sus objetivos (250 €/día): el día de 200 € no cumple, el de 600 € sí.
+  const s = computeStats({ sales: SALES, targets: { ...TARGETS, byMonth: { '2026-10': julio } }, from: '2026-10-01', today: '2026-10-13' });
   assert.equal(s.kpis.today.targetCents, 25000);
   assert.equal(s.kpis.month.targetCents, 600000);
   assert.equal(s.currentTargets.weeklyCents, 150000);
@@ -172,25 +172,38 @@ describe('API de estadísticas', { skip: !TEST_DATABASE_URL && 'Falta TEST_DATAB
     assert.equal((await elena('PUT', '/api/estadisticas/objetivos', { daily: 1, weekly: 1, monthly: 1 })).status, 403);
   });
 
-  test('objetivo por mes y año: cambiar 2027 no toca 2026; vacío = el general', async () => {
-    const r2026 = await admin('PUT', '/api/estadisticas/objetivos/anio/2026', { meses: { 8: '7.000', 12: '20.000' } });
-    assert.equal(r2026.status, 200, r2026.error);
-    const r2027 = await admin('PUT', '/api/estadisticas/objetivos/anio/2027', { meses: { 8: '6.500' } });
-    assert.deepEqual(r2027.data.byMonth, { '2026-08': 700000, '2026-12': 2000000, '2027-08': 650000 });
-    // Volver a guardar 2027 sin agosto lo deja en el general; 2026 sigue igual.
-    const otraVez = await admin('PUT', '/api/estadisticas/objetivos/anio/2027', { meses: { 2: '9.000', 8: '' } });
-    assert.deepEqual(otraVez.data.byMonth, { '2026-08': 700000, '2026-12': 2000000, '2027-02': 900000 });
-    // Cambiar los generales no borra los de cada mes.
-    await admin('PUT', '/api/estadisticas/objetivos', { daily: '550', weekly: '3.300', monthly: '13.000' });
+  test('objetivos de un mes concreto: cambiar agosto 2027 no toca los demás meses', async () => {
+    const ago26 = await admin('PUT', '/api/estadisticas/objetivos/mes/2026-08', { daily: '400', weekly: '2.400', monthly: '9.600' });
+    assert.equal(ago26.status, 200, ago26.error);
+    const ago27 = await admin('PUT', '/api/estadisticas/objetivos/mes/2027-08', { daily: '625', weekly: '3.750', monthly: '15.000' });
+    assert.deepEqual(ago27.data.byMonth, {
+      '2026-08': { dailyCents: 40000, weeklyCents: 240000, monthlyCents: 960000 },
+      '2027-08': { dailyCents: 62500, weeklyCents: 375000, monthlyCents: 1500000 },
+    });
+    // Cambiar agosto 2027 otra vez: agosto 2026 sigue igual.
+    const otraVez = await admin('PUT', '/api/estadisticas/objetivos/mes/2027-08', { daily: '500', weekly: '3.000', monthly: '12.000' });
+    assert.deepEqual(otraVez.data.byMonth['2026-08'], { dailyCents: 40000, weeklyCents: 240000, monthlyCents: 960000 });
+    // Cambiar los de por defecto no toca los de cada mes.
+    await admin('PUT', '/api/estadisticas/objetivos', { daily: '550', weekly: '3.300', monthly: '13.200' });
     assert.deepEqual((await admin('GET', '/api/estadisticas/objetivos')).data.byMonth, otraVez.data.byMonth);
+    // Quitar los de un mes: vuelve a los de por defecto.
+    const quitado = await admin('DELETE', '/api/estadisticas/objetivos/mes/2027-08');
+    assert.deepEqual(Object.keys(quitado.data.byMonth), ['2026-08']);
 
-    assert.equal((await admin('PUT', '/api/estadisticas/objetivos/anio/27', { meses: {} })).status, 400);
-    assert.equal((await admin('PUT', '/api/estadisticas/objetivos/anio/2027', { meses: { 3: '-5' } })).status, 400);
-    const log = await ctx.pool.query("SELECT field, old_value, new_value FROM audit_log WHERE target = 'Objetivos por mes 2027' ORDER BY id");
-    const ultimo = log.rows.at(-1);
-    assert.equal(ultimo.field, 'Objetivo de agosto 2027');
-    assert.match(ultimo.old_value, /^6\.500,00\s€$/);
-    assert.equal(ultimo.new_value, 'general');
+    assert.equal((await admin('PUT', '/api/estadisticas/objetivos/mes/2027-13', { daily: 1, weekly: 1, monthly: 1 })).status, 400);
+    assert.equal((await admin('PUT', '/api/estadisticas/objetivos/mes/2027-03', { daily: '-5', weekly: 1, monthly: 1 })).status, 400);
+    const log = await ctx.pool.query("SELECT field, old_value, new_value FROM audit_log WHERE target = 'Objetivos de agosto 2027' ORDER BY id");
+    // Al quitarlos, el log apunta los tres: de su valor a «general».
+    const quitar = log.rows.slice(-3);
+    assert.deepEqual(quitar.map((r) => r.field), ['Objetivo diario', 'Objetivo semanal', 'Objetivo mensual']);
+    assert.match(quitar[0].old_value, /^500,00\s€$/);
+    assert.ok(quitar.every((r) => r.new_value === 'general'));
+  });
+
+  test('objetivos guardados antes solo con el mensual: se leen con su diario y semanal', async () => {
+    await ctx.pool.query("UPDATE settings SET value = value || '{\"2026-11\": 600000}'::jsonb WHERE key = 'sales_targets_by_month'");
+    const byMonth = (await admin('GET', '/api/estadisticas/objetivos')).data.byMonth;
+    assert.deepEqual(byMonth['2026-11'], { dailyCents: 25000, weeklyCents: 150000, monthlyCents: 600000 });
   });
 
   test('periodo no válido', async () => {

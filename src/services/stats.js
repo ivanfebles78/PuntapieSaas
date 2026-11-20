@@ -142,16 +142,13 @@ function hours(allSales, openDays) {
 /* ---------- Objetivos ---------- */
 
 /**
- * Objetivos de un mes («YYYY-MM»). Si ese mes tiene su propio objetivo
- * mensual (`byMonth`), el diario y el semanal se ajustan en la misma
- * proporción que el mensual respecto al general.
+ * Objetivos de un mes («YYYY-MM»): los suyos propios (`byMonth`) o, si no
+ * tiene, los generales. Cada mes guarda su diario, semanal y mensual.
  */
 export function targetsForMonth(targets, month) {
-  const base = { dailyCents: targets.dailyCents, weeklyCents: targets.weeklyCents, monthlyCents: targets.monthlyCents };
   const custom = targets.byMonth?.[month];
-  if (!custom || !targets.monthlyCents) return base;
-  const factor = custom / targets.monthlyCents;
-  return { dailyCents: Math.round(base.dailyCents * factor), weeklyCents: Math.round(base.weeklyCents * factor), monthlyCents: custom };
+  if (custom?.monthlyCents) return { dailyCents: custom.dailyCents, weeklyCents: custom.weeklyCents, monthlyCents: custom.monthlyCents };
+  return { dailyCents: targets.dailyCents, weeklyCents: targets.weeklyCents, monthlyCents: targets.monthlyCents };
 }
 
 /** Solo cuentan los periodos ya cerrados (antes de hoy) y con la tienda abierta. */
