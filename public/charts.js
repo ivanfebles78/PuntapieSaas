@@ -236,6 +236,12 @@ export function lineChart(container, { series, labels, tooltips, format, height 
   const cursor = svg('line', { class: 'chart-cursor', x1: 0, x2: 0, y1: PAD.top, y2: PAD.top + plotH, visibility: 'hidden' });
   root.append(cursor);
   for (const s of series) {
+    // Objetivo: escalones (cada mes el suyo), como la línea de objetivo de las barras.
+    if (s.target) {
+      const d = s.values.map((v, i) => `${i ? 'L' : 'M'}${PAD.left + bandW * i},${y(v)}H${PAD.left + bandW * (i + 1)}`).join('');
+      root.append(svg('path', { d, class: 'chart-line is-target' }));
+      continue;
+    }
     const points = s.values.map((v, i) => [x(i), y(v)]);
     root.append(svg('path', { d: smoothPath(points), class: `chart-line series-${s.slot}${s.dashed ? ' is-dashed' : ''}` }));
     root.append(svg('g', {}, points.map(([px, py]) => svg('circle', { cx: px, cy: py, r: s.dashed ? 4 : 5.5, class: `chart-dot series-${s.slot}` }))));

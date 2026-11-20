@@ -13,6 +13,7 @@ const PERIODS = Object.freeze([['3m', '3 meses'], ['6m', '6 meses'], ['12m', '12
 // Pestañas: la tienda en general y, para el Administrador, el equipo.
 const VIEWS = Object.freeze([['tienda', 'Tienda', 'shop'], ['empleados', 'Empleados', 'people']]);
 const WEEKDAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+const SUNDAY = 7;
 const SHORT_MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic'];
 // Orden fijo de colores (categórico, validado): efectivo, tarjeta, bizum, bonos, vales.
 const METHODS = Object.freeze([
@@ -274,14 +275,16 @@ function drawCharts() {
     })),
   });
   lineChart(c.monthly, {
-    title: 'Evolución de ventas y gastos mes a mes',
+    title: 'Evolución de ventas, objetivo y gastos mes a mes',
     format: axisEuros,
     series: [
       { name: 'Ventas', slot: 1, values: d.monthly.map((m) => m.salesCents) },
       { name: 'Gastos', slot: 2, dashed: true, values: d.monthly.map((m) => m.expensesCents) },
+      { name: 'Objetivo', target: true, values: d.monthly.map((m) => m.targetCents ?? d.targets.monthlyCents) },
     ],
     labels: d.monthly.map((m) => monthShort(m.month)),
-    tooltips: d.monthly.map((m) => [monthLabel(m.month), `Ventas ${formatEuros(m.salesCents)}`, `Gastos ${formatEuros(m.expensesCents)}`,
+    tooltips: d.monthly.map((m) => [monthLabel(m.month), `Ventas ${formatEuros(m.salesCents)}`,
+      `Objetivo ${formatEuros(m.targetCents ?? d.targets.monthlyCents)}`, `Gastos ${formatEuros(m.expensesCents)}`,
       `${m.profitCents >= 0 ? 'Beneficio' : 'Pérdida'} ${formatEuros(Math.abs(m.profitCents))}`]),
   });
   const open = d.weekdays.rows.filter((r) => r.days > 0);
@@ -289,13 +292,22 @@ function drawCharts() {
     title: 'Media de ventas por día de la semana',
     format: axisEuros,
     height: 220,
-    bars: open.map((r) => ({
-      label: WEEKDAYS[r.weekday - 1],
-      value: r.avgCents,
-      tone: r.weekday === d.weekdays.best ? 'best' : r.weekday === d.weekdays.worst ? 'worst' : 'soft',
-      mark: r.weekday === d.weekdays.best ? 'Mejor' : r.weekday === d.weekdays.worst ? 'Más flojo' : null,
-      tooltip: [WEEKDAYS[r.weekday - 1], `Media ${formatEuros(r.avgCents)}`, `${r.days} días con ventas`],
-    })),
+    // El domingo (solo en campañas) se ve aparte y no compite por mejor/peor día.
+    bars: open.map((r) => (r.weekday === SUNDAY
+      ? {
+        label: WEEKDAYS[r.weekday - 1],
+        value: r.avgCents,
+        tone: 'apart',
+        mark: 'Campaña',
+        tooltip: [`${WEEKDAYS[r.weekday - 1]} (solo en campañas)`, `Media ${formatEuros(r.avgCents)}`, `${r.days} días con ventas`, 'No cuenta para el mejor ni el más flojo'],
+      }
+      : {
+        label: WEEKDAYS[r.weekday - 1],
+        value: r.avgCents,
+        tone: r.weekday === d.weekdays.best ? 'best' : r.weekday === d.weekdays.worst ? 'worst' : 'soft',
+        mark: r.weekday === d.weekdays.best ? 'Mejor' : r.weekday === d.weekdays.worst ? 'Más flojo' : null,
+        tooltip: [WEEKDAYS[r.weekday - 1], `Media ${formatEuros(r.avgCents)}`, `${r.days} días con ventas`],
+      })),
   });
   barChart(c.clients, {
     title: 'Clientes por semana',
@@ -386,12 +398,12 @@ function render() {
     h('div', { class: 'stat-grid' }, [
       card('Ventas diarias', 'Últimos 30 días. Más claras, las que no llegan al objetivo.', charts.daily, 'is-wide'),
       card('Ventas semanales', 'Cada barra es una semana de lunes a domingo.', charts.weekly),
-      card('Evolución de ventas y gastos', 'Mes a mes. Los gastos salen de la tabla de Gastos (los tres tipos, cada factura de proveedor en el mes de su vencimiento).',
-        h('div', {}, [legend([['series-1 is-line', 'Ventas'], ['series-2 is-line is-dashed', 'Gastos']]), charts.monthly]), 'is-wide'),
+      card('Evolución de ventas, objetivo y gastos', 'Mes a mes. El objetivo es el mensual de cada mes. Los gastos salen de la tabla de Gastos (los tres tipos, cada factura de proveedor en el mes de su vencimiento).',
+        h('div', {}, [legend([['series-1 is-line', 'Ventas'], ['is-line is-target', 'Objetivo'], ['series-2 is-line is-dashed', 'Gastos']]), charts.monthly]), 'is-wide'),
       card('Beneficio mes a mes', 'Ventas (sin vales) menos gastos de cada mes. En verde, los meses con beneficio; en rojo, con pérdidas.',
         h('div', {}, [profitSummary(), charts.profit]), 'is-wide'),
       card('Métodos de pago', `Reparto del total vendido en ${periodLabel()}. Los vales se muestran aparte: vienen de devoluciones y no suman.`, methods.node),
-      card('Media por día de la semana', 'Suma de cada día dividida entre los días abiertos (sin cierres ni festivos).', charts.weekdays),
+      card('Media por día de la semana', 'Suma de cada día dividida entre los días abiertos (sin cierres ni festivos). El domingo, que solo se abre en campañas, va aparte y no cuenta para el mejor ni el más flojo.', charts.weekdays),
       card('Clientes por semana', 'Número de ventas (tickets) de cada semana.', charts.clients),
       card('Mañana vs tarde', 'Cuánto se vende en cada turno y cuántos días gana cada uno.', shiftsBlock()),
       card('Ventas por franja horaria', 'Total de cada hora en el periodo.', charts.hours, 'is-wide'),

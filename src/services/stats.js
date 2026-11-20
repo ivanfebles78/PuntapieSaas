@@ -11,6 +11,7 @@ export const PAYMENT_METHODS = Object.freeze(['efectivo', 'tarjeta', 'bizum', 'b
 export const NON_REVENUE_METHODS = Object.freeze(['vales']);
 export const isRevenue = (sale) => !NON_REVENUE_METHODS.includes(sale.method);
 const DAILY_CHART_DAYS = 30;
+const SUNDAY = 7; // weekday(): lunes = 1 … domingo = 7
 const DAY_MS = 86400000;
 
 /* ---------- Fechas como texto ---------- */
@@ -78,7 +79,8 @@ function weekdayAverages(days, byDay) {
     row.days += 1;
   }
   const result = rows.map((r) => ({ weekday: r.weekday, days: r.days, avgCents: r.days ? Math.round(r.totalCents / r.days) : 0 }));
-  const open = result.filter((r) => r.days > 0);
+  // El domingo solo se abre en campañas concretas: va aparte y no compite por mejor/peor día.
+  const open = result.filter((r) => r.days > 0 && r.weekday !== SUNDAY);
   const best = open.reduce((a, b) => (b.avgCents > (a?.avgCents ?? -1) ? b : a), null);
   const worst = open.reduce((a, b) => (b.avgCents < (a?.avgCents ?? Infinity) ? b : a), null);
   return { rows: result, best: best?.weekday ?? null, worst: worst?.weekday ?? null };

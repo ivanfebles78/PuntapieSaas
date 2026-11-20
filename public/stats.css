@@ -311,6 +311,8 @@
 .chart-bar.is-soft { fill: var(--series-soft); }
 .chart-bar.is-best { fill: var(--series-1); }
 .chart-bar.is-worst { fill: var(--series-2); }
+/* Aparte (domingo de campaña): solo el contorno, para que no se compare con los demás. */
+.chart-bar.is-apart { fill: transparent; stroke: var(--espresso-soft); stroke-width: 1.5; stroke-dasharray: 4 3; }
 .chart-bar.is-clients { fill: var(--series-3); }
 .chart-bar.series-1 { fill: var(--series-1); }
 .chart-bar.series-2 { fill: var(--series-2); }
@@ -639,6 +641,8 @@
 .chart-line.series-1 { stroke: var(--series-1); }
 .chart-line.series-2 { stroke: var(--series-2); }
 .chart-line.is-dashed { stroke-width: 2; stroke-dasharray: 5 6; }
+/* Objetivo mensual: como la línea de objetivo de las barras (oscura y discontinua). */
+.chart-line.is-target { stroke: var(--espresso); stroke-width: 1.5; stroke-dasharray: 5 4; }
 
 .chart-dot { stroke: var(--paper-hi); stroke-width: 2; }
 .chart-dot.series-1 { fill: var(--series-1); }
@@ -648,6 +652,7 @@
 
 .legend-swatch.is-line { width: 20px; height: 3px; border-radius: 2px; }
 .legend-swatch.is-dashed { background: repeating-linear-gradient(90deg, var(--series-2) 0 5px, transparent 5px 8px); }
+.legend-swatch.is-target { height: 2px; background: repeating-linear-gradient(90deg, var(--espresso) 0 5px, transparent 5px 9px); }
 
 /* Beneficio mes a mes: verde ganancia, rojo pérdida (siempre con su importe al lado). */
 .chart-bar.is-gain { fill: var(--good); }

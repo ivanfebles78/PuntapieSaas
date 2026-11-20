@@ -33,6 +33,15 @@ test('cada mes usa sus propios objetivos; los meses sin ellos, los de por defect
   assert.deepEqual(s.goals.days, { met: 2, total: 3 });
 });
 
+test('el domingo (solo en campañas) va aparte: no cuenta para el mejor ni el más flojo', () => {
+  const conDomingo = [...SALES, { at: '2026-10-11T12:00', cents: 300000, method: 'tarjeta' }]; // domingo 11: 3.000 €
+  const s = computeStats({ sales: conDomingo, targets: TARGETS, from: '2026-10-01', today: '2026-10-13' });
+  assert.equal(s.weekdays.rows[6].avgCents, 300000, 'el domingo sigue apareciendo con su media');
+  assert.notEqual(s.weekdays.best, 7);
+  assert.notEqual(s.weekdays.worst, 7);
+  assert.equal(s.weekdays.best, 6, 'el sábado (800 €) es el mejor');
+});
+
 describe('cálculo de estadísticas', () => {
   const stats = computeStats({ sales: SALES, expensesByMonth: { '2026-10': 90000 }, targets: TARGETS, from: '2026-10-01', today: '2026-10-13' });
 
